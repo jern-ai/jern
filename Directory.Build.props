@@ -1,0 +1,21 @@
+<Project>
+  <!--
+    Product version for the iron binary and libraries. Bump the root version
+    file, commit, then tag vX.Y.Z matching that value (mirrors IronKernel).
+  -->
+  <PropertyGroup>
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)version').Trim())</Version>
+    <TargetFramework>net10.0</TargetFramework>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!--
+    IronKernel is consumed as source via a sibling checkout until
+    IronKernel.Runtime (and a library split of the parser/compiler, which
+    today live in the IronKernel exe project) are published to NuGet.
+    Override with -p:IronKernelRepo=/path/to/IronKernel if yours is elsewhere.
+  -->
+  <PropertyGroup>
+    <IronKernelRepo Condition="'$(IronKernelRepo)' == ''">$(MSBuildThisFileDirectory)../IronKernel</IronKernelRepo>
+  </PropertyGroup>
+</Project>

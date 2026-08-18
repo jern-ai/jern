@@ -1,0 +1,206 @@
+namespace Iron.Host
+
+open System
+open System.IO
+open IronKernel
+open IronKernel.Ast
+open IronKernel.Errors
+open IronKernel.Eval
+open IronKernel.SymbolTable
+
+/// A session wires together the two environments of the architecture:
+///
+/// - the **agent environment** (safe profile): effect tags, the prelude, and
+///   agent code. No authority — everything reaches the world via `perform`.
+/// - the **handler environment** (safe profile + host primitives): the handler
+///   stack from kernel/handlers.ikr, `iron/host-llm-call` (the provider
+///   bridge), and the agent environment as a first-class value.
+///
+/// Agent code never sees the handler environment; the handler environment
+/// deliberately holds the agent environment, which is the safe direction of
+/// delegation (docs/capabilities.md).
+module Session =
+
+    type Config =
+        { workspaceRoot: string
+          bridge: AnthropicBridge.LlmBridge
+          /// Receives one JSON line per traced effect; None discards.
+          traceSink: (string -> unit) option
+          /// Agent package sources evaluated into the agent environment,
+          /// after the host prelude and tool definitions.
+          agentSources: string list
+          /// Answers iron/approve questions (TTY prompt, --yes, test stub).
+          /// None denies everything with a warning to stderr.
+          approver: (string -> bool) option
+          /// Extra bindings injected into the agent environment (test hooks).
+          agentBindings: (string * LispVal) list }
+
+    type Session =
+        { agentEnv: LispVal
+          handlerEnv: LispVal
+          tags: AgentEnv.EffectTags
+          workspaceRoot: string }
+
+    let kernelFile name =
+        let local = Path.Combine("kernel", name)
+        let installed = Path.Combine(AppContext.BaseDirectory, "kernel", name)
+        if File.Exists local then local else installed
+
+    /// Parse and evaluate every form of a Kernel source file in `env`.
+    let private loadFile (env: LispVal) (path: string) : ThrowsError<unit> =
+        try
+            let source = File.ReadAllText path
+            match Parser.readExprListFromSource path source with
+            | Choice1Of2 error -> Choice1Of2 error
+            | Choice2Of2 forms ->
+                let rec run = function
+                    | [] -> Choice2Of2 ()
+                    | form :: rest ->
+                        match eval env (newContinuation env) form with
+                        | Choice1Of2 error -> Choice1Of2 error
+                        | Choice2Of2 _ -> run rest
+                run forms
+        with ex ->
+            Choice1Of2 (Default(sprintf "failed to load '%s': %s" path ex.Message))
+
+    /// Build a session from a full configuration.
+    let createWith (config: Config) : ThrowsError<Session> =
+        match Emit.bootstrapEnvForProfile Safe with
+        | Choice1Of2 error -> Choice1Of2 error
+        | Choice2Of2 std ->
+            let tags = AgentEnv.newEffectTags ()
+
+            let agentEnv =
+                bindVars (newEnv [std]) (AgentEnv.baseBindings tags @ config.agentBindings)
+
+            let hostLlmCall env cont = function
+                | [request] ->
+                    match config.bridge request with
+                    | Choice1Of2 error -> signal cont error
+                    | Choice2Of2 reply -> bounceContinue env cont reply
+                | bad -> signal cont (NumArgs(1, bad))
+
+            let hostToolCall env cont = function
+                | [call] ->
+                    match Tools.dispatch config.workspaceRoot call with
+                    | Choice1Of2 error -> signal cont error
+                    | Choice2Of2 reply -> bounceContinue env cont reply
+                | bad -> signal cont (NumArgs(1, bad))
+
+            let hostTrace env cont = function
+                | [event] ->
+                    match config.traceSink with
+                    | None -> bounceContinue env cont Inert
+                    | Some sink ->
+                        let ts = System.DateTime.UtcNow.ToString("o")
+                        let payload = Json.serialize event
+                        let line =
+                            if payload.StartsWith "{" then
+                                sprintf """{"ts":"%s",%s""" ts (payload.Substring 1)
+                            else
+                                sprintf """{"ts":"%s","data":%s}""" ts payload
+                        sink line
+                        bounceContinue env cont Inert
+                | bad -> signal cont (NumArgs(1, bad))
+
+            let hostApprove env cont = function
+                | [Obj (:? string as description)] ->
+                    match config.approver with
+                    | Some approve -> bounceContinue env cont (Bool(approve description))
+                    | None ->
+                        eprintfn "iron: denied (no approver configured): %s" description
+                        bounceContinue env cont (Bool false)
+                | [bad] -> signal cont (TypeMismatch("string", bad))
+                | bad -> signal cont (NumArgs(1, bad))
+
+            let handlerEnv =
+                bindVars (newEnv [std])
+                    (("iron/host-llm-call", AgentEnv.applicative hostLlmCall)
+                     :: ("iron/host-tool-call", AgentEnv.applicative hostToolCall)
+                     :: ("iron/host-trace", AgentEnv.applicative hostTrace)
+                     :: ("iron/host-approve", AgentEnv.applicative hostApprove)
+                     :: ("agent-env", agentEnv)
+                     :: AgentEnv.effectBindings tags)
+
+            let files =
+                [ agentEnv, kernelFile "prelude.ikr"
+                  agentEnv, kernelFile "tools.ikr"
+                  // The prelude's helpers (plist-get & co.) serve both sides.
+                  handlerEnv, kernelFile "prelude.ikr"
+                  handlerEnv, kernelFile "policy.ikr"
+                  handlerEnv, kernelFile "handlers.ikr" ]
+                @ (config.agentSources |> List.map (fun path -> agentEnv, path))
+
+            let loaded =
+                files
+                |> List.fold
+                    (fun acc (env, file) ->
+                        match acc with
+                        | Choice1Of2 _ -> acc
+                        | Choice2Of2 () -> loadFile env file)
+                    (Choice2Of2 ())
+
+            match loaded with
+            | Choice1Of2 error -> Choice1Of2 error
+            | Choice2Of2 () ->
+                Choice2Of2
+                    { agentEnv = agentEnv
+                      handlerEnv = handlerEnv
+                      tags = tags
+                      workspaceRoot = config.workspaceRoot }
+
+    /// Configuration with no trace, no agent package, tools in `root`, and
+    /// everything approval-gated approved (scripts and the REPL are the user
+    /// acting directly; `iron run` overrides this with a real approver).
+    let configIn root bridge =
+        { workspaceRoot = root
+          bridge = bridge
+          traceSink = None
+          agentSources = []
+          approver = Some(fun _ -> true)
+          agentBindings = [] }
+
+    /// Build a session around an LLM bridge with tools scoped to `root`.
+    let createIn (root: string) (bridge: AnthropicBridge.LlmBridge) : ThrowsError<Session> =
+        createWith (configIn root bridge)
+
+    /// Session rooted in the current directory.
+    let create bridge = createIn (System.Environment.CurrentDirectory) bridge
+
+    /// Evaluate parsed forms as agent code under the installed handler stack.
+    let runForms (session: Session) (forms: LispVal list) : ThrowsError<LispVal> =
+        let program =
+            ofList [ Atom "run-in-session"; ofList (Atom "sequence" :: forms) ]
+        eval session.handlerEnv (newContinuation session.handlerEnv) program
+
+    /// Evaluate a single source string as agent code under the handler stack.
+    let runSource (session: Session) (name: string) (source: string) : ThrowsError<LispVal> =
+        match Parser.readExprListFromSource name source with
+        | Choice1Of2 error -> Choice1Of2 error
+        | Choice2Of2 forms -> runForms session forms
+
+    /// Evaluate a script file as agent code under the handler stack.
+    let runScriptFile (session: Session) (path: string) : ThrowsError<LispVal> =
+        try
+            runSource session path (File.ReadAllText path)
+        with ex ->
+            Choice1Of2 (Default(sprintf "failed to read '%s': %s" path ex.Message))
+
+    /// The sources of an agent package directory: its src/*.ikr in path order
+    /// (or the directory's own *.ikr when there is no src/).
+    let agentPackageSources (dir: string) : string list =
+        let sourceDir =
+            let src = Path.Combine(dir, "src")
+            if Directory.Exists src then src else dir
+        if Directory.Exists sourceDir then
+            Directory.EnumerateFiles(sourceDir, "*.ikr") |> Seq.sort |> List.ofSeq
+        else
+            []
+
+    /// The default agent installed alongside the binary.
+    let defaultAgentDir () =
+        Path.Combine(AppContext.BaseDirectory, "agents", "default")
+
+    /// Invoke the loaded agent's entry point: (run-agent "task").
+    let runAgent (session: Session) (task: string) : ThrowsError<LispVal> =
+        runForms session [ ofList [ Atom "run-agent"; Obj(task :> obj) ] ]

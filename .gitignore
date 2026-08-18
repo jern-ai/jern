@@ -1,0 +1,10 @@
+bin/
+obj/
+.DS_Store
+.iron/
+*.user
+.vs/
+.idea/
+.DS_Store
+*.nupkg
+TestResults/

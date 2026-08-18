@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout iron-agent
+        uses: actions/checkout@v4
+        with:
+          path: iron-agent
+
+      # IronKernel is consumed as source from a sibling checkout until
+      # IronKernel.Runtime (+ parser/compiler libraries) ship on NuGet.
+      - name: Checkout IronKernel
+        uses: actions/checkout@v4
+        with:
+          repository: ironkernel-lang/IronKernel
+          path: IronKernel
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore iron-agent/Iron.sln
+
+      - name: Build
+        run: dotnet build iron-agent/Iron.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test iron-agent/Iron.sln -c Release --no-build --verbosity normal
