@@ -21,7 +21,10 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: var(--bg); color: var(--ink);
          font: 17px/1.65 -apple-system, "Segoe UI", system-ui, sans-serif; }
-  main { max-width: 46rem; margin: 0 auto; padding: 4rem 1.25rem 6rem; }
+  main { max-width: 60rem; margin: 0 auto; padding: 4rem 1.25rem 6rem; }
+  /* the screencast breaks out of the column up to its native 1280px */
+  .breakout { display: block; width: min(1280px, calc(100vw - 2.5rem));
+              margin-left: 50%; transform: translateX(-50%); }
   h1 { font-size: 3.2rem; letter-spacing: -0.02em; }
   h1 .no { color: var(--dim); font-weight: 400; font-size: 1.1rem; letter-spacing: 0;
            display: block; margin-top: .25rem; }
@@ -82,12 +85,12 @@
   <code>import</code> can bypass.</p>
 
   <h2>Watch the suite catch a prompt regression</h2>
-  <p class="dim">One minute, no audio: the agent fixes a typo behind an
+  <p class="dim">Thirty seconds, no audio: the agent fixes a typo behind an
   approval card, then its own source opens in <code>jern ui</code>, its
   regression suite runs green — and when the system prompt is tampered
   with, replay fails on the exact divergence. Revert, green again.</p>
-  <video controls preload="metadata" poster="screencast-poster.png"
-         style="width:100%; border:1px solid var(--line); border-radius:8px;">
+  <video controls preload="metadata" poster="screencast-poster.png" class="breakout"
+         style="border:1px solid var(--line); border-radius:8px;">
     <source src="screencast.webm" type="video/webm">
   </video>
 
