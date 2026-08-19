@@ -1,44 +1,34 @@
-; A documentation-only agent — the second example package.
+; The default iron agent: a function-calling loop in ~80 lines of Kernel.
 ;
-; It demonstrates the headline feature from the other side: an agent is just
-; Kernel source, so narrowing what the model can do is a few lines of that
-; source. This agent drops `shell` entirely and keeps only reading, searching,
-; and editing; run it with `iron run --agent agents/docs "task"`.
-
-(define allowed-tools (list "read_file" "list_dir" "grep" "edit_file"))
-
-; The model never sees the dropped tools…
-(vector-set! *tools-box* 0
-  (filter (lambda (tool) (member? (plist-get tool :name) allowed-tools))
-          (vector-ref *tools-box* 0)))
-
-; …and this agent's own dispatch refuses them too. (Self-restraint in agent
-; source; the policy handler in the host's handler environment remains the
-; actual enforcement layer — see docs/security-model.md.)
-(define host-call-tool call-tool)
-(define call-tool
-  (lambda (name input)
-    (if (member? name allowed-tools)
-        (host-call-tool name input)
-        (list :content (String.concat name " is not available in the docs agent")
-              :is_error #t))))
+; The agent holds no authority. Everything reaches the world by performing
+; against host-created effect tags (iron/llm-call, iron/tool-call, iron/log),
+; answered by the handler stack the host installs: trace -> provider/tools.
+;
+; Edit this file and rerun — no recompile. For example, to make the agent run
+; the tests after every edit, extend run-tool-use to perform a "shell" tool
+; call whenever the tool was "edit_file".
 
 (define system-prompt
-  "You are iron-docs, a documentation agent. You improve Markdown and other
-prose files in the user's workspace: fix typos, clarify wording, keep examples
-in sync with the code you can read. Never touch source code files — if a task
-needs code changes, say so instead. Keep edits minimal and reply with a short
-summary when done.")
+  "You are iron, a terminal coding agent operating in the user's workspace.
+Use the tools to inspect and change files; keep going until the task is done,
+then reply with a short summary. Prefer minimal, precise edits. When a tool
+fails, read the error and adapt. Never invent file contents you have not read.")
 
-(define max-turns 25)
+(define max-turns 50)
 
-; Assistant text is streamed by the host; only tool calls are announced here.
-(define show-progress (lambda (response) #inert))
+; Print assistant-authored text so the user can follow along.
+(define show-progress
+  (lambda (response)
+    (for-each
+      (lambda (block) (Console.write-line (plist-get block :text)))
+      (response-blocks response "text"))))
 
+; Dispatch one tool_use block; answer with a tool_result block.
 (define run-tool-use
   (lambda (block)
     (sequence
-      (Console.write-line (String.concat "→ " (plist-get block :name)))
+      (Console.write-line
+        (String.concat "→ " (plist-get block :name)))
       (define outcome
         (call-tool (plist-get block :name) (plist-get block :input)))
       (list :type "tool_result"
@@ -46,6 +36,10 @@ summary when done.")
             :content (plist-get outcome :content)
             :is_error (plist-get outcome :is_error)))))
 
+; One turn: ask the model, dispatch any tool calls, recurse with the results.
+; `messages` is kept newest-first; it is reversed at the boundary. Returns the
+; conversation with the model's final response consed on, so callers can
+; persist it and continue later.
 (define agent-loop
   (lambda (messages turns-left)
     (if (<= turns-left 0)
@@ -56,7 +50,7 @@ summary when done.")
           (define response
             (perform iron/llm-call
               (list :system system-prompt
-                    :max_tokens 4096
+                    :max_tokens 8192
                     :tools (tools-for-llm)
                     :messages (apply vector (reverse messages)))))
           (show-progress response)
@@ -73,6 +67,7 @@ summary when done.")
                       with-assistant)
                 (- turns-left 1)))))))
 
+; The text of the newest assistant message, or :null.
 (define last-assistant-text
   (lambda (messages)
     (if (null? messages)
@@ -81,12 +76,15 @@ summary when done.")
             (response-text (car messages))
             (last-assistant-text (cdr messages))))))
 
+; Entry point for one-shot tasks: the host calls (run-agent "task").
 (define run-agent
   (lambda (task)
     (perform iron/log (list :event "agent-started" :task task))
     (last-assistant-text
       (agent-loop (cons (list :role "user" :content task) ()) max-turns))))
 
+; Entry point for chat: one user turn on an existing conversation
+; (newest-first). Returns the updated conversation for the host to persist.
 (define chat-turn
   (lambda (messages user-text)
     (perform iron/log (list :event "chat-turn"))

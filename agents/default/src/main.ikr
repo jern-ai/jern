@@ -16,12 +16,11 @@ fails, read the error and adapt. Never invent file contents you have not read.")
 
 (define max-turns 50)
 
-; Print assistant-authored text so the user can follow along.
-(define show-progress
-  (lambda (response)
-    (for-each
-      (lambda (block) (Console.write-line (plist-get block :text)))
-      (response-blocks response "text"))))
+; The host streams assistant text to the terminal as it arrives, so there is
+; nothing to print here; tool dispatch below still announces each call.
+; (Make this print (response-blocks response "text") if your host doesn't
+; stream.)
+(define show-progress (lambda (response) #inert))
 
 ; Dispatch one tool_use block; answer with a tool_result block.
 (define run-tool-use

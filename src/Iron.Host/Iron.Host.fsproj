@@ -8,7 +8,9 @@
     <Compile Include="Json.fs" />
     <Compile Include="AgentEnv.fs" />
     <Compile Include="Anthropic.fs" />
+    <Compile Include="OpenAI.fs" />
     <Compile Include="Tools.fs" />
+    <Compile Include="Providers.fs" />
     <Compile Include="Fixtures.fs" />
     <Compile Include="Session.fs" />
     <Compile Include="SessionStore.fs" />

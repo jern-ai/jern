@@ -23,9 +23,10 @@ Milestones M0–M6 of the [implementation plan](docs/implementation-plan.md) are
 built; the *use → read → edit → test* loop from §8 works end to end:
 
 ```
-$ export ANTHROPIC_API_KEY=…
+$ export ANTHROPIC_API_KEY=…             # or OPENAI_API_KEY, or none for ollama
 $ iron run "fix the failing test"        # the agent works in your workspace,
                                          # asking before writes and shell
+$ iron run --model ollama/qwen3 "…"      # any provider; same agent, same tests
 $ iron eject                             # the brain, as readable Kernel source
 $ $EDITOR agents/default/src/main.ikr    # change the loop; no recompile
 $ iron run --agent agents/default "…"
@@ -33,6 +34,12 @@ $ iron test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M7 — providers, streaming, cost** (v0.2 roadmap): `--model
+  provider/model` routes to Anthropic natively or to any OpenAI-compatible
+  endpoint — OpenAI, Ollama, OpenRouter, DeepSeek, Groq, Mistral, xAI,
+  Gemini, LM Studio, or your own via `iron.json`. Responses stream to the
+  terminal; a token line prints per command. The canonical conversation
+  format is unchanged, so fixtures and `iron test` are provider-independent.
 - **M6 — sessions & distribution**: bare `iron` is an interactive chat whose
   history persists to `.iron/sessions/` (`iron --resume` continues it);
   `iron eject` / `--agent` swap the brain; `ik pack` builds both bundled

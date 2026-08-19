@@ -1,0 +1,20 @@
+; The default agent's test suite — run with `iron test`.
+;
+; Replay is deterministic and network-free: iron/llm-call is answered from
+; the recorded fixtures, and any divergence from the recording (a changed
+; system prompt, different tool wiring, a reordered message) fails the test.
+; After a deliberate behavior change, refresh with `iron test --record`.
+
+(deftest "plist-get finds values and misses to :null"
+  (assert-equal 2 (plist-get (list :a 1 :b 2) :b))
+  (assert-equal :null (plist-get (list :a 1) :missing)))
+
+(deftest "response-text reads the first text block"
+  (assert-equal "hi"
+    (response-text (list :content (vector (list :type "text" :text "hi"))))))
+
+(deftest "fixes a typo end to end"
+  (call-tool "shell" (list :command "printf 'helo world\n' > greeting.txt"))
+  (with-fixtures "fixtures/fix-typo.json"
+    (assert-equal "Fixed the typo." (run-agent "Fix the typo in greeting.txt"))
+    (assert-file-contains "greeting.txt" "hello world")))

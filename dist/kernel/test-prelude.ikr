@@ -1,0 +1,44 @@
+; Test prelude — loaded into the agent environment by `iron test`.
+;
+; (deftest "name" body…) forms are recognized and driven by the test runner;
+; each runs in a fresh session and a fresh temp workspace. Inside a test:
+;
+;   (with-fixtures "fixtures/foo.json" body…)  replay (or record) llm traffic
+;   (setup-file path content)                  seed the test workspace
+;   (assert-equal expected actual)
+;   (assert-true value message)
+;   (assert-file-contains path needle)         via the read_file tool
+
+(define setup-file
+  (lambda (path content) (iron/setup-file path content)))
+
+(define with-fixtures
+  (vau (path & forms) env
+    (sequence
+      (iron/use-fixtures (eval path env))
+      (eval (cons sequence forms) env))))
+
+(define assert-true
+  (lambda (value message)
+    (if (eqv? value #t)
+        #inert
+        (error (String.concat "assertion failed: " message)))))
+
+(define assert-equal
+  (lambda (expected actual)
+    (if (equal? expected actual)
+        #inert
+        (error (String.concat "assertion failed: values differ; expected "
+                              (String.concat (iron/show expected)
+                                             (String.concat " got " (iron/show actual))))))))
+
+(define assert-file-contains
+  (lambda (path needle)
+    (sequence
+      (define result (call-tool "read_file" (list :path path)))
+      (if (eqv? (plist-get result :is_error) #t)
+          (error (String.concat "assert-file-contains could not read " path))
+          (if (iron/string-contains? (plist-get result :content) needle)
+              #inert
+              (error (String.concat path
+                                    (String.concat " does not contain: " needle))))))))
