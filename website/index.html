@@ -22,9 +22,9 @@
   body { background: var(--bg); color: var(--ink);
          font: 17px/1.65 -apple-system, "Segoe UI", system-ui, sans-serif; }
   main { max-width: 60rem; margin: 0 auto; padding: 4rem 1.25rem 6rem; }
-  /* the screencast breaks out of the column up to its native 1280px */
-  .breakout { display: block; width: min(1280px, calc(100vw - 2.5rem));
-              margin-left: 50%; transform: translateX(-50%); }
+  video { display: block; width: 100%; border: 1px solid var(--line);
+          border-radius: 8px; margin: 1.6rem 0 .4rem; }
+  .caption { font-size: .85rem; color: var(--dim); margin: 0 0 1rem; }
   h1 { font-size: 3.2rem; letter-spacing: -0.02em; }
   h1 .no { color: var(--dim); font-weight: 400; font-size: 1.1rem; letter-spacing: 0;
            display: block; margin-top: .25rem; }
@@ -61,6 +61,14 @@
   <b>program</b> — not a prompt, not a config file. Read it, edit it,
   and unit-test it deterministically.</p>
 
+  <video controls preload="metadata" poster="screencast-poster.png">
+    <source src="screencast.webm" type="video/webm">
+  </video>
+  <p class="caption">Thirty seconds, no audio: a task runs behind an approval
+  card; the agent's own source opens in <code>jern ui</code>; its regression
+  suite runs green; a tampered system prompt is caught by replay on the exact
+  divergence; revert — green again.</p>
+
   <pre><code><span class="p">$</span> jern run "fix the failing test"   <span class="c"># works like the agents you know</span>
 <span class="p">$</span> jern eject                        <span class="c"># the whole brain: ~120 lines of source</span>
 <span class="p">$</span> $EDITOR agents/default/src/main.ikr   <span class="c"># change the loop; no recompile</span>
@@ -83,16 +91,6 @@
   policy is enforcement rather than convention, the audit trace is complete
   by construction, and fixture replay is exhaustive — not a mock that an
   <code>import</code> can bypass.</p>
-
-  <h2>Watch the suite catch a prompt regression</h2>
-  <p class="dim">Thirty seconds, no audio: the agent fixes a typo behind an
-  approval card, then its own source opens in <code>jern ui</code>, its
-  regression suite runs green — and when the system prompt is tampered
-  with, replay fails on the exact divergence. Revert, green again.</p>
-  <video controls preload="metadata" poster="screencast-poster.png" class="breakout"
-         style="border:1px solid var(--line); border-radius:8px;">
-    <source src="screencast.webm" type="video/webm">
-  </video>
 
   <h2>Sixty seconds of the real thing</h2>
   <pre><code><span class="c">; agents/default/src/main.ikr — the actual dispatch, not pseudocode</span>

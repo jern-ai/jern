@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.1 — 2026-08-19
+
+- The brain editor gained Kernel syntax highlighting — a dependency-free
+  colored layer under the textarea (comments, strings incl. multi-line,
+  `:keywords`, special forms, booleans, numbers, parens in the brand
+  palette).
+
 ## 0.9.0 — 2026-08-19
 
 - **The UI can now open the brain.** A "brain" drawer lists the sources

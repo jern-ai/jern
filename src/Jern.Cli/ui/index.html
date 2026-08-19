@@ -113,8 +113,22 @@
   #editor { display: none; flex: 1; flex-direction: column; padding: 1rem; gap: .6rem;
             overflow: hidden; }
   #editor.open { display: flex; }
-  #editor textarea { flex: 1; font-family: var(--mono); font-size: .82rem; line-height: 1.5;
-                     white-space: pre; max-height: none; }
+  .editwrap { position: relative; flex: 1; overflow: hidden;
+              border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .editwrap pre, .editwrap textarea {
+    position: absolute; inset: 0; margin: 0; padding: .6rem .8rem;
+    font-family: var(--mono); font-size: .82rem; line-height: 1.5;
+    white-space: pre; tab-size: 2; }
+  #editor-hl { overflow: hidden; pointer-events: none; color: var(--ink); }
+  .editwrap textarea { background: transparent; color: transparent;
+                       caret-color: var(--ink); border: none; resize: none;
+                       overflow: auto; max-height: none; border-radius: 0; }
+  .k-c { color: var(--dim); }
+  .k-s { color: #a9c99f; }
+  .k-k { color: var(--rust); }
+  .k-f { color: var(--steel); }
+  .k-b, .k-n { color: var(--yellow); }
+  .k-p { color: #6f7683; }
   #editor .row { display: flex; gap: .6rem; align-items: center; }
   #editor .row .grow { flex: 1; font-family: var(--mono); font-size: .78rem; color: var(--dim);
                        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -191,7 +205,10 @@
       <button class="ghost" id="editor-back">files</button>
       <button id="runtests">run tests</button>
       <button id="save">save + reload</button></div>
-    <textarea id="editor-text" spellcheck="false"></textarea>
+    <div class="editwrap">
+      <pre id="editor-hl" aria-hidden="true"></pre>
+      <textarea id="editor-text" spellcheck="false"></textarea>
+    </div>
     <div id="teststatus"></div>
   </div>
 </div>
@@ -313,6 +330,41 @@ function onState(s) {
   document.getElementById("cost").textContent = tokens ? tokens.toLocaleString() + " tokens" : "";
 }
 
+// ---- Kernel syntax highlighting: a colored layer under the textarea ----
+const KERNEL_SPECIALS = new Set(["define","lambda","vau","sequence","if","cond","else",
+  "prompt","resume","perform","eval","quote","apply","map","filter","cons","car","cdr",
+  "list","vector","error","deftest","with-fixtures","setup-file"]);
+function highlightKernel(src) {
+  const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const re = /(;[^\n]*)|("(?:[^"\\]|\\[^])*"?)|(:[^\s()"]+)|(#t\b|#f\b|#inert\b|#ignore\b)|([()])|([^\s()":;#]+)/g;
+  let out = "", last = 0, m;
+  while ((m = re.exec(src))) {
+    out += esc(src.slice(last, m.index));
+    last = re.lastIndex;
+    if (m[1]) out += "<span class='k-c'>" + esc(m[1]) + "</span>";
+    else if (m[2]) out += "<span class='k-s'>" + esc(m[2]) + "</span>";
+    else if (m[3]) out += "<span class='k-k'>" + esc(m[3]) + "</span>";
+    else if (m[4]) out += "<span class='k-b'>" + esc(m[4]) + "</span>";
+    else if (m[5]) out += "<span class='k-p'>" + esc(m[5]) + "</span>";
+    else if (m[6]) out += KERNEL_SPECIALS.has(m[6]) ? "<span class='k-f'>" + esc(m[6]) + "</span>"
+                          : (/^-?\d+(?:\.\d+)?$/.test(m[6]) ? "<span class='k-n'>" + esc(m[6]) + "</span>" : esc(m[6]));
+  }
+  return out + esc(src.slice(last)) + "\n";
+}
+function syncHighlight() {
+  const text = document.getElementById("editor-text");
+  const hl = document.getElementById("editor-hl");
+  hl.innerHTML = highlightKernel(text.value);
+  hl.scrollTop = text.scrollTop;
+  hl.scrollLeft = text.scrollLeft;
+}
+{
+  const text = document.getElementById("editor-text");
+  const hl = document.getElementById("editor-hl");
+  text.addEventListener("input", syncHighlight);
+  text.addEventListener("scroll", () => { hl.scrollTop = text.scrollTop; hl.scrollLeft = text.scrollLeft; });
+}
+
 // ---- drawer ----
 const drawer = document.getElementById("drawer");
 const filesView = document.getElementById("files-view");
@@ -367,6 +419,7 @@ function openEditor(f) {
     const text = document.getElementById("editor-text");
     text.value = data.content || (!f.exists && f.name.endsWith("policy.ikr") ? policyTemplate : "");
     text.readOnly = !f.editable;
+    syncHighlight();
     document.getElementById("save").style.display = f.editable ? "" : "none";
     testStatus.textContent = "";
     document.getElementById("save").onclick = () => {
