@@ -11,7 +11,7 @@ permissions:
 jobs:
   version:
     name: Verify version
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       version: ${{ steps.check.outputs.version }}
     steps:
@@ -32,7 +32,7 @@ jobs:
   test:
     name: Test (linux)
     needs: version
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,7 +57,7 @@ jobs:
           - os: ubuntu-latest
             rid: linux-x64
             exe: jern
-          - os: ubuntu-24.04-arm
+          - os: blacksmith-4vcpu-ubuntu-2404-arm
             rid: linux-arm64
             exe: jern
           - os: macos-latest
@@ -118,7 +118,7 @@ jobs:
   agents:
     name: Pack agent packages
     needs: [version, test]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
         with:
@@ -143,7 +143,7 @@ jobs:
   release:
     name: Create GitHub Release
     needs: [version, publish, agents]
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
       - name: Download all artifacts
