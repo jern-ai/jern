@@ -43,7 +43,7 @@ jobs:
           path: IronKernel
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.4xx"
       - run: dotnet test jern/Jern.slnx -c Release --verbosity normal
 
   publish:
@@ -79,12 +79,12 @@ jobs:
           path: IronKernel
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.4xx"
 
       # Cross-compiling (osx-x64 on Blacksmith's arm64 Macs) needs no special
-      # handling: the IronKernel Exe reference is built RID-agnostic (see
-      # Jern.Host.fsproj UndefineProperties + ErrorOnDuplicatePublishOutputFiles
-      # in Jern.Cli.fsproj).
+      # handling: the IronKernel Exe reference is built RID-agnostic (its
+      # fsproj declares IsRidAgnostic etc. upstream; Jern.Host.fsproj adds
+      # UndefineProperties on the reference).
       - name: Restore
         run: dotnet restore jern/src/Jern.Cli/Jern.Cli.fsproj -r ${{ matrix.rid }}
 
@@ -142,7 +142,7 @@ jobs:
           path: IronKernel
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          dotnet-version: "10.0.4xx"
       - name: ik pack both bundled agents
         run: |
           set -euo pipefail
