@@ -63,7 +63,7 @@ jobs:
           - os: macos-latest
             rid: osx-arm64
             exe: jern
-          - os: blacksmith-6vcpu-macos-latest
+          - os: macos-13
             rid: osx-x64
             exe: jern
           - os: windows-latest
