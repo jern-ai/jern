@@ -35,6 +35,11 @@ Models & providers:
   jern.json / ~/.config/jern/config.json. Keys via provider env vars
   (ANTHROPIC_API_KEY, OPENAI_API_KEY, …); ollama and lmstudio need none.
 
+Budgets:
+  --budget <n> caps the run at n model calls (or set jern.json
+  "budget": { "llm_calls": n, "tokens": m }). Enforced in the handler
+  stack: on exhaustion the agent must ask you before continuing.
+
 MCP:
   Add servers in jern.json — their tools join the agent's toolset as
   mcp__<server>__<tool>, ask-gated by the default policy:
@@ -88,6 +93,26 @@ let private loadProviders () =
         eprintfn "jern: %s" message
         exit 1
     | Ok config -> config
+
+/// Pull a global `--budget <n>` (model-call cap) out of the argument list.
+let private extractBudget (args: string list) =
+    let rec go acc budget = function
+        | "--budget" :: n :: rest ->
+            (match Int32.TryParse(n: string) with
+             | true, calls when calls > 0 -> go acc (Some calls) rest
+             | _ ->
+                 eprintfn "jern: --budget needs a positive integer, got '%s'" n
+                 exit 2)
+        | arg :: rest -> go (arg :: acc) budget rest
+        | [] -> List.rev acc, budget
+    go [] None args
+
+/// The session budget plist: the CLI --budget (model calls) wins over
+/// jern.json's "budget" object.
+let private sessionBudget (providers: Providers.Config) (cliBudget: int option) =
+    match cliBudget with
+    | Some calls -> Providers.budget { providers with budgetLlmCalls = Some calls }
+    | None -> Providers.budget providers
 
 /// The provider-routing bridge for live commands. `interrupted` aborts a
 /// streaming turn from inside the text callback.
@@ -157,7 +182,7 @@ let private ttyApprover (description: string) =
 
 /// Interactive chat: one agent turn per user message, history persisted
 /// after every turn so a session survives interruption and `--resume`.
-let private runChat (resumeId: string option) (model: string option) =
+let private runChat (resumeId: string option) (model: string option) (cliBudget: int option) =
     Console.OutputEncoding <- Encoding.UTF8
     let root = Environment.CurrentDirectory
     let id, initial =
@@ -196,6 +221,7 @@ let private runChat (resumeId: string option) (model: string option) =
                 approver = Some ttyApprover
                 agentConfig = Providers.agentConfig providers
                 mcpServers = providers.mcpServers
+                budget = sessionBudget providers cliBudget
                 interrupted = fun () -> interrupted.Value }
 
     let effectiveModel () =
@@ -274,7 +300,7 @@ let private runChat (resumeId: string option) (model: string option) =
         | _ -> printfn "session saved: %s (resume with: jern --resume %s)" id id
         0
 
-let private runTask (autoApprove: bool) (agentDir: string option) (model: string option) (task: string) =
+let private runTask (autoApprove: bool) (agentDir: string option) (model: string option) (cliBudget: int option) (task: string) =
     let root = Environment.CurrentDirectory
     let providers = loadProviders ()
     let stream = ConsoleStream()
@@ -291,7 +317,8 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
             agentSources = Session.agentPackageSources agent
             approver = Some(if autoApprove then (fun _ -> true) else ttyApprover)
             agentConfig = Providers.agentConfig providers
-            mcpServers = providers.mcpServers }
+            mcpServers = providers.mcpServers
+            budget = sessionBudget providers cliBudget }
     match Session.createWith config with
     | Choice1Of2 error ->
         eprintfn "Startup error: %s" (showError error)
@@ -417,17 +444,19 @@ let private extractModel (args: string list) =
         | [] -> List.rev acc, model
     go [] None args
 
+
 [<EntryPoint>]
 let main argv =
     let args, model = extractModel (Array.toList argv)
+    let args, cliBudget = extractBudget args
     match args with
     | ["--version"] | ["version"] ->
         printfn "%s" AgentEnv.version
         0
     | [] when not Console.IsInputRedirected ->
-        runChat None model
-    | ["--resume"] -> runChat (Some "") model
-    | ["--resume"; id] -> runChat (Some id) model
+        runChat None model cliBudget
+    | ["--resume"] -> runChat (Some "") model cliBudget
+    | ["--resume"; id] -> runChat (Some id) model cliBudget
     | ["repl"] ->
         runRepl model
     | "run" :: rest ->
@@ -438,9 +467,9 @@ let main argv =
             | [task] -> Some(yes, agent, task)
             | _ -> None
         match parse false None rest with
-        | Some(yes, agent, task) -> runTask yes agent model task
+        | Some(yes, agent, task) -> runTask yes agent model cliBudget task
         | None ->
-            eprintfn "usage: jern run [--yes] [--agent <dir>] [--model <spec>] \"task\""
+            eprintfn "usage: jern run [--yes] [--agent <dir>] [--model <spec>] [--budget <n>] \"task\""
             2
     | ["undo"] -> runUndo ()
     | ["mcp"] -> runMcp ()

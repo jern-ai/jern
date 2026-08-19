@@ -35,6 +35,12 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M14 — run budgets** (v0.6): `jern run --budget 20 "task"` (or a
+  `"budget"` object in `jern.json` with `llm_calls`/`tokens` limits) is a
+  *hard* cap enforced by a ~40-line handler in
+  [handlers.ikr](src/Jern.Host/kernel/handlers.ikr): once exhausted, the
+  next model call becomes an approval question — grant another round or
+  end the run. Not advice to the model; a wall in front of it.
 - **M13 — trajectory assertions** (v0.5): agent tests can assert
   properties of the run itself — `(assert-no-tool-call "shell")`,
   `(assert-edits-within "src/")`, `(assert-max-llm-calls 4)` — from the

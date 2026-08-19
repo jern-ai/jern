@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0 — 2026-08-19
+
+- **Run budgets, enforced in the handler stack.** `--budget <n>` caps a
+  run at n model calls; `jern.json` `"budget": {"llm_calls": n, "tokens": m}`
+  adds a token ceiling (accounted from response usage). The budget handler
+  sits inside the provider handler in `handlers.ikr` (~40 lines of readable
+  Kernel), counts every call before it is made, and on exhaustion turns the
+  next call into an approval question — approve to grant another round,
+  decline to end the run with a budget error. Exhaustion and extension land
+  in the trace. Runaway loops stop themselves at the choke point, not in a
+  prompt.
+
 ## 0.5.0 — 2026-08-19
 
 - **Trajectory assertions**: agent test suites can now assert properties

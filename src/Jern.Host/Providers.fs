@@ -59,14 +59,20 @@ module Providers =
           testCommand: string option
           /// MCP servers (jern.json "mcp_servers"); their tools register as
           /// mcp__<server>__<tool> and go through the normal policy stack.
-          mcpServers: Mcp.ServerSpec list }
+          mcpServers: Mcp.ServerSpec list
+          /// Hard run budgets (jern.json "budget": {"llm_calls": N, "tokens": M});
+          /// enforced by the budget handler — exhaustion asks for approval.
+          budgetLlmCalls: int option
+          budgetTokens: int option }
 
     let defaultConfig =
         { defaultModel = "anthropic/" + AnthropicBridge.defaultModel
           aliases = Map.empty
           providers = builtIns |> List.map (fun p -> p.name, p) |> Map.ofList
           testCommand = None
-          mcpServers = [] }
+          mcpServers = []
+          budgetLlmCalls = None
+          budgetTokens = None }
 
     let private applyFile (config: Config) (path: string) : Config =
         if not (File.Exists path) then config
@@ -139,11 +145,22 @@ module Providers =
                     let names = parsed |> List.map (fun s -> s.name) |> Set.ofList
                     (config.mcpServers |> List.filter (fun s -> not (names.Contains s.name))) @ parsed
                 | _ -> config.mcpServers
+            let budgetLlmCalls, budgetTokens =
+                match doc.["budget"] with
+                | :? JsonObject as b ->
+                    let field (key: string) fallback =
+                        match b.[key] with
+                        | null -> fallback
+                        | v -> Some(v.GetValue<int>())
+                    field "llm_calls" config.budgetLlmCalls, field "tokens" config.budgetTokens
+                | _ -> config.budgetLlmCalls, config.budgetTokens
             { defaultModel = defaultModel
               aliases = aliases
               providers = providers
               testCommand = testCommand
-              mcpServers = mcpServers }
+              mcpServers = mcpServers
+              budgetLlmCalls = budgetLlmCalls
+              budgetTokens = budgetTokens }
 
     /// Global config, then the workspace's jern.json on top.
     let load (workspaceRoot: string) : Result<Config, string> =
@@ -184,6 +201,17 @@ module Providers =
         | Some command ->
             ofList [ Keyword "test_command"; Obj(command :> obj) ]
         | None -> Nil
+
+    /// The budget plist handed to the budget handler (handler environment):
+    /// (:llm_calls N :tokens M), omitting unset limits; Nil = unlimited.
+    let budget (config: Config) : LispVal =
+        (match config.budgetLlmCalls with
+         | Some n -> [ Keyword "llm_calls"; Obj(n :> obj) ]
+         | None -> [])
+        @ (match config.budgetTokens with
+           | Some n -> [ Keyword "tokens"; Obj(n :> obj) ]
+           | None -> [])
+        |> ofList
 
     /// The per-request model spec inside the canonical request, if any.
     let private requestModel (request: LispVal) =

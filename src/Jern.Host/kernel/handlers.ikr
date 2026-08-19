@@ -34,6 +34,77 @@
           (resume resume-call result)))
       (eval body env))))
 
+; Hard run budgets, enforced where the calls happen. jern/budget (bound
+; host-side from jern.json "budget" or --budget) is a plist like
+; (:llm_calls 30 :tokens 200000); () means unlimited. Every model call is
+; counted before it is made and its :usage accounted after; once a limit is
+; crossed, the next call becomes a jern/approve question — approving grants
+; another full round, declining ends the run with an error. Runaway loops
+; stop themselves here, in ~40 lines you can read and change.
+(define *budget-spent-box* (vector 0 0)) ; llm calls made, tokens used
+
+(define budget-limit
+  (lambda (key) (plist-get jern/budget key)))
+
+; (and?/or? are applicatives — they evaluate every argument — so the
+; comparison must be guarded inside, where an unset limit never reaches <.)
+(define budget-limit-hit?
+  (lambda (spent limit)
+    (if (eqv? limit :null) #f (not? (< spent limit)))))
+
+(define budget-exceeded?
+  (lambda ()
+    (or? (budget-limit-hit? (vector-ref *budget-spent-box* 0) (budget-limit :llm_calls))
+         (budget-limit-hit? (vector-ref *budget-spent-box* 1) (budget-limit :tokens)))))
+
+(define budget-account!
+  (lambda (response)
+    (sequence
+      (vector-set! *budget-spent-box* 0 (+ 1 (vector-ref *budget-spent-box* 0)))
+      (define usage (plist-get response :usage))
+      (define tokens-of
+        (lambda (key)
+          (sequence
+            (define value (if (pair? usage) (plist-get usage key) :null))
+            (if (eqv? value :null) 0 value))))
+      (vector-set! *budget-spent-box* 1
+        (+ (vector-ref *budget-spent-box* 1)
+           (+ (tokens-of :input_tokens) (tokens-of :output_tokens)))))))
+
+(define describe-budget
+  (lambda ()
+    (String.concat "budget exhausted after "
+      (String.concat (jern/show (vector-ref *budget-spent-box* 0))
+        (String.concat " model calls and "
+          (String.concat (jern/show (vector-ref *budget-spent-box* 1))
+                         " tokens — grant another round"))))))
+
+(define with-budget-handler
+  (vau (body) env
+    (prompt jern/llm-call
+      (lambda (request resume-llm)
+        (sequence
+          (if (budget-exceeded?)
+              (if (perform jern/approve (describe-budget))
+                  (sequence
+                    (jern/host-trace
+                      (list :event "budget-extended"
+                            :llm_calls (vector-ref *budget-spent-box* 0)
+                            :tokens (vector-ref *budget-spent-box* 1)))
+                    (vector-set! *budget-spent-box* 0 0)
+                    (vector-set! *budget-spent-box* 1 0))
+                  (sequence
+                    (jern/host-trace
+                      (list :event "budget-denied"
+                            :llm_calls (vector-ref *budget-spent-box* 0)
+                            :tokens (vector-ref *budget-spent-box* 1)))
+                    (error (describe-budget))))
+              #inert)
+          (define response (perform jern/llm-call request))
+          (budget-account! response)
+          (resume resume-llm response)))
+      (eval body env))))
+
 ; jern/log: structured events from agent code go straight to the trace.
 ; A logged :task is remembered so git commit messages can carry it.
 (define *task-box* (vector :null))
@@ -98,14 +169,17 @@
 ; Order matters. The policy handler sits closest to the agent, so it sees
 ; every jern/tool-call first; an allowed call re-performs outward into the
 ; git handler (dirty-guard before, auto-commit after), which re-performs
-; into the executor. Policy's approval questions (jern/approve) are answered
-; by the approval handler, which must therefore sit outside it.
+; into the executor. The budget handler sits inside the provider handler so
+; it sees every jern/llm-call first and re-performs outward. Approval
+; questions (jern/approve, from policy and budget alike) are answered by
+; the approval handler, which must therefore sit outside both.
 (define run-in-session
   (vau (form) #ignore
     (with-log-handler
       (with-approval-handler
         (with-provider-handler
-          (with-tool-handler
-            (with-git-handler
-              (with-policy-handler
-                (eval form agent-env)))))))))
+          (with-budget-handler
+            (with-tool-handler
+              (with-git-handler
+                (with-policy-handler
+                  (eval form agent-env))))))))))

@@ -41,6 +41,10 @@ module Session =
           /// registry as mcp__<server>__<tool> and dispatch through the
           /// ordinary jern/tool-call effect (policy applies unchanged).
           mcpServers: Mcp.ServerSpec list
+          /// Run budget for the budget handler, as a plist
+          /// (:llm_calls N :tokens M); Nil = unlimited. Exhaustion becomes
+          /// a jern/approve question — approving grants another round.
+          budget: LispVal
           /// Polled before every llm/tool dispatch; true aborts the turn
           /// with a Kernel error (Ctrl-C).
           interrupted: unit -> bool }
@@ -185,6 +189,8 @@ module Session =
                      :: ("jern/host-approve", AgentEnv.applicative hostApprove)
                      :: ("jern/host-git-save-dirty", AgentEnv.applicative hostGitSaveDirty)
                      :: ("jern/host-git-commit", AgentEnv.applicative hostGitCommit)
+                     :: ("jern/show", AgentEnv.applicative AgentEnv.show)
+                     :: ("jern/budget", config.budget)
                      :: ("agent-env", agentEnv)
                      :: AgentEnv.effectBindings tags)
 
@@ -268,6 +274,7 @@ module Session =
           agentBindings = []
           agentConfig = Nil
           mcpServers = []
+          budget = Nil
           interrupted = fun () -> false }
 
     /// Build a session around an LLM bridge with tools scoped to `root`.
