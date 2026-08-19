@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- jern mark: the elder-futhark rune jera (j), forged in rust on iron. -->
+  <defs>
+    <linearGradient id="forge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d97a48"/>
+      <stop offset="1" stop-color="#b0552f"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#16181d"/>
+  <g stroke="url(#forge)" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter" fill="none">
+    <polyline points="46,24 83,43 46,62"/>
+    <polyline points="82,104 45,85 82,66"/>
+  </g>
+</svg>
