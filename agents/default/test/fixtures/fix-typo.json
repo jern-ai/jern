@@ -2,7 +2,7 @@
   "exchanges": [
     {
       "request": {
-        "system": "You are iron, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
+        "system": "You are jern, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
         "max_tokens": 8192,
         "tools": [
           {
@@ -139,7 +139,7 @@
     },
     {
       "request": {
-        "system": "You are iron, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
+        "system": "You are jern, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
         "max_tokens": 8192,
         "tools": [
           {
@@ -302,7 +302,7 @@
     },
     {
       "request": {
-        "system": "You are iron, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
+        "system": "You are jern, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
         "max_tokens": 8192,
         "tools": [
           {

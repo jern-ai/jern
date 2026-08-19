@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jern — the coding agent whose brain is a program</title>
+<meta name="description" content="jern (Norwegian: iron) is a terminal coding agent whose loop, tools, and policies are IronKernel source you can read, edit, and unit-test deterministically.">
+<style>
+  :root {
+    --bg: #16181d; --panel: #1e2128; --ink: #e8e6e1; --dim: #9a9890;
+    --rust: #c2643a; --steel: #7fa6bd; --line: #2c303a;
+    --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink);
+         font: 17px/1.65 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 46rem; margin: 0 auto; padding: 4rem 1.25rem 6rem; }
+  h1 { font-size: 3.2rem; letter-spacing: -0.02em; }
+  h1 .no { color: var(--dim); font-weight: 400; font-size: 1.1rem; letter-spacing: 0;
+           display: block; margin-top: .25rem; }
+  .tagline { font-size: 1.35rem; margin: 1.5rem 0 0; }
+  .tagline b { color: var(--rust); }
+  h2 { font-size: 1.15rem; text-transform: uppercase; letter-spacing: .12em;
+       color: var(--steel); margin: 3.5rem 0 1rem; }
+  p { margin: 1rem 0; color: var(--ink); }
+  p.dim, li.dim { color: var(--dim); }
+  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+        padding: 1rem 1.2rem; overflow-x: auto; font-family: var(--mono);
+        font-size: .86rem; line-height: 1.6; margin: 1.2rem 0; }
+  code { font-family: var(--mono); font-size: .9em; color: var(--steel); }
+  pre code { color: var(--ink); }
+  pre .c { color: var(--dim); }
+  pre .p { color: var(--rust); }
+  a { color: var(--steel); }
+  .loop { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+          gap: .8rem; margin: 1.5rem 0; }
+  .loop div { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+              padding: 1rem; }
+  .loop b { color: var(--rust); font-family: var(--mono); font-size: .95rem; }
+  .loop p { font-size: .88rem; color: var(--dim); margin: .4rem 0 0; }
+  footer { margin-top: 5rem; color: var(--dim); font-size: .85rem;
+           border-top: 1px solid var(--line); padding-top: 1.5rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>jern<span class="no">/jæɳ/ — Norwegian for <em>iron</em></span></h1>
+
+  <p class="tagline">A terminal coding agent whose brain is a
+  <b>program</b> — not a prompt, not a config file. Read it, edit it,
+  and unit-test it deterministically.</p>
+
+  <pre><code><span class="p">$</span> jern run "fix the failing test"   <span class="c"># works like the agents you know</span>
+<span class="p">$</span> jern eject                        <span class="c"># the whole brain: ~120 lines of source</span>
+<span class="p">$</span> $EDITOR agents/default/src/main.ikr   <span class="c"># change the loop; no recompile</span>
+<span class="p">$</span> jern test                         <span class="c"># deterministic replay — offline, no key —</span>
+                                    <span class="c"># catches any change to agent behavior</span></code></pre>
+
+  <div class="loop">
+    <div><b>use it</b><p>Anthropic, OpenAI, Ollama, or any OpenAI-compatible endpoint. Streaming, git auto-commit with undo, approval gates with diff previews, a full JSONL audit trace.</p></div>
+    <div><b>read it</b><p>The loop, the tools, and the allow/ask/deny policy are IronKernel source shipped beside the binary — not hooks into an opaque core.</p></div>
+    <div><b>edit it</b><p>Agent code runs in a capability environment holding no file, network, or process authority — only unforgeable effect tags. Editing the brain never means trusting it.</p></div>
+    <div><b>test it</b><p><code>jern test</code> replays recorded LLM fixtures and fails on any divergence. A unit-tested agent: name another one.</p></div>
+  </div>
+
+  <h2>Why a language matters</h2>
+  <p>Editable was never the hard part — aider is editable Python. The hard
+  part is editable <em>without inheriting the host's authority</em>. jern's
+  agents run on <a href="https://ironkernel.org/">IronKernel</a>, a Kernel
+  dialect for .NET where environments are capabilities and effects are the
+  only way out: the model is reachable solely through an effect tag, so
+  policy is enforcement rather than convention, the audit trace is complete
+  by construction, and fixture replay is exhaustive — not a mock that an
+  <code>import</code> can bypass.</p>
+
+  <h2>Sixty seconds of the real thing</h2>
+  <pre><code><span class="c">; agents/default/src/main.ikr — the actual dispatch, not pseudocode</span>
+(define run-tool-use
+  (lambda (block)
+    (sequence
+      (define outcome
+        (call-tool (plist-get block :name) (plist-get block :input)))
+      ...)))
+
+<span class="c">; change policy? it's source too (kernel/policy.ikr)</span>
+(cond ((equal? name "shell") :ask)
+      ((equal? name "edit_file") :ask)
+      ((equal? name "read_file") :allow) ...)
+
+<span class="c">; and the agent has tests</span>
+(deftest "fixes a typo end to end"
+  (with-fixtures "fixtures/fix-typo.json"
+    (assert-equal "Fixed the typo." (run-agent "Fix the typo in greeting.txt"))
+    (assert-file-contains "greeting.txt" "hello world")))</code></pre>
+
+  <h2>Get it</h2>
+  <p>Binaries for macOS, Linux, and Windows on the
+  <a href="https://github.com/ademar/IronAgent/releases">releases page</a> —
+  untar, put <code>jern</code> on your PATH, set a provider key
+  (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or none for
+  local Ollama), and run. Source, docs, and the security model live in the
+  <a href="https://github.com/ademar/IronAgent">repository</a>.</p>
+
+  <footer>
+    Apache-2.0 · built on <a href="https://ironkernel.org/">IronKernel</a> ·
+    <a href="https://github.com/ademar/IronAgent">GitHub</a>
+  </footer>
+</main>
+</body>
+</html>

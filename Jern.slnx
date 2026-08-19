@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Jern.Cli/Jern.Cli.fsproj" />
+    <Project Path="src/Jern.Host/Jern.Host.fsproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Jern.Tests/Jern.Tests.fsproj" />
+  </Folder>
+  <Project Path="../IronKernel/IronKernel.Runtime/IronKernel.Runtime.fsproj" />
+  <Project Path="../IronKernel/IronKernel/IronKernel.fsproj" />
+  <Project Path="../IronKernel/Mono.Terminal/Mono.Terminal.csproj" />
+</Solution>

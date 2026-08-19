@@ -1,4 +1,4 @@
-; The docs agent's test suite — run with `iron test agents/docs`.
+; The docs agent's test suite — run with `jern test agents/docs`.
 
 (deftest "the tool surface is narrowed to documentation work"
   (assert-equal 4 (length (vector->list (tools-for-llm))))

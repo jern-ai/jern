@@ -1,0 +1,111 @@
+; The handler stack — evaluated in the privileged handler environment.
+;
+; The agent performs effects; this file answers them. It is ordinary Kernel
+; source: read it, replace it. Authority lives in the host primitives bound
+; only here (jern/host-llm-call, jern/host-tool-call, jern/host-trace), never
+; in the agent environment.
+;
+; Stack (implementation plan §4): trace -> policy -> approval -> provider.
+; Tracing happens inside each handler at the single choke point every effect
+; crosses; policy and approval handlers arrive with M4.
+
+; Every effect is recorded to the session trace (JSONL) before and after the
+; host acts on it. The trace is both the audit log and, in M5, the fixture
+; source for deterministic replay.
+(define with-provider-handler
+  (vau (body) env
+    (prompt jern/llm-call
+      (lambda (request resume-llm)
+        (sequence
+          (jern/host-trace (list :event "llm-call" :request request))
+          (define response (jern/host-llm-call request))
+          (jern/host-trace (list :event "llm-response" :response response))
+          (resume resume-llm response)))
+      (eval body env))))
+
+(define with-tool-handler
+  (vau (body) env
+    (prompt jern/tool-call
+      (lambda (call resume-call)
+        (sequence
+          (jern/host-trace (list :event "tool-call" :call call))
+          (define result (jern/host-tool-call call))
+          (jern/host-trace (list :event "tool-result" :result result))
+          (resume resume-call result)))
+      (eval body env))))
+
+; jern/log: structured events from agent code go straight to the trace.
+; A logged :task is remembered so git commit messages can carry it.
+(define *task-box* (vector :null))
+
+(define with-log-handler
+  (vau (body) env
+    (prompt jern/log
+      (lambda (event resume-log)
+        (sequence
+          (if (pair? event)
+              (sequence
+                (define task (plist-get event :task))
+                (if (eqv? task :null) #inert (vector-set! *task-box* 0 task)))
+              #inert)
+          (jern/host-trace (list :event "log" :data event))
+          (resume resume-log #inert)))
+      (eval body env))))
+
+; Git safety, aider-style, as replaceable Kernel source. Around every
+; edit_file that policy lets through:
+;   - if the target has uncommitted user changes, commit them first on their
+;     own ("save your edits"), so the agent's change is isolated;
+;   - after a successful edit, commit just that file, authored as jern, with
+;     the task in the message. `jern undo` (or /undo in chat) pops exactly
+;     one such commit.
+; Outside a git repository both host primitives answer :null and nothing
+; happens.
+(define git-commit-message
+  (lambda (path)
+    (sequence
+      (define task (vector-ref *task-box* 0))
+      (if (eqv? task :null)
+          (String.concat "jern: edit " path)
+          (String.concat (String.concat "jern: edit " path)
+                         (String.concat "\n\n" task))))))
+
+(define with-git-handler
+  (vau (body) env
+    (prompt jern/tool-call
+      (lambda (call resume-call)
+        (sequence
+          (define name (plist-get call :name))
+          (define path (plist-get (plist-get call :input) :path))
+          (if (equal? name "edit_file")
+              (jern/host-git-save-dirty path)
+              #inert)
+          (define result (perform jern/tool-call call))
+          (if (and? (equal? name "edit_file")
+                    (not? (eqv? (plist-get result :is_error) #t)))
+              (sequence
+                (define hash (jern/host-git-commit path (git-commit-message path)))
+                (if (eqv? hash :null)
+                    #inert
+                    (jern/host-trace (list :event "git-commit" :hash hash :path path))))
+              #inert)
+          (resume resume-call result)))
+      (eval body env))))
+
+; Run a form in the agent environment under the full handler stack.
+; `agent-env` is bound host-side in this environment.
+;
+; Order matters. The policy handler sits closest to the agent, so it sees
+; every jern/tool-call first; an allowed call re-performs outward into the
+; git handler (dirty-guard before, auto-commit after), which re-performs
+; into the executor. Policy's approval questions (jern/approve) are answered
+; by the approval handler, which must therefore sit outside it.
+(define run-in-session
+  (vau (form) #ignore
+    (with-log-handler
+      (with-approval-handler
+        (with-provider-handler
+          (with-tool-handler
+            (with-git-handler
+              (with-policy-handler
+                (eval form agent-env)))))))))

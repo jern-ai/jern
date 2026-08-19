@@ -11,10 +11,10 @@ jobs:
     name: Build & test
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout iron-agent
+      - name: Checkout jern-agent
         uses: actions/checkout@v4
         with:
-          path: iron-agent
+          path: jern
 
       # IronKernel is consumed as source from a sibling checkout until
       # IronKernel.Runtime (+ parser/compiler libraries) ship on NuGet.
@@ -30,10 +30,10 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Restore
-        run: dotnet restore iron-agent/Iron.slnx
+        run: dotnet restore jern/Jern.slnx
 
       - name: Build
-        run: dotnet build iron-agent/Iron.slnx -c Release --no-restore
+        run: dotnet build jern/Jern.slnx -c Release --no-restore
 
       - name: Test
-        run: dotnet test iron-agent/Iron.slnx -c Release --no-build --verbosity normal
+        run: dotnet test jern/Jern.slnx -c Release --no-build --verbosity normal

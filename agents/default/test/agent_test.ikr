@@ -1,9 +1,9 @@
-; The default agent's test suite — run with `iron test`.
+; The default agent's test suite — run with `jern test`.
 ;
-; Replay is deterministic and network-free: iron/llm-call is answered from
+; Replay is deterministic and network-free: jern/llm-call is answered from
 ; the recorded fixtures, and any divergence from the recording (a changed
 ; system prompt, different tool wiring, a reordered message) fails the test.
-; After a deliberate behavior change, refresh with `iron test --record`.
+; After a deliberate behavior change, refresh with `jern test --record`.
 
 (deftest "plist-get finds values and misses to :null"
   (assert-equal 2 (plist-get (list :a 1 :b 2) :b))

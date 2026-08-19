@@ -1,15 +1,15 @@
 #!/bin/bash
-# The iron demo: use → read → edit → test.
+# The jern demo: use → read → edit → test.
 #
 # The thesis (docs/implementation-plan.md §8): every serious coding agent has
-# an opaque loop configured by prompts and config files. iron's loop is a
+# an opaque loop configured by prompts and config files. jern's loop is a
 # program — you can read it, change it, and unit-test it deterministically.
 # Acts 2–4 need no API key: fixture replay is network-free.
 #
 #   ./demo/demo.sh              paced (press enter between steps)
 #   DEMO_FAST=1 ./demo/demo.sh  no pauses (CI / rehearsal)
 #
-# The demo builds iron, creates a scratch workspace with a small project and
+# The demo builds jern, creates a scratch workspace with a small project and
 # a failing test, and walks through the four acts. The workspace path is
 # printed so you can poke around afterwards.
 
@@ -17,7 +17,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IRON_DIST="$ROOT/dist"
-IRON="$IRON_DIST/iron"
+IRON="$IRON_DIST/jern"
 
 bold=$(tput bold 2>/dev/null || true); dim=$(tput dim 2>/dev/null || true)
 reset=$(tput sgr0 2>/dev/null || true)
@@ -31,10 +31,10 @@ HAVE_KEY=""
 [ -n "${ANTHROPIC_API_KEY:-}" ] && HAVE_KEY=1
 
 banner "setup"
-say "building iron (once)…"
-dotnet publish "$ROOT/src/Iron.Cli" -c Release -o "$IRON_DIST" -v q --nologo >/dev/null
+say "building jern (once)…"
+dotnet publish "$ROOT/src/Jern.Cli" -c Release -o "$IRON_DIST" -v q --nologo >/dev/null
 
-WS="$(mktemp -d "${TMPDIR:-/tmp}/iron-demo-XXXXXX")"
+WS="$(mktemp -d "${TMPDIR:-/tmp}/jern-demo-XXXXXX")"
 cd "$WS"
 say "scratch workspace: $WS"
 
@@ -64,13 +64,13 @@ pause
 # ────────────────────────────────────────────────────────────────────────────
 banner "act 1 — use it (like any coding agent)"
 if [ -n "$HAVE_KEY" ]; then
-    say "iron fixes the bug; the trace in .iron/ records every effect."
+    say "jern fixes the bug; the trace in .jern/ records every effect."
     run "$IRON" run --yes "test.sh fails. Find the bug in wordcount.sh and fix it."
     echo
     run sh test.sh
     echo
     say "the audit trail — one JSONL event per effect, policy decisions included:"
-    grep -o '"event":"[a-z-]*"' .iron/trace-*.jsonl | sort | uniq -c
+    grep -o '"event":"[a-z-]*"' .jern/trace-*.jsonl | sort | uniq -c
 else
     say "(skipped: ANTHROPIC_API_KEY not set — everything from here on is the"
     say " part no other agent can do, and none of it needs a key)"
@@ -121,9 +121,9 @@ if [ -n "$HAVE_KEY" ]; then
 fi
 
 banner "the loop nobody else has"
-echo "  use it     → iron run          (parity with aider / Claude Code)"
-echo "  read it    → iron eject        (the brain is ~100 lines of source)"
+echo "  use it     → jern run          (parity with aider / Claude Code)"
+echo "  read it    → jern eject        (the brain is ~100 lines of source)"
 echo "  edit it    → \$EDITOR main.ikr  (no fork, no rebuild)"
-echo "  test it    → iron test         (deterministic replay; regressions caught)"
+echo "  test it    → jern test         (deterministic replay; regressions caught)"
 echo
 echo "workspace kept at: $WS"

@@ -1,4 +1,4 @@
-# iron — security model
+# jern — security model
 
 The honest claim (implementation plan §1):
 
@@ -12,7 +12,7 @@ does not mean.
 
 ## In-runtime authority: capability environments
 
-Agent code — the loop in `agents/default`, anything run by `iron script`, every
+Agent code — the loop in `agents/default`, anything run by `jern script`, every
 REPL input — evaluates in an IronKernel environment built from the **safe**
 capability profile. Inside the runtime it cannot:
 
@@ -21,12 +21,12 @@ capability profile. Inside the runtime it cannot:
 - open files or ports (host I/O primitives are absent);
 - load source (`load` is absent);
 - reach the handler environment, where the host primitives with real
-  authority (`iron/host-llm-call`, `iron/host-tool-call`, `iron/host-trace`,
-  `iron/host-approve`) are bound.
+  authority (`jern/host-llm-call`, `jern/host-tool-call`, `jern/host-trace`,
+  `jern/host-approve`) are bound.
 
 Everything the agent does to the world goes through `perform` on effect tags
-the host created (`iron/llm-call`, `iron/tool-call`, `iron/approve`,
-`iron/log`). Tags are unforgeable values; the only handlers are the ones the
+the host created (`jern/llm-call`, `jern/tool-call`, `jern/approve`,
+`jern/log`). Tags are unforgeable values; the only handlers are the ones the
 host installed. This is enforced by the IronKernel runtime itself
 (see IronKernel's `docs/capabilities.md`), not by convention.
 
@@ -41,21 +41,21 @@ IronKernel's documentation warns embedders about.
 ## The handler stack: programmable policy, one choke point
 
 Every effect crosses the handler stack installed by
-[handlers.ikr](../src/Iron.Host/kernel/handlers.ikr) and
-[policy.ikr](../src/Iron.Host/kernel/policy.ikr) — ordinary Kernel source the
+[handlers.ikr](../src/Jern.Host/kernel/handlers.ikr) and
+[policy.ikr](../src/Jern.Host/kernel/policy.ikr) — ordinary Kernel source the
 user can read and replace:
 
 ```
 log → approval → provider → tool-executor → policy → agent code
 ```
 
-- The **policy handler** sees every `iron/tool-call` first and decides
+- The **policy handler** sees every `jern/tool-call` first and decides
   `:allow`, `:ask`, or deny. The default policy: reads (`read_file`,
   `list_dir`, `grep`) are free; writes (`edit_file`), `shell`, and anything
   unknown ask first.
-- `:ask` performs `iron/approve`; the **approval handler** delegates to the
-  host approver — a TTY `[y/N]` prompt for `iron run`, everything-approved for
-  `--yes`, `iron script`, and the REPL (where the user is the one acting).
+- `:ask` performs `jern/approve`; the **approval handler** delegates to the
+  host approver — a TTY `[y/N]` prompt for `jern run`, everything-approved for
+  `--yes`, `jern script`, and the REPL (where the user is the one acting).
 - Denials come back to the agent as error tool-results, not crashes.
 
 ## Audit: the trace is the security log
@@ -63,24 +63,24 @@ log → approval → provider → tool-executor → policy → agent code
 Every effect is recorded as JSONL at the same choke point that enforces
 policy: `llm-call`/`llm-response`, `tool-call`/`tool-result`,
 `policy-decision` (with the decision), `approval-denied`, and agent `log`
-events, each timestamped. `iron run` writes it to `.iron/trace-*.jsonl`. A
+events, each timestamped. `jern run` writes it to `.jern/trace-*.jsonl`. A
 side effect that bypassed policy would be a side effect with no
 `policy-decision` line — the trace makes the claim checkable.
 
 ## Process-level tools: OS sandboxing plus approval
 
 The moment a `shell` command runs, language-level capabilities confine
-nothing that process does. iron's honest posture:
+nothing that process does. jern's honest posture:
 
 - **Path scoping (host-enforced):** `read_file`, `list_dir`, `grep`,
   `edit_file` resolve paths workspace-relative and refuse escapes
   (`../…` and absolute paths outside the root).
 - **macOS:** shell commands run under `sandbox-exec` with a deny-by-default
   write profile — writes only inside the workspace, temp, and `/dev`. Reads
-  and network are **not** restricted in v1; do not run iron in a workspace
+  and network are **not** restricted in v1; do not run jern in a workspace
   sitting next to secrets you wouldn't paste into a prompt.
 - **Linux:** no OS sandbox is wired up yet (bubblewrap/landlock is planned);
-  iron warns once and relies on the approval gate alone.
+  jern warns once and relies on the approval gate alone.
 - **Approval is the last gate everywhere**: by default every shell command is
   shown to the user before it runs.
 

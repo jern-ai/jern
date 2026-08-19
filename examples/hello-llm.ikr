@@ -1,7 +1,7 @@
-; M1 exit criterion: perform iron/llm-call and print the reply.
-; Run with: iron script examples/hello-llm.ikr   (needs ANTHROPIC_API_KEY)
+; M1 exit criterion: perform jern/llm-call and print the reply.
+; Run with: jern script examples/hello-llm.ikr   (needs ANTHROPIC_API_KEY)
 (define response
-  (perform iron/llm-call
+  (perform jern/llm-call
     (list :max_tokens 256
           :messages (vector (list :role "user"
                                   :content "Say hello from inside IronKernel, in one short sentence.")))))

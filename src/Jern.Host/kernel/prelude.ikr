@@ -1,0 +1,89 @@
+; Agent prelude — evaluated into the agent environment before agent code.
+;
+; Helpers for working with the boundary data convention: JSON objects arrive
+; as keyword-tagged plists, arrays as vectors (see Jern.Host/Json.fs).
+
+; Look up a key in a plist; :null when absent.
+(define plist-get
+  (lambda (plist key)
+    (if (null? plist)
+        :null
+        (if (eqv? (car plist) key)
+            (car (cdr plist))
+            (plist-get (cdr (cdr plist)) key)))))
+
+(define reverse
+  (lambda (lst)
+    (sequence
+      (define loop
+        (lambda (rest acc)
+          (if (null? rest) acc (loop (cdr rest) (cons (car rest) acc)))))
+      (loop lst ()))))
+
+(define vector->list
+  (lambda (v)
+    (sequence
+      (define loop
+        (lambda (i acc)
+          (if (< i 0) acc (loop (- i 1) (cons (vector-ref v i) acc)))))
+      (loop (- (vector-length v) 1) ()))))
+
+; ---------------------------------------------------------------------------
+; Tools. A tool is a name, a description, and a JSON-Schema parameter shape
+; (as boundary data, so it goes to the LLM verbatim). Invoking a tool performs
+; jern/tool-call — the handler stack decides what actually happens.
+
+(define *tools-box* (vector ()))
+
+(define register-tool!
+  (lambda (name description schema)
+    (vector-set! *tools-box* 0
+      (cons (list :name name :description description :input_schema schema)
+            (vector-ref *tools-box* 0)))))
+
+; The registered tools as the :tools array for an jern/llm-call request.
+(define tools-for-llm
+  (lambda () (apply vector (reverse (vector-ref *tools-box* 0)))))
+
+; Invoke a tool by name: performs jern/tool-call, returns a result plist
+; (:content "..." :is_error #t/#f).
+(define call-tool
+  (lambda (name input)
+    (perform jern/tool-call (list :name name :input input))))
+
+; (define-tool "read_file" "description…" schema-expr) registers the tool and
+; binds `read_file` to an applicative that invokes it.
+(define define-tool
+  (vau (name-form description-form schema-form) env
+    (sequence
+      (define name (eval name-form env))
+      (define description (eval description-form env))
+      (define schema (eval schema-form env))
+      (register-tool! name description schema)
+      (eval (list define (string->symbol name)
+                  (lambda (input) (call-tool name input)))
+            env))))
+
+; ---------------------------------------------------------------------------
+; Response helpers.
+
+; The :content blocks of a response with the given :type, as a list.
+(define response-blocks
+  (lambda (response type)
+    (filter (lambda (block) (equal? (plist-get block :type) type))
+            (vector->list (plist-get response :content)))))
+
+; The text of the first :text block in a response's :content vector, or :null.
+(define response-text
+  (lambda (response)
+    (define content (plist-get response :content))
+    (define scan
+      (lambda (i)
+        (if (< i (vector-length content))
+            (sequence
+              (define block (vector-ref content i))
+              (if (equal? (plist-get block :type) "text")
+                  (plist-get block :text)
+                  (scan (+ i 1))))
+            :null)))
+    (if (vector? content) (scan 0) :null)))

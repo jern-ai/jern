@@ -3,7 +3,7 @@
 ; It demonstrates the headline feature from the other side: an agent is just
 ; Kernel source, so narrowing what the model can do is a few lines of that
 ; source. This agent drops `shell` entirely and keeps only reading, searching,
-; and editing; run it with `iron run --agent agents/docs "task"`.
+; and editing; run it with `jern run --agent agents/docs "task"`.
 
 (define allowed-tools (list "read_file" "list_dir" "grep" "edit_file"))
 
@@ -24,7 +24,7 @@
               :is_error #t))))
 
 (define system-prompt
-  "You are iron-docs, a documentation agent. You improve Markdown and other
+  "You are jern-docs, a documentation agent. You improve Markdown and other
 prose files in the user's workspace: fix typos, clarify wording, keep examples
 in sync with the code you can read. Never touch source code files — if a task
 needs code changes, say so instead. Keep edits minimal and reply with a short
@@ -50,11 +50,11 @@ summary when done.")
   (lambda (messages turns-left)
     (if (<= turns-left 0)
         (sequence
-          (perform iron/log (list :event "max-turns-reached"))
+          (perform jern/log (list :event "max-turns-reached"))
           messages)
         (sequence
           (define response
-            (perform iron/llm-call
+            (perform jern/llm-call
               (list :system system-prompt
                     :max_tokens 4096
                     :tools (tools-for-llm)
@@ -84,11 +84,11 @@ summary when done.")
 
 (define run-agent
   (lambda (task)
-    (perform iron/log (list :event "agent-started" :task task))
+    (perform jern/log (list :event "agent-started" :task task))
     (last-assistant-text
       (agent-loop (cons (list :role "user" :content task) ()) max-turns))))
 
 (define chat-turn
   (lambda (messages user-text)
-    (perform iron/log (list :event "chat-turn"))
+    (perform jern/log (list :event "chat-turn"))
     (agent-loop (cons (list :role "user" :content user-text) messages) max-turns)))

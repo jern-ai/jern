@@ -1,12 +1,11 @@
-# iron — from working thesis to usable product (v0.2+ roadmap)
+# jern — from working thesis to usable product (v0.2+ roadmap)
 
 Companion to [implementation-plan.md](implementation-plan.md), which is done
 (M0–M6). This document plans the next phase: enough parity with existing
 agents that people *stay* after the unique features get them in the door.
 
 The two product decisions are made: **Apache-2.0, open-core** (§7, decided
-2026-08-19) and **`iron` stays the working name** until the M10 domain check
-(§6). Everything else is sequenced engineering.
+2026-08-19) and the name is **jern** (jern.ai registered 2026-08-19, §6). Everything else is sequenced engineering.
 
 ## 1. What "parity" means (and doesn't)
 
@@ -15,7 +14,7 @@ means losing on polish before the differentiator is ever visible"* (§1). Full
 aider parity — voice, browser UI, watch mode, leaderboards, 100+ models — is a
 multi-year surface. The target is narrower and testable:
 
-> **A developer who uses aider or Claude Code daily can switch to iron for one
+> **A developer who uses aider or Claude Code daily can switch to jern for one
 > real working day without hitting a missing-feature wall.**
 
 That is: provider choice, git safety, streaming, cost visibility, an
@@ -24,7 +23,7 @@ browser UI, or an edit-format zoo.
 
 ## 2. Gap analysis vs. aider (docs inventory, 2026-08)
 
-| aider feature | iron today | Verdict |
+| aider feature | jern today | Verdict |
 |---|---|---|
 | Multiple LLM providers (OpenAI, Anthropic, Gemini, DeepSeek, Ollama, …) | Anthropic only | **Must — M7** (§3) |
 | Streaming responses | full-turn only | **Must — M7**; host-side, flagged in plan §1.4 |
@@ -38,16 +37,16 @@ browser UI, or an edit-format zoo.
 | Repository map (tree-sitter) | none; agent greps agentically | **Should — M9, cheap v1**: file-tree + conventions in first context; agentic search (à la Claude Code) covers much of the need. Tree-sitter map deferred until evals say otherwise |
 | Linting & testing after edits | demoed as an agent-source edit | **Should — M9**: promote to config (`test_command`) read by the default agent |
 | Non-code editing (docs, config files) | works (see agents/docs) | Done |
-| Edit formats (whole/diff/udiff) | not needed — native function-calling `edit_file` | **Skip**, deliberately: edit formats exist to coax text-completion edits; iron uses tool calls |
+| Edit formats (whole/diff/udiff) | not needed — native function-calling `edit_file` | **Skip**, deliberately: edit formats exist to coax text-completion edits; jern uses tool calls |
 | Image & URL context | none | Defer (post-v0.2) |
 | Watch mode (AI comments) | none | Defer |
 | Voice | none | Skip for now |
 | Browser UI | none | Skip — that's the spec's Phase 2, explicitly out of scope |
 | Notifications | none | Defer |
 
-What iron has that aider doesn't — the reason any of this matters — stays the
-headline: the loop is source (`iron eject`), policy is source (`policy.ikr`),
-and the agent is unit-testable (`iron test`). Parity work must not regress
+What jern has that aider doesn't — the reason any of this matters — stays the
+headline: the loop is source (`jern eject`), policy is source (`policy.ikr`),
+and the agent is unit-testable (`jern test`). Parity work must not regress
 those: **every feature below lands as either host capability or agent
 source, never as opaque host behavior.**
 
@@ -56,7 +55,7 @@ source, never as opaque host behavior.**
 Principles: the handler seam *is* the abstraction (plan §6.3); the canonical
 conversation format stays the Anthropic-wire-shape Kernel data we froze in
 M1 — so sessions, traces, and **fixtures stay provider-independent**, and
-`iron test` keeps working no matter what serves the tokens.
+`jern test` keeps working no matter what serves the tokens.
 
 - **Keep the native Anthropic bridge** (raw passthrough, unchanged).
 - **Add one OpenAI-compatible bridge** (Chat Completions wire format). This
@@ -76,7 +75,7 @@ M1 — so sessions, traces, and **fixtures stay provider-independent**, and
 
 Exit test for M7: the demo's act 1 runs unchanged against OpenAI and against
 a local Ollama model, streaming, with a cost line at the end — and
-`iron test` still replays the same committed fixtures.
+`jern test` still replays the same committed fixtures.
 
 ## 4. Stable releases (M10, mechanics ready earlier)
 
@@ -98,16 +97,16 @@ Docs to write, in priority order:
 1. Install & quickstart (the four-act demo, textified)
 2. Connecting providers (per-provider one-pagers, aider-style)
 3. The agent's anatomy: prelude, tools.ikr, policy.ikr, handlers.ikr, main.ikr
-4. Writing and testing your own agent (`iron test`, fixtures, `--record`)
+4. Writing and testing your own agent (`jern test`, fixtures, `--record`)
 5. Security model (exists — docs/security-model.md, promote to site)
 6. Reference: effects, boundary data convention, prelude functions, CLI
 7. FAQ + comparison page (honest table vs aider / Claude Code / OpenHands)
 
 Domain and site name blocked on §6.
 
-## 6. Decision: the name  *(decided: keep `iron` until M10)*
+## 6. Decision: the name  *(decided 2026-08-19: **jern** — jern.ai registered)*
 
-"iron" the working name has real collisions: the dormant-but-known Rust web
+"jern" the working name has real collisions: the dormant-but-known Rust web
 framework, SRWare Iron (browser), Iron Fish (crypto). None is a dev-tools
 agent, and the Iron* prefix has genuine .NET lineage (IronPython, IronRuby,
 IronKernel — the last one is ours), which argues for keeping it.
@@ -116,22 +115,22 @@ Criteria: typeable binary name (≤5 chars), unique enough to search, domain +
 GitHub org + NuGet prefix available, no software-class trademark conflict.
 
 Shortlist to check against those criteria:
-- **iron** — keep; strongest lineage tie to IronKernel; weakest uniqueness.
+- **jern** — keep; strongest lineage tie to IronKernel; weakest uniqueness.
 - **vau** — the Kernel operative the whole design stands on; 3 letters,
   deeply on-brand, almost certainly available; opaque to outsiders (which a
   tagline fixes).
-- **ingot / wrought / ferrum** — iron-adjacent, more searchable, keep the
+- **ingot / wrought / ferrum** — jern-adjacent, more searchable, keep the
   metallurgy without the collisions.
 
 Recommendation: decide only when the website/domain work starts (M10);
-everything in the codebase stays `iron` until then — renaming the binary is
+everything in the codebase stays `jern` until then — renaming the binary is
 one MSBuild property.
 
 ## 7. Decision: open source vs. commercial  *(decided: Apache-2.0, open-core)*
 
 Constraints: the long-range plan monetizes Pro/Team/Enterprise tiers, a
 registry, cloud execution, and an embeddable runtime (spec §7). IronKernel —
-which iron ships and depends on — is already **Apache-2.0**. And the
+which jern ships and depends on — is already **Apache-2.0**. And the
 product's entire pitch is *inspectability*: a closed-source agent whose
 tagline is "read the agent source" is self-refuting.
 
@@ -154,18 +153,18 @@ pick before the announce; relicensing *after* people arrive burns trust
 
 ## 8. Milestones
 
-Same discipline as before: every milestone ends demoable, and `iron test`
+Same discipline as before: every milestone ends demoable, and `jern test`
 keeps passing throughout.
 
 - **M7 — providers, streaming, cost, config.**
   Exit: act 1 of the demo runs against Anthropic, OpenAI, and local Ollama;
-  responses stream; a cost/usage line prints per turn; `iron.yml` holds
+  responses stream; a cost/usage line prints per turn; `jern.yml` holds
   model + aliases; the committed fixtures still replay unchanged.
 - **M8 — git safety + conventions + caching.**
   Auto-commit per agent change (message from the task + diff), `/undo`,
   dirty-repo guard, `CONVENTIONS.md` pulled into the system prompt by the
   default agent, `cache_control` placed from agent source.
-  Exit: a session's `git log` reads like aider's; killing iron mid-task
+  Exit: a session's `git log` reads like aider's; killing jern mid-task
   loses nothing.
 - **M9 — chat UX.**
   Ctrl-C interrupt, `/model /undo /clear /cost /help`, status line

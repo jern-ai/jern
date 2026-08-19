@@ -4,7 +4,7 @@ The question deserves a straight answer, because half of it is a concession.
 
 **An *editable* agent loop needs no special language.** aider is an editable
 agent loop: it's open-source Python, and you can change any line of it. So is
-OpenHands. If "open the loop and edit it" were the whole pitch, iron would be
+OpenHands. If "open the loop and edit it" were the whole pitch, jern would be
 a worse aider.
 
 The pitch is a conjunction, and the other three conjuncts are where the
@@ -18,7 +18,7 @@ language choice stops being interchangeable:
 **Confined.** When you edit aider's loop — or install someone else's fork of
 it — that code runs with the full authority of the Python process: `import
 os`, `import requests`, every credential in the environment. Editability and
-safety trade off directly. In iron they don't: agent source evaluates in an
+safety trade off directly. In jern they don't: agent source evaluates in an
 IronKernel capability environment (the `safe` profile) that has *no* file,
 network, CLR, or source-loading primitives, and the values behind those
 primitives check the invoking environment, so copying one in doesn't help.
@@ -39,11 +39,11 @@ with intersection on inheritance, which is Kernel's founding idea
   the intrinsics and auditing every endowment; possible, heroic, and still
   without the next conjunct.
 
-**Interposable.** iron's spine is the handler stack: `log → approval →
+**Interposable.** jern's spine is the handler stack: `log → approval →
 provider → tool-executor → git → policy → agent`, ~150 lines of Kernel a user
 can read and replace. It works because Kernel has *tagged deep effect
 handlers with resumable one-shot continuations*: the policy layer intercepts
-`iron/tool-call`, and *re-performing* the same effect continues the search
+`jern/tool-call`, and *re-performing* the same effect continues the search
 outward to the git layer, then the executor. Every effect crosses one choke
 point, which is why the trace is complete and why policy is enforcement
 rather than middleware convention.
@@ -58,10 +58,10 @@ rather than middleware convention.
   real sandboxes — could genuinely express this. See "the honest
   competitors" below.
 
-**Deterministically testable.** `iron test`'s record/replay is host
+**Deterministically testable.** `jern test`'s record/replay is host
 machinery, and a Python agent could have a VCR-style equivalent — another
 concession. What Kernel adds is the *guarantee* side: the agent can only
-reach a model through the `iron/llm-call` tag, so substituting the fixture
+reach a model through the `jern/llm-call` tag, so substituting the fixture
 handler is exhaustive by construction. A Python agent's test double is a
 convention any `import openai` can bypass — including one the model itself
 writes into the loop, which is not a hypothetical failure mode for a
@@ -73,7 +73,7 @@ Messages-API wire shape as Kernel data, so fixtures diff as data), operatives
 (`vau`) make `define-tool` and `with-fixtures` ten-line definitions with no
 macro phase, and environments double as the module system, so "evaluate the
 agent's source in the agent's world" is one `eval` with the right
-environment — the correctness of `iron eject`/`--agent` falls out of the
+environment — the correctness of `jern eject`/`--agent` falls out of the
 semantics.
 
 ## The honest competitors
@@ -83,14 +83,14 @@ semantics.
 | **Python / JS embedded as-is** | Editability, huge familiarity | No in-process confinement; interposition by convention; the security claim in docs/security-model.md becomes false |
 | **Python in a subprocess/container per agent** | Real OS isolation | No first-class capability passing; IPC serialization everywhere; heavyweight sessions; still no effect handlers |
 | **SES / Hardened JavaScript** | Genuine object capabilities in a mainstream language | Freeze-the-world discipline, endowment auditing, no delimited control for the handler stack; years of hardening work Agoric already spent |
-| **Racket (sandboxes + delimited continuations + macros)** | Could plausibly rebuild iron; the most serious "any other Scheme" answer | Capabilities are a library posture, not the core semantic; no CLR embedding for the .NET/enterprise story; and it wouldn't be *ours* (below) |
+| **Racket (sandboxes + delimited continuations + macros)** | Could plausibly rebuild jern; the most serious "any other Scheme" answer | Capabilities are a library posture, not the core semantic; no CLR embedding for the .NET/enterprise story; and it wouldn't be *ours* (below) |
 | **WASM components** | Best-in-class sandboxing + capability imports | A compile target, not a live medium: no code-as-data, no REPL into the running agent, agents stop being one readable file |
 
 ## The strategic part (for when the question means "is this a moat?")
 
 Owning the runtime cuts both ways, and we say both out loud:
 
-- **It's leverage.** iron is IronKernel's first demanding customer: building
+- **It's leverage.** jern is IronKernel's first demanding customer: building
   M0–M9 surfaced four runtime bugs (keyword equality, `vector-length`,
   effect-payload double-evaluation, resumptions dropping intermediate prompt
   frames) that were diagnosed, fixed, tested, and merged upstream in a day —

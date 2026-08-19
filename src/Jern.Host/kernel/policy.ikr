@@ -1,0 +1,73 @@
+; Policy — evaluated in the privileged handler environment, before handlers.ikr.
+;
+; This is the programmable part of the security story. `tool-policy` decides,
+; for every jern/tool-call the agent performs, whether to :allow it, :ask the
+; user first, or deny it outright with a reason string. Replace this file to
+; change the rules; the trace records every decision either way.
+
+; One-line description of a tool call, for approval prompts and the trace.
+(define describe-tool-call
+  (lambda (call)
+    (sequence
+      (define name (plist-get call :name))
+      (define input (plist-get call :input))
+      (cond ((equal? name "shell")
+             (String.concat "shell: " (plist-get input :command)))
+            ((equal? name "edit_file")
+             ; A minimal diff preview: the exact text leaving and arriving.
+             (String.concat "edit_file: "
+               (String.concat (plist-get input :path)
+                 (String.concat "\n  - "
+                   (String.concat (plist-get input :old_string)
+                     (String.concat "\n  + " (plist-get input :new_string)))))))
+            (#t name)))))
+
+; The default policy: reads are free, writes and shell ask first.
+(define tool-policy
+  (lambda (call)
+    (sequence
+      (define name (plist-get call :name))
+      (cond ((equal? name "shell") :ask)
+            ((equal? name "edit_file") :ask)
+            ((equal? name "read_file") :allow)
+            ((equal? name "list_dir") :allow)
+            ((equal? name "file_tree") :allow)
+            ((equal? name "grep") :allow)
+            (#t :ask)))))
+
+; Intercepts jern/tool-call closest to the agent. Allowed (or approved) calls
+; are re-performed, which reaches the executor handler installed outside this
+; one; everything else becomes an error tool-result the agent can react to.
+(define with-policy-handler
+  (vau (body) env
+    (prompt jern/tool-call
+      (lambda (call resume-call)
+        (sequence
+          (define decision (tool-policy call))
+          (jern/host-trace
+            (list :event "policy-decision"
+                  :call (describe-tool-call call)
+                  :decision decision))
+          (cond ((eqv? decision :allow)
+                 (resume resume-call (perform jern/tool-call call)))
+                ((eqv? decision :ask)
+                 (if (perform jern/approve (describe-tool-call call))
+                     (resume resume-call (perform jern/tool-call call))
+                     (sequence
+                       (jern/host-trace
+                         (list :event "approval-denied"
+                               :call (describe-tool-call call)))
+                       (resume resume-call
+                               (list :content "the user declined this action"
+                                     :is_error #t)))))
+                (#t (resume resume-call
+                            (list :content decision :is_error #t))))))
+      (eval body env))))
+
+; Answers jern/approve by asking the host (TTY prompt, --yes, or a test stub).
+(define with-approval-handler
+  (vau (body) env
+    (prompt jern/approve
+      (lambda (description resume-approve)
+        (resume resume-approve (jern/host-approve description)))
+      (eval body env))))

@@ -1,12 +1,12 @@
 ; M2 exit criterion: an LLM round-trip that calls read_file via
 ; function-calling and answers a question about a real file.
-; Run from the repo root: iron script examples/tool-roundtrip.ikr
+; Run from the repo root: jern script examples/tool-roundtrip.ikr
 
 (define question "What is the very first heading line of README.md? Use the read_file tool.")
 
 ; Turn one: the model sees the tools and asks to use one.
 (define first-response
-  (perform iron/llm-call
+  (perform jern/llm-call
     (list :max_tokens 1024
           :tools (tools-for-llm)
           :messages (vector (list :role "user" :content question)))))
@@ -24,7 +24,7 @@
 
 ; Turn two: send the results back; the model answers in text.
 (define second-response
-  (perform iron/llm-call
+  (perform jern/llm-call
     (list :max_tokens 1024
           :tools (tools-for-llm)
           :messages (vector (list :role "user" :content question)

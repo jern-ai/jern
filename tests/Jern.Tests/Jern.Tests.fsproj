@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <OutputType>Library</OutputType>
+    <RootNamespace>Jern.Tests</RootNamespace>
+    <AssemblyName>Jern.Tests</AssemblyName>
+    <NoWarn>$(NoWarn);988</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="JsonTests.fs" />
+    <Compile Include="AgentEnvTests.fs" />
+    <Compile Include="SessionTests.fs" />
+    <Compile Include="ToolTests.fs" />
+    <Compile Include="AgentLoopTests.fs" />
+    <Compile Include="PolicyTests.fs" />
+    <Compile Include="TestRunnerTests.fs" />
+    <Compile Include="ChatTests.fs" />
+    <Compile Include="ProviderTests.fs" />
+    <Compile Include="OpenAIHttpTests.fs" />
+    <Compile Include="GitTests.fs" />
+    <Compile Include="ChatUxTests.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.1">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Jern.Host/Jern.Host.fsproj" />
+  </ItemGroup>
+</Project>

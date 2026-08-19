@@ -2,7 +2,7 @@
   "exchanges": [
     {
       "request": {
-        "system": "You are iron-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
+        "system": "You are jern-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
         "max_tokens": 4096,
         "tools": [
           {
@@ -109,7 +109,7 @@
     },
     {
       "request": {
-        "system": "You are iron-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
+        "system": "You are jern-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
         "max_tokens": 4096,
         "tools": [
           {
@@ -242,7 +242,7 @@
     },
     {
       "request": {
-        "system": "You are iron-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
+        "system": "You are jern-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
         "max_tokens": 4096,
         "tools": [
           {

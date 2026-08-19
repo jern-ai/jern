@@ -3,11 +3,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <PackageId>Iron.Agent.Default</PackageId>
+    <PackageId>Jern.Agent.Default</PackageId>
     <Version>0.1.0</Version>
-    <Authors>Iron</Authors>
-    <Description>The default iron coding agent: loop, tools, prompts, and policies as readable IronKernel source.</Description>
-    <PackageTags>ironkernel;iron-agent</PackageTags>
+    <Authors>Jern</Authors>
+    <Description>The default jern coding agent: loop, tools, prompts, and policies as readable IronKernel source.</Description>
+    <PackageTags>ironkernel;jern</PackageTags>
     <IronKernelMain>src/main.ikr</IronKernelMain>
     <IronKernelProfile>safe</IronKernelProfile>
   </PropertyGroup>

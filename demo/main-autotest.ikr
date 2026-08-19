@@ -1,7 +1,7 @@
-; The default iron agent: a function-calling loop in ~80 lines of Kernel.
+; The default jern agent: a function-calling loop in ~80 lines of Kernel.
 ;
 ; The agent holds no authority. Everything reaches the world by performing
-; against host-created effect tags (iron/llm-call, iron/tool-call, iron/log),
+; against host-created effect tags (jern/llm-call, jern/tool-call, jern/log),
 ; answered by the handler stack the host installs: trace -> provider/tools.
 ;
 ; Edit this file and rerun — no recompile. For example, to make the agent run
@@ -9,7 +9,7 @@
 ; call whenever the tool was "edit_file".
 
 (define base-prompt
-  "You are iron, a terminal coding agent operating in the user's workspace.
+  "You are jern, a terminal coding agent operating in the user's workspace.
 Use the tools to inspect and change files; keep going until the task is done,
 then reply with a short summary. Prefer minimal, precise edits. When a tool
 fails, read the error and adapt. Never invent file contents you have not read.")
@@ -29,7 +29,7 @@ fails, read the error and adapt. Never invent file contents you have not read.")
 
 (define max-turns 50)
 
-; The workspace's test command (iron.json "test_command"), or :null.
+; The workspace's test command (jern.json "test_command"), or :null.
 ; DEMO EDIT — one line: always run this project's tests after every edit,
 ; whether or not the workspace configured a test_command.
 (define test-command "sh test.sh 2>&1")
@@ -88,7 +88,7 @@ fails, read the error and adapt. Never invent file contents you have not read.")
   (lambda (messages turns-left)
     (if (<= turns-left 0)
         (sequence
-          (perform iron/log (list :event "max-turns-reached"))
+          (perform jern/log (list :event "max-turns-reached"))
           messages)
         (sequence
           ; :cache_control rides the request verbatim: Anthropic auto-places
@@ -96,7 +96,7 @@ fails, read the error and adapt. Never invent file contents you have not read.")
           ; conversation prefix caches turn over turn); other providers'
           ; bridges simply ignore it. Prompt caching, from agent source.
           (define response
-            (perform iron/llm-call
+            (perform jern/llm-call
               (list :system (system-prompt-with-conventions)
                     :max_tokens 8192
                     :tools (tools-for-llm)
@@ -128,7 +128,7 @@ fails, read the error and adapt. Never invent file contents you have not read.")
 ; Entry point for one-shot tasks: the host calls (run-agent "task").
 (define run-agent
   (lambda (task)
-    (perform iron/log (list :event "agent-started" :task task))
+    (perform jern/log (list :event "agent-started" :task task))
     (last-assistant-text
       (agent-loop (cons (list :role "user" :content (first-context task)) ())
                   max-turns))))
@@ -137,7 +137,7 @@ fails, read the error and adapt. Never invent file contents you have not read.")
 ; (newest-first). Returns the updated conversation for the host to persist.
 (define chat-turn
   (lambda (messages user-text)
-    (perform iron/log (list :event "chat-turn"))
+    (perform jern/log (list :event "chat-turn"))
     (agent-loop
       (cons (list :role "user"
                   :content (if (null? messages) (first-context user-text) user-text))
