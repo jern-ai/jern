@@ -35,6 +35,16 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M11 — MCP** (v0.3): jern is an MCP client. Add servers in `jern.json`
+  (`"mcp_servers": { "github": { "command": "npx", "args": […] } }`) and
+  their tools join the agent's toolset as `mcp__<server>__<tool>`, flowing
+  through the same effect, policy, approval, trace, and fixture layers as
+  the built-ins — every MCP call is ask-gated until your
+  [policy.ikr](src/Jern.Host/kernel/policy.ikr) says otherwise, and shows
+  up in the JSONL trace. `jern mcp` lists what the configured servers
+  offer. The whole client (stdio JSON-RPC on the frozen JSON⇄Kernel
+  convention) is [~250 readable lines](src/Jern.Host/Mcp.fs), zero new
+  dependencies.
 - **M9 — chat UX** (v0.2 roadmap): Ctrl-C interrupts the turn (streaming
   aborts, the next dispatch refuses, history stays consistent); chat gets
   `/model` (switch providers mid-session), `/undo`, `/clear`, `/cost`,

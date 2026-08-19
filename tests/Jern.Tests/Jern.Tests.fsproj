@@ -18,6 +18,7 @@
     <Compile Include="TestRunnerTests.fs" />
     <Compile Include="ChatTests.fs" />
     <Compile Include="ProviderTests.fs" />
+    <Compile Include="McpTests.fs" />
     <Compile Include="OpenAIHttpTests.fs" />
     <Compile Include="GitTests.fs" />
     <Compile Include="ChatUxTests.fs" />

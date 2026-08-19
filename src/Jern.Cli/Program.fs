@@ -26,6 +26,7 @@ Usage:
                       Run an agent package's test suite. Replay is
                       deterministic and network-free; --record captures new
                       fixtures from the live provider
+  jern mcp            Connect the configured MCP servers and list their tools
   jern --version      Print version
 
 Models & providers:
@@ -33,6 +34,13 @@ Models & providers:
   ollama/qwen3, anthropic/claude-opus-5). Default and aliases come from
   jern.json / ~/.config/jern/config.json. Keys via provider env vars
   (ANTHROPIC_API_KEY, OPENAI_API_KEY, …); ollama and lmstudio need none.
+
+MCP:
+  Add servers in jern.json — their tools join the agent's toolset as
+  mcp__<server>__<tool>, ask-gated by the default policy:
+    "mcp_servers": { "github": { "command": "npx",
+                                 "args": ["-y", "@modelcontextprotocol/server-github"],
+                                 "env": { "GITHUB_TOKEN": "…" } } }
 """
 
 /// Streams model text to the terminal, remembering whether the turn's last
@@ -187,6 +195,7 @@ let private runChat (resumeId: string option) (model: string option) =
                 agentSources = Session.agentPackageSources (Session.defaultAgentDir ())
                 approver = Some ttyApprover
                 agentConfig = Providers.agentConfig providers
+                mcpServers = providers.mcpServers
                 interrupted = fun () -> interrupted.Value }
 
     let effectiveModel () =
@@ -281,7 +290,8 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
             traceSink = Some writer.WriteLine
             agentSources = Session.agentPackageSources agent
             approver = Some(if autoApprove then (fun _ -> true) else ttyApprover)
-            agentConfig = Providers.agentConfig providers }
+            agentConfig = Providers.agentConfig providers
+            mcpServers = providers.mcpServers }
     match Session.createWith config with
     | Choice1Of2 error ->
         eprintfn "Startup error: %s" (showError error)
@@ -299,6 +309,45 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
             if meter.SawUsage then printfn "%s" meter.Line
             printfn "Trace: %s" tracePath
             0
+
+/// Connect every configured MCP server and print its tools — the setup
+/// debugging loop for jern.json "mcp_servers".
+let private runMcp () =
+    let providers = loadProviders ()
+    match providers.mcpServers with
+    | [] ->
+        printfn "no MCP servers configured (add \"mcp_servers\" to jern.json)"
+        0
+    | specs ->
+        let mutable failures = 0
+        for spec in specs do
+            let argsSummary =
+                let flat = String.Join(" ", spec.args).Replace("\n", " ")
+                if flat.Length > 60 then flat.Substring(0, 57) + "…" else flat
+            printfn "%s: %s %s" spec.name spec.command argsSummary
+            match Mcp.connect spec with
+            | Error reason ->
+                failures <- failures + 1
+                printfn "  FAILED: %s" reason
+            | Ok server ->
+                match Mcp.listTools server with
+                | Error reason ->
+                    failures <- failures + 1
+                    printfn "  connected, but tools/list failed: %s" reason
+                | Ok descriptors ->
+                    if descriptors.IsEmpty then printfn "  (no tools)"
+                    for d in descriptors do
+                        let get key =
+                            match Tools.plistTryGet key d with
+                            | Some (Obj (:? string as s)) -> s
+                            | _ -> ""
+                        let description = get "description"
+                        let summary =
+                            let line = description.Split('\n').[0]
+                            if line.Length > 80 then line.Substring(0, 77) + "…" else line
+                        printfn "  %s — %s" (get "name") summary
+                Mcp.shutdown server
+        if failures = 0 then 0 else 1
 
 let private runUndo () =
     match Git.undoLast Environment.CurrentDirectory with
@@ -394,6 +443,7 @@ let main argv =
             eprintfn "usage: jern run [--yes] [--agent <dir>] [--model <spec>] \"task\""
             2
     | ["undo"] -> runUndo ()
+    | ["mcp"] -> runMcp ()
     | ["eject"] ->
         // Copy the installed default agent into the workspace for editing.
         let source = Session.defaultAgentDir ()

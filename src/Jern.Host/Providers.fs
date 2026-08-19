@@ -56,13 +56,17 @@ module Providers =
           providers: Map<string, Provider>
           /// Shell command the default agent runs after every edit
           /// (jern.json "test_command"); exposed to agent source.
-          testCommand: string option }
+          testCommand: string option
+          /// MCP servers (jern.json "mcp_servers"); their tools register as
+          /// mcp__<server>__<tool> and go through the normal policy stack.
+          mcpServers: Mcp.ServerSpec list }
 
     let defaultConfig =
         { defaultModel = "anthropic/" + AnthropicBridge.defaultModel
           aliases = Map.empty
           providers = builtIns |> List.map (fun p -> p.name, p) |> Map.ofList
-          testCommand = None }
+          testCommand = None
+          mcpServers = [] }
 
     let private applyFile (config: Config) (path: string) : Config =
         if not (File.Exists path) then config
@@ -108,10 +112,38 @@ module Providers =
                 match doc.["test_command"] with
                 | null -> config.testCommand
                 | t -> Some(t.GetValue<string>())
+            let mcpServers =
+                match doc.["mcp_servers"] with
+                | :? JsonObject as o ->
+                    let parsed =
+                        o
+                        |> Seq.map (fun kv ->
+                            let spec = kv.Value.AsObject()
+                            { Mcp.name = kv.Key
+                              Mcp.command =
+                                match spec.["command"] with
+                                | null -> failwithf "mcp_servers.%s needs a \"command\"" kv.Key
+                                | c -> c.GetValue<string>()
+                              Mcp.args =
+                                match spec.["args"] with
+                                | :? JsonArray as a ->
+                                    a |> Seq.map (fun v -> v.GetValue<string>()) |> List.ofSeq
+                                | _ -> []
+                              Mcp.env =
+                                match spec.["env"] with
+                                | :? JsonObject as e ->
+                                    e |> Seq.map (fun ev -> ev.Key, ev.Value.GetValue<string>()) |> List.ofSeq
+                                | _ -> [] })
+                        |> List.ofSeq
+                    // Later files override same-named servers from earlier ones.
+                    let names = parsed |> List.map (fun s -> s.name) |> Set.ofList
+                    (config.mcpServers |> List.filter (fun s -> not (names.Contains s.name))) @ parsed
+                | _ -> config.mcpServers
             { defaultModel = defaultModel
               aliases = aliases
               providers = providers
-              testCommand = testCommand }
+              testCommand = testCommand
+              mcpServers = mcpServers }
 
     /// Global config, then the workspace's jern.json on top.
     let load (workspaceRoot: string) : Result<Config, string> =

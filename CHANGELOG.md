@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 — 2026-08-19
+
+- **MCP client support.** Configure servers in `jern.json`
+  (`"mcp_servers": { "<name>": { "command": …, "args": […], "env": {…} } }`)
+  and their tools join the agent's toolset as `mcp__<server>__<tool>`.
+  MCP calls dispatch through the ordinary `jern/tool-call` effect, so the
+  policy, approval, git, trace, and fixture layers apply to them unchanged —
+  and the default policy asks before every MCP call until your `policy.ikr`
+  allows specific ones. New `jern mcp` command connects the configured
+  servers and lists their tools. Stdio transport; the client is ~250 lines
+  of readable F# on the existing JSON⇄Kernel convention, no new
+  dependencies. Verified against the official
+  `@modelcontextprotocol/server-filesystem`.
+
 ## 0.2.7 — 2026-08-19
 
 - Serialize the release publish build (`-m:1`): the SDK's transitive

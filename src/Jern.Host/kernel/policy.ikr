@@ -22,7 +22,10 @@
                      (String.concat "\n  + " (plist-get input :new_string)))))))
             (#t name)))))
 
-; The default policy: reads are free, writes and shell ask first.
+; The default policy: reads are free, writes and shell ask first. MCP tools
+; (named mcp__<server>__<tool>) fall to the closing :ask clause — every call
+; to an external server needs your approval until you say otherwise here,
+; e.g. ((equal? name "mcp__github__get_issue") :allow) before the catch-all.
 (define tool-policy
   (lambda (call)
     (sequence

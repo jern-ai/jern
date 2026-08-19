@@ -37,6 +37,10 @@ module Session =
           /// Workspace configuration exposed to agent source as the
           /// `jern/workspace-config` plist (e.g. :test_command). Data only.
           agentConfig: LispVal
+          /// MCP servers to connect; their tools register in the agent's
+          /// registry as mcp__<server>__<tool> and dispatch through the
+          /// ordinary jern/tool-call effect (policy applies unchanged).
+          mcpServers: Mcp.ServerSpec list
           /// Polled before every llm/tool dispatch; true aborts the turn
           /// with a Kernel error (Ctrl-C).
           interrupted: unit -> bool }
@@ -76,6 +80,20 @@ module Session =
         | Choice2Of2 std ->
             let tags = AgentEnv.newEffectTags ()
 
+            // Connect configured MCP servers. A server that fails to start is
+            // skipped with a warning — a dead integration must not brick the
+            // session — and its tools simply don't register.
+            let mcpServers =
+                config.mcpServers
+                |> List.choose (fun spec ->
+                    match Mcp.connect spec with
+                    | Ok server -> Some server
+                    | Error reason ->
+                        eprintfn "jern: %s (skipping this MCP server)" reason
+                        None)
+            let mcpByName =
+                mcpServers |> List.map (fun s -> s.spec.name, s) |> Map.ofList
+
             let agentEnv =
                 bindVars (newEnv [std])
                     (AgentEnv.baseBindings tags
@@ -97,7 +115,12 @@ module Session =
                     if config.interrupted () then
                         signal cont (Default "interrupted by user")
                     else
-                        match Tools.dispatch config.workspaceRoot call with
+                        let dispatch =
+                            match Tools.plistTryGet "name" call with
+                            | Some (Obj (:? string as name)) when name.StartsWith "mcp__" ->
+                                Mcp.dispatch mcpByName
+                            | _ -> Tools.dispatch config.workspaceRoot
+                        match dispatch call with
                         | Choice1Of2 error -> signal cont error
                         | Choice2Of2 reply -> bounceContinue env cont reply
                 | bad -> signal cont (NumArgs(1, bad))
@@ -183,14 +206,55 @@ module Session =
                         | Choice2Of2 () -> loadFile env file)
                     (Choice2Of2 ())
 
+            // Register each connected server's tools in the agent's registry
+            // by evaluating ordinary (register-tool! …) forms — the same path
+            // tools.ikr takes, so tools-for-llm and call-tool see no
+            // difference between built-in and MCP tools.
+            let registerMcpTools () =
+                let registerDescriptor (descriptor: LispVal) =
+                    match Tools.plistTryGet "name" descriptor,
+                          Tools.plistTryGet "description" descriptor,
+                          Tools.plistTryGet "input_schema" descriptor with
+                    | Some name, Some description, Some schema ->
+                        let form =
+                            ofList
+                                [ Atom "register-tool!"; name; description
+                                  ofList [ Atom "quote"; schema ] ]
+                        match eval agentEnv (newContinuation agentEnv) form with
+                        | Choice1Of2 error -> Choice1Of2 error
+                        | Choice2Of2 _ -> Choice2Of2 ()
+                    | _ -> Choice2Of2 ()
+                mcpServers
+                |> List.fold
+                    (fun acc server ->
+                        match acc with
+                        | Choice1Of2 _ -> acc
+                        | Choice2Of2 () ->
+                            match Mcp.listTools server with
+                            | Error reason ->
+                                eprintfn "jern: %s (its tools are unavailable)" reason
+                                Choice2Of2 ()
+                            | Ok descriptors ->
+                                descriptors
+                                |> List.fold
+                                    (fun acc2 d ->
+                                        match acc2 with
+                                        | Choice1Of2 _ -> acc2
+                                        | Choice2Of2 () -> registerDescriptor d)
+                                    (Choice2Of2 ()))
+                    (Choice2Of2 ())
+
             match loaded with
             | Choice1Of2 error -> Choice1Of2 error
             | Choice2Of2 () ->
-                Choice2Of2
-                    { agentEnv = agentEnv
-                      handlerEnv = handlerEnv
-                      tags = tags
-                      workspaceRoot = config.workspaceRoot }
+                match registerMcpTools () with
+                | Choice1Of2 error -> Choice1Of2 error
+                | Choice2Of2 () ->
+                    Choice2Of2
+                        { agentEnv = agentEnv
+                          handlerEnv = handlerEnv
+                          tags = tags
+                          workspaceRoot = config.workspaceRoot }
 
     /// Configuration with no trace, no agent package, tools in `root`, and
     /// everything approval-gated approved (scripts and the REPL are the user
@@ -203,6 +267,7 @@ module Session =
           approver = Some(fun _ -> true)
           agentBindings = []
           agentConfig = Nil
+          mcpServers = []
           interrupted = fun () -> false }
 
     /// Build a session around an LLM bridge with tools scoped to `root`.
