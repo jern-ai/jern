@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0 — 2026-08-19
+
+- **Workspace policy.** A repo can govern its own agents: `jern policy
+  init` writes `.jern/policy.ikr`, which loads after the built-in policy
+  and overrides what it redefines — enforced Kernel source, not prompt
+  text. New rule helpers for policy authors: `(path-within? call "src/")`
+  for path-scoped rules and `(command-is? call "pytest")` for shell
+  allowlists (matches the command with arguments, never lookalikes), plus
+  `call-path`/`call-command` and the string predicates in the handler
+  environment. `jern policy` shows whichever policy is active. Sessions
+  announce `using workspace policy …` whenever one loads; trust it like
+  the repo's `test_command` (see docs/security-model.md).
+
 ## 0.6.0 — 2026-08-19
 
 - **Run budgets, enforced in the handler stack.** `--budget <n>` caps a

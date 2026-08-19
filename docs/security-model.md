@@ -46,17 +46,31 @@ Every effect crosses the handler stack installed by
 user can read and replace:
 
 ```
-log → approval → provider → tool-executor → policy → agent code
+log → approval → provider → budget → tool-executor → git → policy → agent code
 ```
 
 - The **policy handler** sees every `jern/tool-call` first and decides
   `:allow`, `:ask`, or deny. The default policy: reads (`read_file`,
-  `list_dir`, `grep`) are free; writes (`edit_file`), `shell`, and anything
-  unknown ask first.
+  `list_dir`, `grep`) are free; writes (`edit_file`), `shell`, MCP tools,
+  and anything unknown ask first.
 - `:ask` performs `jern/approve`; the **approval handler** delegates to the
   host approver — a TTY `[y/N]` prompt for `jern run`, everything-approved for
   `--yes`, `jern script`, and the REPL (where the user is the one acting).
+- The **budget handler** sees every `jern/llm-call` first; a configured
+  model-call or token budget is a hard cap — exhaustion becomes an approval
+  question, not a suggestion the model may ignore.
 - Denials come back to the agent as error tool-results, not crashes.
+
+### Workspace policy is trusted like the workspace
+
+A repo can override the rules with its own `.jern/policy.ikr`
+(`jern policy init`). That file is evaluated **in the privileged handler
+environment**: it is the workspace governing its own agents, and it can
+loosen rules as well as tighten them. Treat it exactly like the repo's
+`test_command` (which jern runs after edits) or a Makefile: review it in
+repositories you did not author. jern prints
+`using workspace policy …` on every session that loads one, so its presence
+is never silent.
 
 ## Audit: the trace is the security log
 

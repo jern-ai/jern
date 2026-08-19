@@ -27,6 +27,9 @@ Usage:
                       deterministic and network-free; --record captures new
                       fixtures from the live provider
   jern mcp            Connect the configured MCP servers and list their tools
+  jern policy [init]  Show the active tool policy; `init` writes a workspace
+                      policy (.jern/policy.ikr) that overrides the built-in
+                      rules for this repo — enforced, testable Kernel source
   jern --version      Print version
 
 Models & providers:
@@ -376,6 +379,58 @@ let private runMcp () =
                 Mcp.shutdown server
         if failures = 0 then 0 else 1
 
+let private policyTemplate = """; Workspace tool policy — loaded after the built-in kernel/policy.ikr and
+; overrides what it redefines. Decisions: :allow, :ask, or a reason string
+; (a denial the model sees). Helpers in scope: call-path, call-command,
+; (path-within? call "src/"), (command-is? call "pytest"),
+; string-prefix?/string-suffix?/string-contains?.
+;
+; This file runs privileged. Review it in repositories you did not author,
+; the same way you review a repo's test_command.
+
+(define tool-policy
+  (lambda (call)
+    (sequence
+      (define name (plist-get call :name))
+      (cond ; ((path-within? call "src/") :allow)      ; scope edits to src/
+            ; ((command-is? call "pytest") :allow)     ; allowlist a command
+            ; ((equal? name "mcp__github__get_issue") :allow)
+            ((equal? name "shell") :ask)
+            ((equal? name "edit_file") :ask)
+            ((equal? name "read_file") :allow)
+            ((equal? name "list_dir") :allow)
+            ((equal? name "file_tree") :allow)
+            ((equal? name "grep") :allow)
+            (#t :ask)))))
+"""
+
+/// `jern policy` — show which policy governs this workspace;
+/// `jern policy init` — write the workspace override template.
+let private runPolicy (init: bool) =
+    let root = Environment.CurrentDirectory
+    let workspacePath = IO.Path.Combine(root, ".jern", "policy.ikr")
+    if init then
+        if IO.File.Exists workspacePath then
+            eprintfn "jern policy init: '%s' already exists" workspacePath
+            1
+        else
+            IO.Directory.CreateDirectory(IO.Path.GetDirectoryName workspacePath) |> ignore
+            IO.File.WriteAllText(workspacePath, policyTemplate)
+            printfn "wrote %s" workspacePath
+            printfn "it now governs every jern session in this workspace; edit and re-run"
+            0
+    else
+        if IO.File.Exists workspacePath then
+            printfn "workspace policy: %s" workspacePath
+            printfn ""
+            printf "%s" (IO.File.ReadAllText workspacePath)
+        else
+            let builtin = Session.kernelFile "policy.ikr"
+            printfn "built-in policy: %s (override with: jern policy init)" builtin
+            printfn ""
+            printf "%s" (IO.File.ReadAllText builtin)
+        0
+
 let private runUndo () =
     match Git.undoLast Environment.CurrentDirectory with
     | Ok subject ->
@@ -473,6 +528,8 @@ let main argv =
             2
     | ["undo"] -> runUndo ()
     | ["mcp"] -> runMcp ()
+    | ["policy"] -> runPolicy false
+    | ["policy"; "init"] -> runPolicy true
     | ["eject"] ->
         // Copy the installed default agent into the workspace for editing.
         let source = Session.defaultAgentDir ()

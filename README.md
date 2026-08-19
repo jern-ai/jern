@@ -35,6 +35,14 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M15 — workspace policy** (v0.7): the repo governs its agents.
+  `jern policy init` writes `.jern/policy.ikr` — enforced rules that
+  override the built-ins for every session in that workspace: scope edits
+  with `(path-within? call "src/")`, allowlist commands with
+  `(command-is? call "pytest")`, allow specific MCP tools, or deny
+  categories outright with a reason the model sees. It's Kernel source at
+  the same choke point as everything else, so decisions land in the trace
+  and the rules are testable.
 - **M14 — run budgets** (v0.6): `jern run --budget 20 "task"` (or a
   `"budget"` object in `jern.json` with `llm_calls`/`tokens` limits) is a
   *hard* cap enforced by a ~40-line handler in

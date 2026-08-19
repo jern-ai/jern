@@ -192,15 +192,28 @@ module Session =
                      :: ("jern/show", AgentEnv.applicative AgentEnv.show)
                      :: ("jern/budget", config.budget)
                      :: ("agent-env", agentEnv)
-                     :: AgentEnv.effectBindings tags)
+                     :: AgentEnv.stringBindings
+                     @ AgentEnv.effectBindings tags)
+
+            // A workspace may carry its own policy: <root>/.jern/policy.ikr
+            // loads after the built-in one and rebinds what it redefines
+            // (usually tool-policy). It runs privileged — trust it like you
+            // trust the repo's test_command (docs/security-model.md).
+            let workspacePolicy =
+                let path = Path.Combine(config.workspaceRoot, ".jern", "policy.ikr")
+                if File.Exists path then
+                    eprintfn "jern: using workspace policy %s" path
+                    [ handlerEnv, path ]
+                else []
 
             let files =
                 [ agentEnv, kernelFile "prelude.ikr"
                   agentEnv, kernelFile "tools.ikr"
                   // The prelude's helpers (plist-get & co.) serve both sides.
                   handlerEnv, kernelFile "prelude.ikr"
-                  handlerEnv, kernelFile "policy.ikr"
-                  handlerEnv, kernelFile "handlers.ikr" ]
+                  handlerEnv, kernelFile "policy.ikr" ]
+                @ workspacePolicy
+                @ [ handlerEnv, kernelFile "handlers.ikr" ]
                 @ (config.agentSources |> List.map (fun path -> agentEnv, path))
 
             let loaded =

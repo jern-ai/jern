@@ -2,8 +2,43 @@
 ;
 ; This is the programmable part of the security story. `tool-policy` decides,
 ; for every jern/tool-call the agent performs, whether to :allow it, :ask the
-; user first, or deny it outright with a reason string. Replace this file to
-; change the rules; the trace records every decision either way.
+; user first, or deny it outright with a reason string. The trace records
+; every decision either way.
+;
+; A workspace can override these rules without touching the install: put a
+; `.jern/policy.ikr` in the repo and redefine `tool-policy` (and, if you
+; like, `describe-tool-call`) there — `jern policy init` writes a starting
+; point. It loads right after this file, so the helpers below are in scope.
+; A workspace policy runs privileged: trust it like the repo's test_command.
+
+; --- Helpers for policy rules ------------------------------------------------
+
+; The call's target path / shell command, or :null.
+(define call-path
+  (lambda (call) (plist-get (plist-get call :input) :path)))
+(define call-command
+  (lambda (call) (plist-get (plist-get call :input) :command)))
+
+; Path-scoped rule: the call's :path starts with the prefix.
+;   ((path-within? call "src/") :allow)
+(define path-within?
+  (lambda (call prefix)
+    (sequence
+      (define path (call-path call))
+      (if (eqv? path :null) #f (string-prefix? path prefix)))))
+
+; Command allowlist: the shell :command is `allowed` itself or `allowed`
+; followed by arguments — "pytest" matches "pytest" and "pytest -q x",
+; never "pytest-evil".
+;   ((command-is? call "pytest") :allow)
+(define command-is?
+  (lambda (call allowed)
+    (sequence
+      (define command (call-command call))
+      (if (eqv? command :null)
+          #f
+          (or? (equal? command allowed)
+               (string-prefix? command (String.concat allowed " ")))))))
 
 ; One-line description of a tool call, for approval prompts and the trace.
 (define describe-tool-call

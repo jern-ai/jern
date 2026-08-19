@@ -71,8 +71,9 @@ module AgentEnv =
         | [value] -> bounceContinue env cont (Obj(showVal value :> obj))
         | bad -> signal cont (NumArgs(1, bad))
 
-    /// Pure string predicates for agent code (the safe profile's generated
-    /// bindings stop at String.concat). Data in, data out — no authority.
+    /// Pure string predicates (the safe profile's generated bindings stop at
+    /// String.concat). Data in, data out — no authority; bound in both the
+    /// agent and the handler environments (policy files use them too).
     let private stringPredicate name (test: string -> string -> bool) =
         let invoke env cont = function
             | [Obj (:? string as a); Obj (:? string as b)] ->
@@ -81,14 +82,17 @@ module AgentEnv =
             | bad -> signal cont (NumArgs(2, bad))
         name, applicative invoke
 
+    let stringBindings =
+        [ stringPredicate "string-contains?" (fun a b -> a.Contains(b, StringComparison.Ordinal))
+          stringPredicate "string-prefix?" (fun a b -> a.StartsWith(b, StringComparison.Ordinal))
+          stringPredicate "string-suffix?" (fun a b -> a.EndsWith(b, StringComparison.Ordinal)) ]
+
     /// Everything the agent environment gets from the host.
     let baseBindings tags =
         ("jern/host-version", applicative hostVersion)
         :: ("jern/show", applicative show)
-        :: stringPredicate "string-contains?" (fun a b -> a.Contains(b, StringComparison.Ordinal))
-        :: stringPredicate "string-prefix?" (fun a b -> a.StartsWith(b, StringComparison.Ordinal))
-        :: stringPredicate "string-suffix?" (fun a b -> a.EndsWith(b, StringComparison.Ordinal))
-        :: effectBindings tags
+        :: stringBindings
+        @ effectBindings tags
 
     /// Bootstrap the safe-profile standard environment and inject the host
     /// surface. Returns the agent environment plus the session's effect tags
