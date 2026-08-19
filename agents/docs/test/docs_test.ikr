@@ -1,0 +1,17 @@
+; The docs agent's test suite — run with `iron test agents/docs`.
+
+(deftest "the tool surface is narrowed to documentation work"
+  (assert-equal 4 (length (vector->list (tools-for-llm))))
+  (assert-true (null? (filter (lambda (tool) (equal? (plist-get tool :name) "shell"))
+                              (vector->list (tools-for-llm))))
+               "shell must not be advertised to the model"))
+
+(deftest "dropped tools are refused by the agent's own dispatch"
+  (assert-true (eqv? (plist-get (call-tool "shell" (list :command "true")) :is_error) #t)
+               "shell must come back as an error result"))
+
+(deftest "polishes a readme end to end"
+  (setup-file "README.md" "# Sampel Project\nSecond line.\n")
+  (with-fixtures "fixtures/polish-readme.json"
+    (assert-equal "Fixed the heading typo." (run-agent "Fix the typo in README.md's heading"))
+    (assert-file-contains "README.md" "# Sample Project")))

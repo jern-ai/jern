@@ -16,6 +16,7 @@
     <Compile Include="AgentLoopTests.fs" />
     <Compile Include="PolicyTests.fs" />
     <Compile Include="TestRunnerTests.fs" />
+    <Compile Include="ChatTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

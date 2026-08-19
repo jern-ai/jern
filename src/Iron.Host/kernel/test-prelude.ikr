@@ -4,9 +4,13 @@
 ; each runs in a fresh session and a fresh temp workspace. Inside a test:
 ;
 ;   (with-fixtures "fixtures/foo.json" body…)  replay (or record) llm traffic
+;   (setup-file path content)                  seed the test workspace
 ;   (assert-equal expected actual)
 ;   (assert-true value message)
 ;   (assert-file-contains path needle)         via the read_file tool
+
+(define setup-file
+  (lambda (path content) (iron/setup-file path content)))
 
 (define with-fixtures
   (vau (path & forms) env

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <PackageId>Iron.Agent.Docs</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Iron</Authors>
+    <Description>A documentation-only iron agent: the default loop with a narrowed tool surface — reads, searches, and Markdown edits; no shell.</Description>
+    <PackageTags>ironkernel;iron-agent</PackageTags>
+    <IronKernelMain>src/main.ikr</IronKernelMain>
+    <IronKernelProfile>safe</IronKernelProfile>
+  </PropertyGroup>
+  <ItemGroup>
+    <IronKernelSource Include="src/**/*.ikr" />
+    <IronKernelTest Include="test/**/*.ikr" />
+  </ItemGroup>
+</Project>

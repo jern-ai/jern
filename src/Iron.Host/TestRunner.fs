@@ -59,6 +59,16 @@ module TestRunner =
                     | Choice1Of2 error -> signal cont error
                     | Choice2Of2 () -> bounceContinue env cont Inert
                 | bad -> signal cont (NumArgs(1, bad))
+            let setupFile env cont = function
+                | [Obj (:? string as path); Obj (:? string as content)] ->
+                    let full = Path.GetFullPath(Path.Combine(workspace, path))
+                    if not (full.StartsWith(Path.GetFullPath workspace, StringComparison.Ordinal)) then
+                        signal cont (Default(sprintf "setup-file: '%s' is outside the test workspace" path))
+                    else
+                        Directory.CreateDirectory(Path.GetDirectoryName full) |> ignore
+                        File.WriteAllText(full, content)
+                        bounceContinue env cont Inert
+                | bad -> signal cont (NumArgs(2, bad))
             let config =
                 { Session.configIn workspace fixtures.Bridge with
                     agentSources =
@@ -66,6 +76,7 @@ module TestRunner =
                         :: Session.agentPackageSources agentDir
                     agentBindings =
                         [ "iron/use-fixtures", AgentEnv.applicative useFixtures
+                          "iron/setup-file", AgentEnv.applicative setupFile
                           "iron/string-contains?", AgentEnv.applicative stringContains ] }
             match Session.createWith config with
             | Choice1Of2 error ->

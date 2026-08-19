@@ -82,3 +82,36 @@ let ``an agent that makes fewer llm calls than recorded fails`` () =
             Assert.Contains("unused exchange", summary.Failed.Head.error.Value)
     finally
         if Directory.Exists dir then Directory.Delete(dir, true)
+
+let private docsAgentDir () =
+    Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "agents", "docs"))
+
+/// A model that fixes the README heading: read → edit → done.
+let private docsUpstream: AnthropicBridge.LlmBridge =
+    fun request ->
+        let json = Json.serialize request
+        let reply =
+            if json.Contains "edited \\u0027README.md" then
+                """{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"Fixed the heading typo."}]}"""
+            elif json.Contains "Sampel Project" then
+                """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"d2","name":"edit_file","input":{"path":"README.md","old_string":"Sampel","new_string":"Sample"}}]}"""
+            else
+                """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"d1","name":"read_file","input":{"path":"README.md"}}]}"""
+        Choice2Of2 (Json.deserialize reply)
+
+[<Fact(Skip = "fixture generator — run manually after deliberate agent changes")>]
+let ``record docs agent fixtures`` () =
+    match TestRunner.run (docsAgentDir ()) (Fixtures.Record docsUpstream) with
+    | Error message -> failwith message
+    | Ok summary ->
+        for o in summary.Failed do
+            failwithf "%s: %s" o.name o.error.Value
+
+[<Fact>]
+let ``docs agent suite passes on replay`` () =
+    match TestRunner.run (docsAgentDir ()) Fixtures.Replay with
+    | Error message -> failwith message
+    | Ok summary ->
+        for o in summary.Failed do
+            failwithf "%s: %s" o.name o.error.Value
+        Assert.Equal(3, summary.Passed.Length)

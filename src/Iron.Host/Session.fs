@@ -204,3 +204,12 @@ module Session =
     /// Invoke the loaded agent's entry point: (run-agent "task").
     let runAgent (session: Session) (task: string) : ThrowsError<LispVal> =
         runForms session [ ofList [ Atom "run-agent"; Obj(task :> obj) ] ]
+
+    /// One chat turn: (chat-turn '<messages> "text"). The conversation is
+    /// passed and returned as a Kernel list, newest-first.
+    let runChatTurn (session: Session) (messages: LispVal) (userText: string) : ThrowsError<LispVal> =
+        runForms session
+            [ ofList
+                [ Atom "chat-turn"
+                  ofList [ Atom "quote"; messages ]
+                  Obj(userText :> obj) ] ]

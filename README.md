@@ -19,7 +19,7 @@ Long-range map: [ideas/iron-agent-spec.md](ideas/iron-agent-spec.md).
 
 ## Status
 
-Milestones M0–M5 of the [implementation plan](docs/implementation-plan.md) are
+Milestones M0–M6 of the [implementation plan](docs/implementation-plan.md) are
 built; the *use → read → edit → test* loop from §8 works end to end:
 
 ```
@@ -33,6 +33,12 @@ $ iron test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M6 — sessions & distribution**: bare `iron` is an interactive chat whose
+  history persists to `.iron/sessions/` (`iron --resume` continues it);
+  `iron eject` / `--agent` swap the brain; `ik pack` builds both bundled
+  agents as NuGet packages. The second agent,
+  [agents/docs](agents/docs/src/main.ikr), narrows its own tool surface in
+  ~10 lines of source — no shell, docs-only.
 - **M5 — `iron test`**: `(deftest …)` + `(with-fixtures "f.json" …)`; record
   once, then replay network-free. Any divergence from the recording — a
   changed system prompt, different tool wiring — fails the test.
@@ -53,8 +59,7 @@ $ iron test agents/default               # deterministic replay against
   environment; authority lives in host primitives bound only in the handler
   environment.
 
-Remaining for v0.1 (M6): session persistence/`--resume`, an interactive chat
-mode, `ik pack` packaging + a second example agent on NuGet, the announce.
+Remaining for v0.1: publishing the agent packages to NuGet, and the announce.
 
 ```
 $ iron repl
@@ -91,4 +96,5 @@ dotnet run --project src/Iron.Cli -- repl
 | `src/Iron.Host` | F# host: restricted env construction, host-surface injection; later the LLM bridge, tools, JSON⇄Kernel conversion |
 | `src/Iron.Cli` | the `iron` binary |
 | `agents/default` | the default agent as an `.ikproj` of readable Kernel source |
+| `agents/docs` | a docs-only example agent with a narrowed tool surface |
 | `tests/Iron.Tests` | host tests (xunit) |

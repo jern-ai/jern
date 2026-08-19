@@ -1,0 +1,388 @@
+{
+  "exchanges": [
+    {
+      "request": {
+        "system": "You are iron-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
+        "max_tokens": 4096,
+        "tools": [
+          {
+            "name": "read_file",
+            "description": "Read a UTF-8 text file from the workspace and return its contents.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "list_dir",
+            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative directory path; defaults to the workspace root"
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "name": "grep",
+            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": ".NET regular expression to search for"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": [
+                "pattern"
+              ]
+            }
+          },
+          {
+            "name": "edit_file",
+            "description": "Edit a workspace file by exact string replacement. old_string must occur exactly once.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Exact text to replace (must be unique in the file)"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Replacement text"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ]
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "Fix the typo in README.md\u0027s heading"
+          }
+        ]
+      },
+      "response": {
+        "role": "assistant",
+        "stop_reason": "tool_use",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "d1",
+            "name": "read_file",
+            "input": {
+              "path": "README.md"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "system": "You are iron-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
+        "max_tokens": 4096,
+        "tools": [
+          {
+            "name": "read_file",
+            "description": "Read a UTF-8 text file from the workspace and return its contents.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "list_dir",
+            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative directory path; defaults to the workspace root"
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "name": "grep",
+            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": ".NET regular expression to search for"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": [
+                "pattern"
+              ]
+            }
+          },
+          {
+            "name": "edit_file",
+            "description": "Edit a workspace file by exact string replacement. old_string must occur exactly once.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Exact text to replace (must be unique in the file)"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Replacement text"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ]
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "Fix the typo in README.md\u0027s heading"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "d1",
+                "name": "read_file",
+                "input": {
+                  "path": "README.md"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "d1",
+                "content": "# Sampel Project\nSecond line.\n",
+                "is_error": false
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "role": "assistant",
+        "stop_reason": "tool_use",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "d2",
+            "name": "edit_file",
+            "input": {
+              "path": "README.md",
+              "old_string": "Sampel",
+              "new_string": "Sample"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "system": "You are iron-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
+        "max_tokens": 4096,
+        "tools": [
+          {
+            "name": "read_file",
+            "description": "Read a UTF-8 text file from the workspace and return its contents.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "list_dir",
+            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative directory path; defaults to the workspace root"
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "name": "grep",
+            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": ".NET regular expression to search for"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": [
+                "pattern"
+              ]
+            }
+          },
+          {
+            "name": "edit_file",
+            "description": "Edit a workspace file by exact string replacement. old_string must occur exactly once.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Exact text to replace (must be unique in the file)"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Replacement text"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ]
+            }
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "Fix the typo in README.md\u0027s heading"
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "d1",
+                "name": "read_file",
+                "input": {
+                  "path": "README.md"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "d1",
+                "content": "# Sampel Project\nSecond line.\n",
+                "is_error": false
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool_use",
+                "id": "d2",
+                "name": "edit_file",
+                "input": {
+                  "path": "README.md",
+                  "old_string": "Sampel",
+                  "new_string": "Sample"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": "d2",
+                "content": "edited \u0027README.md\u0027",
+                "is_error": false
+              }
+            ]
+          }
+        ]
+      },
+      "response": {
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "content": [
+          {
+            "type": "text",
+            "text": "Fixed the heading typo."
+          }
+        ]
+      }
+    }
+  ]
+}

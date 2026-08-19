@@ -10,6 +10,9 @@ open Iron.Host
 let private usage = """iron — a terminal coding agent whose brain is IronKernel source
 
 Usage:
+  iron                Interactive chat session in the current workspace
+                      (persisted to .iron/sessions/; needs ANTHROPIC_API_KEY)
+  iron --resume [id]  Continue the latest (or the given) chat session
   iron run [--yes] [--agent <dir>] "task"
                       One-shot agentic task in the current workspace
                       (needs ANTHROPIC_API_KEY; trace in .iron/)
@@ -72,6 +75,64 @@ let private ttyApprover (description: string) =
         | null -> false
         | answer -> answer.Trim().ToLowerInvariant() = "y"
 
+/// Interactive chat: one agent turn per user message, history persisted
+/// after every turn so a session survives interruption and `--resume`.
+let private runChat (resumeId: string option) =
+    Console.OutputEncoding <- Encoding.UTF8
+    let root = Environment.CurrentDirectory
+    let id, initial =
+        match resumeId with
+        | Some requested ->
+            (match requested, SessionStore.latest root with
+             | "", None -> None
+             | "", Some latest -> Some latest
+             | given, _ -> Some given)
+            |> function
+               | None -> Error "no sessions to resume in this workspace"
+               | Some id -> SessionStore.load root id |> Result.map (fun m -> id, m)
+        | None -> Ok(SessionStore.newId (), Nil)
+        |> function
+           | Error message ->
+               eprintfn "iron: %s" message
+               exit 1
+           | Ok pair -> pair
+    let writer, _ = newTraceSink root
+    let config =
+        { Session.configIn root AnthropicBridge.call with
+            traceSink = Some writer.WriteLine
+            agentSources = Session.agentPackageSources (Session.defaultAgentDir ())
+            approver = Some ttyApprover }
+    match Session.createWith config with
+    | Choice1Of2 error ->
+        eprintfn "Startup error: %s" (showError error)
+        1
+    | Choice2Of2 session ->
+        printfn ""
+        printfn " iron v%s — chat (session %s%s)" AgentEnv.version id
+            (match initial with Nil -> "" | _ -> ", resumed")
+        printfn " The agent works in %s; quit with 'exit' or ctrl-d." root
+        printfn ""
+        let mutable messages = initial
+        let mutable running = true
+        while running do
+            printf "you> "
+            match Console.ReadLine() with
+            | null -> running <- false
+            | line when line.Trim() = "" -> ()
+            | line when [ "exit"; "quit" ] |> List.contains (line.Trim().ToLowerInvariant()) ->
+                running <- false
+            | line ->
+                match Session.runChatTurn session messages line with
+                | Choice1Of2 error -> eprintfn "error : %s" (showError error)
+                | Choice2Of2 updated ->
+                    messages <- updated
+                    SessionStore.save root id messages
+        writer.Dispose()
+        match messages with
+        | Nil -> ()
+        | _ -> printfn "session saved: %s (resume with: iron --resume %s)" id id
+        0
+
 let private runTask (autoApprove: bool) (agentDir: string option) (task: string) =
     let root = Environment.CurrentDirectory
     let writer, tracePath = newTraceSink root
@@ -132,6 +193,10 @@ let main argv =
     | ["--version"] | ["version"] ->
         printfn "%s" AgentEnv.version
         0
+    | [] when not Console.IsInputRedirected ->
+        runChat None
+    | ["--resume"] -> runChat (Some "")
+    | ["--resume"; id] -> runChat (Some id)
     | ["repl"] ->
         runRepl ()
     | "run" :: rest ->
