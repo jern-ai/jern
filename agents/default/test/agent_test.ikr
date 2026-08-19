@@ -17,4 +17,8 @@
   (call-tool "shell" (list :command "printf 'helo world\n' > greeting.txt"))
   (with-fixtures "fixtures/fix-typo.json"
     (assert-equal "Fixed the typo." (run-agent "Fix the typo in greeting.txt"))
-    (assert-file-contains "greeting.txt" "hello world")))
+    (assert-file-contains "greeting.txt" "hello world")
+    ; Trajectory properties: three model turns, one edit, on the right file.
+    (assert-equal 3 (llm-call-count))
+    (assert-equal 1 (length (tool-calls-named "edit_file")))
+    (assert-edits-within "greeting.txt")))

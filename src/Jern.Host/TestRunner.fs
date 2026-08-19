@@ -53,6 +53,22 @@ module TestRunner =
         Directory.CreateDirectory workspace |> ignore
         try
             let fixtures = Fixtures.FixtureBridge(mode, Path.Combine(agentDir, "test"))
+            // The session's trace, captured so tests can assert properties of
+            // the whole trajectory (jern/trajectory below), not just outcomes.
+            let traceLines = ResizeArray<string>()
+            let trajectory env cont = function
+                | [] ->
+                    let events =
+                        traceLines
+                        |> Seq.map (fun line ->
+                            match Json.deserialize line with
+                            // Strip the wall-clock :ts the sink prepends —
+                            // assertions must see only deterministic data.
+                            | Pair { car = Keyword "ts"; cdr = Pair inner } -> inner.cdr
+                            | other -> other)
+                        |> Array.ofSeq
+                    bounceContinue env cont (Vector events)
+                | bad -> signal cont (NumArgs(0, bad))
             let useFixtures env cont = function
                 | [Obj (:? string as path)] ->
                     match fixtures.Use path with
@@ -71,12 +87,14 @@ module TestRunner =
                 | bad -> signal cont (NumArgs(2, bad))
             let config =
                 { Session.configIn workspace fixtures.Bridge with
+                    traceSink = Some traceLines.Add
                     agentSources =
                         Session.kernelFile "test-prelude.ikr"
                         :: Session.agentPackageSources agentDir
                     agentBindings =
                         [ "jern/use-fixtures", AgentEnv.applicative useFixtures
                           "jern/setup-file", AgentEnv.applicative setupFile
+                          "jern/trajectory", AgentEnv.applicative trajectory
                           "jern/string-contains?", AgentEnv.applicative stringContains ] }
             match Session.createWith config with
             | Choice1Of2 error ->

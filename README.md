@@ -35,6 +35,15 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M13 — trajectory assertions** (v0.5): agent tests can assert
+  properties of the run itself — `(assert-no-tool-call "shell")`,
+  `(assert-edits-within "src/")`, `(assert-max-llm-calls 4)` — from the
+  captured effect trace, offline and deterministic. Behavioral contracts
+  on top of byte-exact replay: the TDD agent's suite asserts the refused
+  premature edit *never became an effect*; the docs agent's asserts a
+  docs run never shells out. Vocabulary in
+  [test-prelude.ikr](src/Jern.Host/kernel/test-prelude.ikr), extensible
+  like everything else.
 - **M12 — the TDD agent** (v0.4): a bundled example that *enforces*
   red→green in its own loop — implementation edits are refused as tool
   errors until a failing test run has been observed

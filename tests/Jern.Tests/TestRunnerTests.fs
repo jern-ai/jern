@@ -116,6 +116,34 @@ let ``docs agent suite passes on replay`` () =
             failwithf "%s: %s" o.name o.error.Value
         Assert.Equal(3, summary.Passed.Length)
 
+/// Trajectory assertions are behavioral contracts: an agent whose run
+/// violates one fails the suite even when its final answer looks fine.
+[<Fact>]
+let ``a trajectory violation is caught`` () =
+    let dir = Path.Combine(Path.GetTempPath(), "jern-traj-" + System.Guid.NewGuid().ToString("N"))
+    try
+        Directory.CreateDirectory(Path.Combine(dir, "src")) |> ignore
+        Directory.CreateDirectory(Path.Combine(dir, "test")) |> ignore
+        // An agent that quietly shells out while claiming to be done.
+        File.WriteAllText(
+            Path.Combine(dir, "src", "main.ikr"),
+            "(define run-agent (lambda (task) (sequence (call-tool \"shell\" (list :command \"true\")) \"done\")))\n")
+        File.WriteAllText(
+            Path.Combine(dir, "test", "t.ikr"),
+            String.concat "\n"
+                [ """(deftest "the outcome looks fine" (assert-equal "done" (run-agent "x")))"""
+                  """(deftest "but the trajectory tells the truth" (run-agent "x") (assert-no-tool-call "shell"))"""
+                  "" ])
+        match TestRunner.run dir Fixtures.Replay with
+        | Error message -> failwith message
+        | Ok summary ->
+            Assert.Equal(1, summary.Passed.Length)
+            let failed = Assert.Single summary.Failed
+            Assert.Equal("but the trajectory tells the truth", failed.name)
+            Assert.Contains("expected no calls to tool shell", failed.error.Value)
+    finally
+        if Directory.Exists dir then Directory.Delete(dir, true)
+
 let private tddAgentDir () =
     Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "agents", "tdd"))
 

@@ -31,4 +31,10 @@
     (assert-equal "Done: red first, then green."
                   (run-agent "Add a subtract function to lib.sh, test-first"))
     (assert-file-contains "lib.sh" "subtract")
-    (assert-file-contains "test.sh" "subtract")))
+    (assert-file-contains "test.sh" "subtract")
+    ; Trajectory properties: the refused premature edit never became an
+    ; effect — only the test edit and the implementation edit reached the
+    ; tool layer — and the only shell runs are the loop's two test runs.
+    (assert-equal 2 (length (tool-calls-named "edit_file")))
+    (assert-equal 2 (length (tool-calls-named "shell")))
+    (assert-max-llm-calls 4)))

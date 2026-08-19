@@ -14,4 +14,9 @@
   (setup-file "README.md" "# Sampel Project\nSecond line.\n")
   (with-fixtures "fixtures/polish-readme.json"
     (assert-equal "Fixed the heading typo." (run-agent "Fix the typo in README.md's heading"))
-    (assert-file-contains "README.md" "# Sample Project")))
+    (assert-file-contains "README.md" "# Sample Project")
+    ; Trajectory properties: a docs run never shells out, and every edit
+    ; stayed on the file the task named.
+    (assert-no-tool-call "shell")
+    (assert-edits-within "README.md")
+    (assert-max-llm-calls 3)))

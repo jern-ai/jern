@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 — 2026-08-19
+
+- **Trajectory assertions**: agent test suites can now assert properties
+  of the *run*, not just its outcome. `(trajectory)` exposes every traced
+  effect of the test's session as data; on top of it the test prelude
+  provides `trajectory-events`, `tool-calls`, `tool-calls-named`,
+  `llm-call-count`, `assert-max-llm-calls`, `assert-no-tool-call`, and
+  `assert-edits-within`. "The agent never shelled out", "every edit stayed
+  under src/", "the run fit a four-model-call budget" are now offline,
+  deterministic test failures — behavioral contracts alongside the
+  byte-exact fixture replay. All three bundled agents' suites use them
+  (existing fixtures unchanged: assertions add no LLM traffic).
+
 ## 0.4.1 — 2026-08-19
 
 - The TDD agent's recorded fixture embedded bash's "command not found"

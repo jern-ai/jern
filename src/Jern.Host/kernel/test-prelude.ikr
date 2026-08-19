@@ -8,6 +8,22 @@
 ;   (assert-equal expected actual)
 ;   (assert-true value message)
 ;   (assert-file-contains path needle)         via the read_file tool
+;
+; Trajectory assertions — properties of the *run*, not just its outcome.
+; (trajectory) is every traced effect of this test's session so far, as a
+; list of event plists, oldest first: llm-call/llm-response,
+; tool-call/tool-result, policy-decision, git-commit, log. It includes tool
+; calls the test body itself makes (setup shells, assert-file-contains
+; reads), so assert after the run and count accordingly.
+;
+;   (trajectory)                 all events
+;   (trajectory-events "kind")   events of one kind
+;   (tool-calls)                 the :call payloads of every tool-call
+;   (tool-calls-named "shell")   …filtered by tool name
+;   (llm-call-count)
+;   (assert-max-llm-calls n)     the run stayed within a model-call budget
+;   (assert-no-tool-call "name") the tool was never invoked
+;   (assert-edits-within "src/") every edit_file path starts with the prefix
 
 (define setup-file
   (lambda (path content) (jern/setup-file path content)))
@@ -42,3 +58,49 @@
               #inert
               (error (String.concat path
                                     (String.concat " does not contain: " needle))))))))
+
+; ---------------------------------------------------------------------------
+; Trajectory assertions.
+
+(define trajectory
+  (lambda () (vector->list (jern/trajectory))))
+
+(define trajectory-events
+  (lambda (kind)
+    (filter (lambda (event) (equal? (plist-get event :event) kind))
+            (trajectory))))
+
+(define tool-calls
+  (lambda ()
+    (map (lambda (event) (plist-get event :call))
+         (trajectory-events "tool-call"))))
+
+(define tool-calls-named
+  (lambda (name)
+    (filter (lambda (call) (equal? (plist-get call :name) name))
+            (tool-calls))))
+
+(define llm-call-count
+  (lambda () (length (trajectory-events "llm-call"))))
+
+(define assert-max-llm-calls
+  (lambda (n)
+    (assert-true (<= (llm-call-count) n)
+                 (String.concat "the run exceeded the model-call budget of "
+                                (jern/show n)))))
+
+(define assert-no-tool-call
+  (lambda (name)
+    (assert-true (null? (tool-calls-named name))
+                 (String.concat "expected no calls to tool " name))))
+
+(define assert-edits-within
+  (lambda (prefix)
+    (sequence
+      (define escaped
+        (filter (lambda (call)
+                  (not? (string-prefix? (plist-get (plist-get call :input) :path)
+                                        prefix)))
+                (tool-calls-named "edit_file")))
+      (assert-true (null? escaped)
+                   (String.concat "an edit_file escaped " prefix)))))
