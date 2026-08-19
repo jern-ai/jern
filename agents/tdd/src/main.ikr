@@ -1,0 +1,186 @@
+; The TDD agent — the default loop plus a red→green gate the model cannot
+; talk its way around.
+;
+; The rule, enforced in this source rather than requested in a prompt:
+; implementation files may only be edited after a *failing* test run has
+; been observed (red). Once the tests pass again (green), the next change
+; must again start with a failing test. The model is told the workflow in
+; its system prompt, but the prompt is guidance — the gate below is the
+; enforcement. A prompt cannot do this; a loop you own can.
+;
+; Diff against agents/default/src/main.ikr: the gate (~35 lines), a
+; narrowed tool surface (no direct shell — only the loop runs the tests),
+; and a workflow system prompt. Everything else is the same loop.
+
+; ---------------------------------------------------------------------------
+; The gate.
+
+; Which files are tests. Editable, like everything here — swap in your own
+; convention (string-suffix? "_spec.rb", string-prefix? "tests/", …).
+(define test-file?
+  (lambda (path) (string-contains? path "test")))
+
+; :need-red  — no failing test observed since the last green run;
+;              implementation edits are refused.
+; :implement — a failing run has been observed; implementation edits are
+;              allowed until the tests pass again.
+(define *tdd-box* (vector :need-red))
+(define tdd-phase (lambda () (vector-ref *tdd-box* 0)))
+
+; The gate's whole decision, as a testable function.
+(define edit-allowed?
+  (lambda (path)
+    (if (test-file? path) #t (eqv? (tdd-phase) :implement))))
+
+(define gate-refusal
+  "TDD gate: implementation edits are locked until a failing test exists.
+Write (or extend) a test file first; the tests run after every edit, and a
+failing run unlocks implementation edits.")
+
+; After every test run, the observed result *is* the phase.
+(define observe-test-run!
+  (lambda (result)
+    (sequence
+      (define failing (eqv? (plist-get result :is_error) #t))
+      (vector-set! *tdd-box* 0 (if failing :implement :need-red))
+      (Console.write-line
+        (if failing
+            "TDD: red — implementation edits unlocked"
+            "TDD: green — the next change starts with a failing test")))))
+
+; ---------------------------------------------------------------------------
+; Tools. The model gets no shell: the only command this agent ever runs is
+; the test command, from the loop below. (Self-restraint in agent source;
+; the host's policy handler remains the enforcement layer behind it.)
+
+(define allowed-tools (list "read_file" "list_dir" "file_tree" "grep" "edit_file"))
+
+(vector-set! *tools-box* 0
+  (filter (lambda (tool) (member? (plist-get tool :name) allowed-tools))
+          (vector-ref *tools-box* 0)))
+
+; The workspace's test command (jern.json "test_command"); the classic
+; `sh test.sh` when unset, so the agent works out of the box in the demo.
+(define test-command
+  (sequence
+    (define configured (plist-get jern/workspace-config :test_command))
+    (if (eqv? configured :null) "sh test.sh 2>&1" configured)))
+
+(define run-tests
+  (lambda () (call-tool "shell" (list :command test-command))))
+
+; ---------------------------------------------------------------------------
+; The loop (as in the default agent, with the gate wired into dispatch).
+
+(define system-prompt
+  (String.concat
+    "You are jern-tdd, a coding agent that works strictly test-first. The
+workflow is enforced by your harness, not just described here: editing an
+implementation file is refused until a failing test run has been observed.
+Work in cycles: 1) write or extend a test that captures the next bit of
+behavior and fails; 2) once the run comes back red, make the smallest
+implementation change that turns it green; 3) repeat. The tests run
+automatically after every edit — never claim they pass without seeing it.
+Reply with a short summary when done. The test command is: "
+    test-command))
+
+(define max-turns 50)
+
+(define show-progress (lambda (response) #inert))
+
+; Dispatch one tool_use block; answer with a tool_result block. Edits pass
+; through the gate; every completed edit is followed by a test run whose
+; output rides the same result and moves the red/green phase.
+(define run-tool-use
+  (lambda (block)
+    (sequence
+      (define name (plist-get block :name))
+      (define input (plist-get block :input))
+      (Console.write-line (String.concat "→ " name))
+      (if (and? (equal? name "edit_file")
+                (not? (edit-allowed? (plist-get input :path))))
+          (list :type "tool_result"
+                :tool_use_id (plist-get block :id)
+                :content gate-refusal
+                :is_error #t)
+          (sequence
+            (define outcome
+              (if (member? name allowed-tools)
+                  (call-tool name input)
+                  (list :content (String.concat name " is not available in the TDD agent")
+                        :is_error #t)))
+            (define content
+              (if (and? (equal? name "edit_file")
+                        (not? (eqv? (plist-get outcome :is_error) #t)))
+                  (sequence
+                    (Console.write-line "→ shell (tests after edit)")
+                    (define tests (run-tests))
+                    (observe-test-run! tests)
+                    (String.concat (plist-get outcome :content)
+                      (String.concat "\n\n[test run]\n" (plist-get tests :content))))
+                  (plist-get outcome :content)))
+            (list :type "tool_result"
+                  :tool_use_id (plist-get block :id)
+                  :content content
+                  :is_error (plist-get outcome :is_error)))))))
+
+(define first-context
+  (lambda (text)
+    (sequence
+      (define tree (call-tool "file_tree" (list)))
+      (if (eqv? (plist-get tree :is_error) #t)
+          text
+          (String.concat text
+            (String.concat "\n\nWorkspace layout:\n" (plist-get tree :content)))))))
+
+(define agent-loop
+  (lambda (messages turns-left)
+    (if (<= turns-left 0)
+        (sequence
+          (perform jern/log (list :event "max-turns-reached"))
+          messages)
+        (sequence
+          (define response
+            (perform jern/llm-call
+              (list :system system-prompt
+                    :max_tokens 8192
+                    :tools (tools-for-llm)
+                    :cache_control (list :type "ephemeral")
+                    :messages (apply vector (reverse messages)))))
+          (show-progress response)
+          (define with-assistant
+            (cons (list :role "assistant"
+                        :content (plist-get response :content))
+                  messages))
+          (define tool-uses (response-blocks response "tool_use"))
+          (if (null? tool-uses)
+              with-assistant
+              (agent-loop
+                (cons (list :role "user"
+                            :content (apply vector (map run-tool-use tool-uses)))
+                      with-assistant)
+                (- turns-left 1)))))))
+
+(define last-assistant-text
+  (lambda (messages)
+    (if (null? messages)
+        :null
+        (if (equal? (plist-get (car messages) :role) "assistant")
+            (response-text (car messages))
+            (last-assistant-text (cdr messages))))))
+
+(define run-agent
+  (lambda (task)
+    (perform jern/log (list :event "agent-started" :task task))
+    (last-assistant-text
+      (agent-loop (cons (list :role "user" :content (first-context task)) ())
+                  max-turns))))
+
+(define chat-turn
+  (lambda (messages user-text)
+    (perform jern/log (list :event "chat-turn"))
+    (agent-loop
+      (cons (list :role "user"
+                  :content (if (null? messages) (first-context user-text) user-text))
+            messages)
+      max-turns)))

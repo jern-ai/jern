@@ -115,3 +115,76 @@ let ``docs agent suite passes on replay`` () =
         for o in summary.Failed do
             failwithf "%s: %s" o.name o.error.Value
         Assert.Equal(3, summary.Passed.Length)
+
+let private tddAgentDir () =
+    Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "agents", "tdd"))
+
+/// A model that misbehaves first: it tries to implement immediately, gets
+/// the gate's refusal, then does it right — failing test (red), then the
+/// implementation (green). Keyed off conversation content so it can serve
+/// as a recording upstream; the recorded exchange therefore *contains* the
+/// refusal, and replay proves the gate fired.
+let private tddUpstream: AnthropicBridge.LlmBridge =
+    fun request ->
+        let json = Json.serialize request
+        let reply =
+            if json.Contains "edited \\u0027lib.sh" then
+                // The implementation landed and the run after it was green.
+                """{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"Done: red first, then green."}]}"""
+            elif json.Contains "FAIL subtract" then
+                // Red observed — now the implementation edit is allowed.
+                """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"g3","name":"edit_file","input":{"path":"lib.sh","old_string":"add() { echo $(( $1 + $2 )); }","new_string":"add() { echo $(( $1 + $2 )); }\nsubtract() { echo $(( $1 - $2 )); }"}}]}"""
+            elif json.Contains "TDD gate" then
+                // Refused — write the failing test instead.
+                """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"g2","name":"edit_file","input":{"path":"test.sh","old_string":"echo OK","new_string":"test x$(subtract 5 3) = x2 || { echo FAIL subtract; exit 1; }\necho OK"}}]}"""
+            else
+                // First move: jump straight to the implementation (wrong).
+                """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"g1","name":"edit_file","input":{"path":"lib.sh","old_string":"add() { echo $(( $1 + $2 )); }","new_string":"add() { echo $(( $1 + $2 )); }\nsubtract() { echo $(( $1 - $2 )); }"}}]}"""
+        Choice2Of2 (Json.deserialize reply)
+
+[<Fact(Skip = "fixture generator — run manually after deliberate agent changes")>]
+let ``record tdd agent fixtures`` () =
+    match TestRunner.run (tddAgentDir ()) (Fixtures.Record tddUpstream) with
+    | Error message -> failwith message
+    | Ok summary ->
+        for o in summary.Failed do
+            failwithf "%s: %s" o.name o.error.Value
+
+[<Fact>]
+let ``tdd agent suite passes on replay`` () =
+    match TestRunner.run (tddAgentDir ()) Fixtures.Replay with
+    | Error message -> failwith message
+    | Ok summary ->
+        for o in summary.Failed do
+            failwithf "%s: %s" o.name o.error.Value
+        Assert.Equal(3, summary.Passed.Length)
+
+/// The differentiating claim, tested: weaken the gate in a copy of the
+/// agent (allow every edit) and the recorded conversation diverges — the
+/// premature edit now succeeds, so the second request no longer carries
+/// the refusal. A prompt regression suite built on vibes can't do this.
+[<Fact>]
+let ``a weakened tdd gate is caught by replay`` () =
+    let weakened = Path.Combine(Path.GetTempPath(), "jern-nogate-" + System.Guid.NewGuid().ToString("N"))
+    try
+        for file in Directory.EnumerateFiles(tddAgentDir (), "*", SearchOption.AllDirectories) do
+            let target = Path.Combine(weakened, Path.GetRelativePath(tddAgentDir (), file))
+            Directory.CreateDirectory(Path.GetDirectoryName target) |> ignore
+            File.Copy(file, target)
+        let main = Path.Combine(weakened, "src", "main.ikr")
+        File.WriteAllText(
+            main,
+            (File.ReadAllText main)
+                .Replace("(if (test-file? path) #t (eqv? (tdd-phase) :implement))",
+                         "#t"))
+        match TestRunner.run weakened Fixtures.Replay with
+        | Error message -> failwith message
+        | Ok summary ->
+            // Both the gate's unit test and the end-to-end replay fail: the
+            // recorded conversation carries the refusal the gate no longer
+            // produces, so the fixture diverges.
+            let failedNames = summary.Failed |> List.map (fun o -> o.name)
+            Assert.Contains("red before green, end to end", failedNames)
+            Assert.Contains("the gate refuses implementation edits until red is observed", failedNames)
+    finally
+        if Directory.Exists weakened then Directory.Delete(weakened, true)

@@ -1,0 +1,34 @@
+; The TDD agent's test suite — run with `jern test agents/tdd`.
+
+(deftest "the model gets no shell and the full read/edit surface"
+  (assert-equal 5 (length (vector->list (tools-for-llm))))
+  (assert-true (null? (filter (lambda (tool) (equal? (plist-get tool :name) "shell"))
+                              (vector->list (tools-for-llm))))
+               "shell must not be advertised to the model"))
+
+(deftest "the gate refuses implementation edits until red is observed"
+  (assert-true (eqv? (tdd-phase) :need-red) "a fresh session starts locked")
+  (assert-true (not? (edit-allowed? "lib.sh"))
+               "implementation edits must be refused before a failing test")
+  (assert-true (edit-allowed? "test.sh")
+               "test files must always be editable")
+  ; A failing run unlocks implementation; a passing run locks it again.
+  (observe-test-run! (list :content "FAIL" :is_error #t))
+  (assert-true (edit-allowed? "lib.sh") "red must unlock implementation edits")
+  (observe-test-run! (list :content "OK" :is_error #f))
+  (assert-true (not? (edit-allowed? "lib.sh")) "green must lock them again"))
+
+; The whole enforced cycle against a recorded model that misbehaves first:
+; it tries to implement immediately, is refused by the gate, then writes a
+; failing test (red), then implements (green). The byte-exact replay *is*
+; the proof the refusal fired — the recorded second request contains the
+; gate's error, and any change to the gate diverges the fixture.
+(deftest "red before green, end to end"
+  (setup-file "lib.sh" "add() { echo $(( $1 + $2 )); }\n")
+  (setup-file "test.sh"
+    "set -e\n. ./lib.sh\ntest x$(add 2 3) = x5 || { echo FAIL add; exit 1; }\necho OK\n")
+  (with-fixtures "fixtures/red-green.json"
+    (assert-equal "Done: red first, then green."
+                  (run-agent "Add a subtract function to lib.sh, test-first"))
+    (assert-file-contains "lib.sh" "subtract")
+    (assert-file-contains "test.sh" "subtract")))

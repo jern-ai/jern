@@ -143,11 +143,12 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.4xx"
-      - name: ik pack both bundled agents
+      - name: ik pack the bundled agents
         run: |
           set -euo pipefail
           cd jern/agents/default && dotnet run --project ../../../IronKernel/IronKernel -- pack default.ikproj
           cd ../docs && dotnet run --project ../../../IronKernel/IronKernel -- pack docs.ikproj
+          cd ../tdd && dotnet run --project ../../../IronKernel/IronKernel -- pack tdd.ikproj
       - uses: actions/upload-artifact@v4
         with:
           name: jern-agent-packages

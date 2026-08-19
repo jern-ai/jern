@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.0 — 2026-08-19
+
+- **The TDD agent** (`agents/tdd`): a bundled example that enforces
+  red→green in its own loop. Implementation edits come back as tool
+  errors until a failing test run has been observed; the tests run after
+  every edit and move the phase; the model gets no shell tool. The gate is
+  ~35 lines of agent source with its own regression suite — including a
+  recorded conversation where the model tries to implement first and is
+  refused, so weakening the gate fails `jern test agents/tdd` offline.
+- New agent-environment bindings: `string-contains?`, `string-prefix?`,
+  `string-suffix?` (pure predicates injected by the host; the safe
+  profile's generated bindings stop at `String.concat`).
+
 ## 0.3.0 — 2026-08-19
 
 - **MCP client support.** Configure servers in `jern.json`

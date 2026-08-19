@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <PackageId>Jern.Agent.Tdd</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Jern</Authors>
+    <Description>A test-first jern agent: the default loop plus a red→green gate enforced in agent source — implementation edits are refused until a failing test run has been observed.</Description>
+    <PackageTags>ironkernel;jern;tdd</PackageTags>
+    <IronKernelMain>src/main.ikr</IronKernelMain>
+    <IronKernelProfile>safe</IronKernelProfile>
+  </PropertyGroup>
+  <ItemGroup>
+    <IronKernelSource Include="src/**/*.ikr" />
+    <IronKernelTest Include="test/**/*.ikr" />
+  </ItemGroup>
+</Project>

@@ -35,6 +35,16 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M12 — the TDD agent** (v0.4): a bundled example that *enforces*
+  red→green in its own loop — implementation edits are refused as tool
+  errors until a failing test run has been observed
+  ([agents/tdd](agents/tdd/README.md), the gate is ~35 lines of
+  [main.ikr](agents/tdd/src/main.ikr)). A prompt can request this; only a
+  loop you own can promise it. Its regression suite replays a recorded
+  conversation where the model tries to implement first and is refused —
+  weaken the gate and `jern test agents/tdd` fails offline. Host support:
+  `string-contains?`/`string-prefix?`/`string-suffix?` now injected into
+  the agent environment (pure predicates, no authority).
 - **M11 — MCP** (v0.3): jern is an MCP client. Add servers in `jern.json`
   (`"mcp_servers": { "github": { "command": "npx", "args": […] } }`) and
   their tools join the agent's toolset as `mcp__<server>__<tool>`, flowing
@@ -131,4 +141,5 @@ dotnet run --project src/Jern.Cli -- repl
 | `src/Jern.Cli` | the `jern` binary |
 | `agents/default` | the default agent as an `.ikproj` of readable Kernel source |
 | `agents/docs` | a docs-only example agent with a narrowed tool surface |
+| `agents/tdd` | an example agent that enforces test-first in its loop |
 | `tests/Jern.Tests` | host tests (xunit) |
