@@ -63,7 +63,7 @@ jobs:
           - os: macos-latest
             rid: osx-arm64
             exe: jern
-          - os: macos-13
+          - os: blacksmith-6vcpu-macos-latest
             rid: osx-x64
             exe: jern
           - os: windows-latest
@@ -81,12 +81,21 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
+      - name: Restore (cross-compile)
+        if: matrix.rid == 'osx-x64'
+        run: dotnet restore jern/src/Jern.Cli/Jern.Cli.fsproj -p:RuntimeIdentifiers="osx-x64;osx-arm64"
+
+      - name: Restore
+        if: matrix.rid != 'osx-x64'
+        run: dotnet restore jern/src/Jern.Cli/Jern.Cli.fsproj -r ${{ matrix.rid }}
+
       - name: Publish self-contained binary
         run: >
           dotnet publish jern/src/Jern.Cli/Jern.Cli.fsproj
           -c Release
           -r ${{ matrix.rid }}
           --self-contained true
+          --no-restore
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:EnableCompressionInSingleFile=true
