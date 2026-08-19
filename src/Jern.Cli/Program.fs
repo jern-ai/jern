@@ -18,6 +18,10 @@ Usage:
                       (trace in .jern/)
                       --yes approves policy-gated actions (writes, shell)
                       --agent runs a different agent package (the headline)
+  jern ui [--port n]  The chat session as a local web app (127.0.0.1):
+                      streaming replies, tool activity, and approval cards
+                      with diffs. The page is ui/index.html beside the
+                      binary — edit it like everything else
   jern undo           Revert the last jern-authored commit (also /undo in chat)
   jern eject          Copy the default agent's source into ./agents/default
   jern repl           Kernel REPL inside the agent's restricted environment
@@ -50,6 +54,32 @@ MCP:
                                  "args": ["-y", "@modelcontextprotocol/server-github"],
                                  "env": { "GITHUB_TOKEN": "…" } } }
 """
+
+/// ANSI styling for the terminal, in the brand's palette (rust and steel on
+/// iron). Colors turn off when stdout is redirected or NO_COLOR is set.
+module private Style =
+    let enabled =
+        lazy (not Console.IsOutputRedirected
+              && isNull (Environment.GetEnvironmentVariable "NO_COLOR"))
+    let private wrap (code: string) (s: string) =
+        if enabled.Value then sprintf "\x1b[%sm%s\x1b[0m" code s else s
+    let rust s = wrap "1;38;5;173" s      // the brand accent, bold
+    let steel s = wrap "38;5;110" s
+    let dim s = wrap "2" s
+    let bold s = wrap "1" s
+    let red s = wrap "31" s
+    let green s = wrap "32" s
+    let yellow s = wrap "33" s
+
+    /// Color a tool-call description: edit_file previews carry
+    /// "  - old" / "  + new" lines.
+    let describe (description: string) =
+        description.Split('\n')
+        |> Array.map (fun line ->
+            if line.StartsWith "  - " then red line
+            elif line.StartsWith "  + " then green line
+            else line)
+        |> String.concat "\n"
 
 /// Streams model text to the terminal, remembering whether the turn's last
 /// character needs a closing newline.
@@ -156,12 +186,13 @@ let private runTests (dirArg: string option) (record: bool) (model: string optio
     | Ok summary ->
         for outcome in summary.outcomes do
             match outcome.error with
-            | None -> printfn "ok   - %s" outcome.name
+            | None -> printfn "%s - %s" (Style.green "ok  ") outcome.name
             | Some error ->
-                printfn "FAIL - %s" outcome.name
+                printfn "%s - %s" (Style.red "FAIL") outcome.name
                 printfn "       %s" (error.Replace("\n", "\n       "))
         printfn ""
-        printfn "%d passed, %d failed" summary.Passed.Length summary.Failed.Length
+        let verdict = sprintf "%d passed, %d failed" summary.Passed.Length summary.Failed.Length
+        printfn "%s" (if summary.Failed.IsEmpty then Style.green verdict else Style.red verdict)
         if summary.Failed.IsEmpty then 0 else 1
 
 /// A JSONL trace sink under <workspace>/.jern/.
@@ -178,7 +209,8 @@ let private ttyApprover (description: string) =
         eprintfn "jern: denied (no terminal to ask on; use --yes): %s" description
         false
     else
-        printf "approve %s? [y/N] " description
+        printf "%s %s%s %s " (Style.yellow "approve") (Style.describe description)
+            (Style.yellow "?") (Style.bold "[y/N]")
         match Console.ReadLine() with
         | null -> false
         | answer -> answer.Trim().ToLowerInvariant() = "y"
@@ -239,15 +271,16 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
     | Choice2Of2 first ->
         let mutable session = first
         printfn ""
-        printfn " jern v%s — chat (session %s%s, model %s)" AgentEnv.version id
-            (match initial with Nil -> "" | _ -> ", resumed")
-            (effectiveModel ())
-        printfn " %s; /help for commands, 'exit' or ctrl-d to quit." root
+        printfn " %s %s — chat (%s%s, %s)" (Style.rust "jern") (Style.steel ("v" + AgentEnv.version))
+            (Style.dim ("session " + id))
+            (match initial with Nil -> "" | _ -> Style.dim ", resumed")
+            (Style.steel (effectiveModel ()))
+        printfn " %s" (Style.dim (root + " · /help for commands · 'exit' or ctrl-d to quit"))
         printfn ""
         let mutable messages = initial
         let mutable running = true
         while running do
-            printf "you> "
+            printf "%s " (Style.rust "you>")
             match Console.ReadLine() with
             | null -> running <- false
             | line when line.Trim() = "" -> interrupted.Value <- false
@@ -291,16 +324,16 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
                 interrupted.Value <- false
                 match Session.runChatTurn session messages line with
                 | Choice1Of2 error when interrupted.Value ->
-                    printfn "interrupted — turn discarded (%s)" (showError error)
-                | Choice1Of2 error -> eprintfn "error : %s" (showError error)
+                    printfn "%s" (Style.yellow (sprintf "interrupted — turn discarded (%s)" (showError error)))
+                | Choice1Of2 error -> eprintfn "%s" (Style.red (sprintf "error : %s" (showError error)))
                 | Choice2Of2 updated ->
                     messages <- updated
                     SessionStore.save root id messages
-                    printfn "[%s · %s · session %s]" (effectiveModel ()) meter.Line id
+                    printfn "%s" (Style.dim (sprintf "[%s · %s · session %s]" (effectiveModel ()) meter.Line id))
         writer.Dispose()
         match messages with
         | Nil -> ()
-        | _ -> printfn "session saved: %s (resume with: jern --resume %s)" id id
+        | _ -> printfn "%s" (Style.dim (sprintf "session saved: %s (resume with: jern --resume %s)" id id))
         0
 
 let private runTask (autoApprove: bool) (agentDir: string option) (model: string option) (cliBudget: int option) (task: string) =
@@ -336,8 +369,8 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
             1
         | Choice2Of2 _ ->
             printfn ""
-            if meter.SawUsage then printfn "%s" meter.Line
-            printfn "Trace: %s" tracePath
+            if meter.SawUsage then printfn "%s" (Style.dim meter.Line)
+            printfn "%s" (Style.dim ("Trace: " + tracePath))
             0
 
 /// Connect every configured MCP server and print its tools — the setup
@@ -430,6 +463,34 @@ let private runPolicy (init: bool) =
             printfn ""
             printf "%s" (IO.File.ReadAllText builtin)
         0
+
+/// `jern ui` — serve the chat session as a local web app and open it.
+let private runUi (model: string option) (cliBudget: int option) (port: int) =
+    let root = Environment.CurrentDirectory
+    let providers = loadProviders ()
+    let modelLabel =
+        match model with
+        | Some m -> m
+        | None -> providers.defaultModel
+    let server =
+        Ui.start
+            { root = root
+              // Streaming goes to the browser, not the console; the Ui
+              // server does its own usage metering for the header.
+              makeBridge = fun onText -> Providers.createBridge providers model (Some onText)
+              agentSources = Session.agentPackageSources (Session.defaultAgentDir ())
+              agentConfig = Providers.agentConfig providers
+              mcpServers = providers.mcpServers
+              budget = sessionBudget providers cliBudget
+              modelLabel = modelLabel
+              port = port }
+    printfn " %s %s — ui at %s" (Style.rust "jern") (Style.steel ("v" + AgentEnv.version)) (Style.bold server.url)
+    printfn " %s" (Style.dim (root + " · ctrl-c to stop"))
+    try
+        Diagnostics.Process.Start(Diagnostics.ProcessStartInfo(server.url, UseShellExecute = true)) |> ignore
+    with _ -> ()
+    server.run ()
+    0
 
 let private runUndo () =
     match Git.undoLast Environment.CurrentDirectory with
@@ -527,6 +588,13 @@ let main argv =
             eprintfn "usage: jern run [--yes] [--agent <dir>] [--model <spec>] [--budget <n>] \"task\""
             2
     | ["undo"] -> runUndo ()
+    | ["ui"] -> runUi model cliBudget 0
+    | ["ui"; "--port"; p] ->
+        (match Int32.TryParse p with
+         | true, port -> runUi model cliBudget port
+         | _ ->
+             eprintfn "jern ui: --port needs a number, got '%s'" p
+             2)
     | ["mcp"] -> runMcp ()
     | ["policy"] -> runPolicy false
     | ["policy"; "init"] -> runPolicy true

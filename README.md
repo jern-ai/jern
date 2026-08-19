@@ -35,6 +35,14 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M16 — `jern ui` and a styled CLI** (v0.8): the session as a local web
+  app served by the binary itself — streaming replies, live tool-call
+  chips from the trace, and approval cards with colored diffs the agent
+  blocks on until you answer. The page is a single `ui/index.html` beside
+  the binary, editable like the agents; the server is a small readable
+  HTTP layer in [Ui.fs](src/Jern.Cli/Ui.fs). The terminal grew matching
+  colors: brand-palette chrome, diff-colored approval prompts, green/red
+  test verdicts (`NO_COLOR` respected).
 - **M15 — workspace policy** (v0.7): the repo governs its agents.
   `jern policy init` writes `.jern/policy.ikr` — enforced rules that
   override the built-ins for every session in that workspace: scope edits

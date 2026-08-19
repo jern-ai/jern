@@ -21,6 +21,7 @@
     <Compile Include="McpTests.fs" />
     <Compile Include="BudgetTests.fs" />
     <Compile Include="WorkspacePolicyTests.fs" />
+    <Compile Include="UiTests.fs" />
     <Compile Include="OpenAIHttpTests.fs" />
     <Compile Include="GitTests.fs" />
     <Compile Include="ChatUxTests.fs" />
@@ -35,5 +36,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Jern.Host/Jern.Host.fsproj" />
+    <ProjectReference Include="../../src/Jern.Cli/Jern.Cli.fsproj" />
   </ItemGroup>
 </Project>

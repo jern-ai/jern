@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.0 — 2026-08-19
+
+- **`jern ui`** — the chat session as a local web app, served by the
+  binary itself on 127.0.0.1: streamed replies, live tool-call chips from
+  the trace, git-commit notes, token totals, stop/undo — and **interactive
+  approval cards**: the policy gate's question renders with a colored diff
+  and approve/deny buttons, and the agent blocks until you answer. The
+  page is `ui/index.html` beside the binary (edit it like everything
+  else); the server is a small readable TcpListener HTTP layer (the
+  managed HttpListener mis-reads request bodies on kept-alive
+  connections). `--port n` to pin the port.
+- **CLI styling**: brand-palette color for the chat banner, prompt, and
+  status line; red/green diffs in approval prompts; green/red test
+  verdicts; colored errors and interrupts. Automatically disabled when
+  output is redirected or `NO_COLOR` is set.
+
 ## 0.7.0 — 2026-08-19
 
 - **Workspace policy.** A repo can govern its own agents: `jern policy

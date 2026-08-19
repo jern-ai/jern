@@ -6,7 +6,10 @@
     <Tailcalls>true</Tailcalls>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Ui.fs" />
     <Compile Include="Program.fs" />
+    <!-- The web UI is a file beside the binary, editable like the agents. -->
+    <Content Include="ui/index.html" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Jern.Host/Jern.Host.fsproj" />
