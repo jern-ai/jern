@@ -79,8 +79,8 @@ parser/compiler are published — tracked as upstream work, this repo being the
 language's first demanding customer.
 
 ```bash
-dotnet build Iron.sln
-dotnet test Iron.sln
+dotnet build Iron.slnx
+dotnet test Iron.slnx
 dotnet run --project src/Iron.Cli -- repl
 ```
 

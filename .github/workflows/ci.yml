@@ -30,10 +30,10 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Restore
-        run: dotnet restore iron-agent/Iron.sln
+        run: dotnet restore iron-agent/Iron.slnx
 
       - name: Build
-        run: dotnet build iron-agent/Iron.sln -c Release --no-restore
+        run: dotnet build iron-agent/Iron.slnx -c Release --no-restore
 
       - name: Test
-        run: dotnet test iron-agent/Iron.sln -c Release --no-build --verbosity normal
+        run: dotnet test iron-agent/Iron.slnx -c Release --no-build --verbosity normal
