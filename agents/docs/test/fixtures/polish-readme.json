@@ -82,6 +82,9 @@
             }
           }
         ],
+        "cache_control": {
+          "type": "ephemeral"
+        },
         "messages": [
           {
             "role": "user",
@@ -186,6 +189,9 @@
             }
           }
         ],
+        "cache_control": {
+          "type": "ephemeral"
+        },
         "messages": [
           {
             "role": "user",
@@ -316,6 +322,9 @@
             }
           }
         ],
+        "cache_control": {
+          "type": "ephemeral"
+        },
         "messages": [
           {
             "role": "user",

@@ -103,6 +103,32 @@ module Session =
                         bounceContinue env cont Inert
                 | bad -> signal cont (NumArgs(1, bad))
 
+            let gitEnabled = lazy (Git.isRepo config.workspaceRoot)
+
+            /// Commit a file's uncommitted user changes before iron edits it.
+            let hostGitSaveDirty env cont = function
+                | [Obj (:? string as path)] ->
+                    let result =
+                        if gitEnabled.Value && Git.isFileDirty config.workspaceRoot path then
+                            match Git.commitPath config.workspaceRoot path
+                                      (sprintf "iron: save your uncommitted changes to %s" path) with
+                            | Some hash -> Obj(hash :> obj)
+                            | None -> Keyword "null"
+                        else Keyword "null"
+                    bounceContinue env cont result
+                | bad -> signal cont (NumArgs(1, bad))
+
+            let hostGitCommit env cont = function
+                | [Obj (:? string as path); Obj (:? string as message)] ->
+                    let result =
+                        if gitEnabled.Value then
+                            match Git.commitPath config.workspaceRoot path message with
+                            | Some hash -> Obj(hash :> obj)
+                            | None -> Keyword "null"
+                        else Keyword "null"
+                    bounceContinue env cont result
+                | bad -> signal cont (NumArgs(2, bad))
+
             let hostApprove env cont = function
                 | [Obj (:? string as description)] ->
                     match config.approver with
@@ -119,6 +145,8 @@ module Session =
                      :: ("iron/host-tool-call", AgentEnv.applicative hostToolCall)
                      :: ("iron/host-trace", AgentEnv.applicative hostTrace)
                      :: ("iron/host-approve", AgentEnv.applicative hostApprove)
+                     :: ("iron/host-git-save-dirty", AgentEnv.applicative hostGitSaveDirty)
+                     :: ("iron/host-git-commit", AgentEnv.applicative hostGitCommit)
                      :: ("agent-env", agentEnv)
                      :: AgentEnv.effectBindings tags)
 

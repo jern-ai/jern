@@ -34,6 +34,14 @@ $ iron test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M8 — git safety** (v0.2 roadmap): every approved `edit_file` is
+  auto-committed (author `iron <iron@localhost>`, task in the message), with
+  your uncommitted changes to that file saved on their own commit first;
+  `iron undo` / `/undo` pops exactly one iron commit and refuses anything
+  else. The whole layer is ~40 lines of
+  [handlers.ikr](src/Iron.Host/kernel/handlers.ikr). The default agent also
+  pulls `CONVENTIONS.md` into its system prompt and places an Anthropic
+  prompt-cache breakpoint — both from agent source.
 - **M7 — providers, streaming, cost** (v0.2 roadmap): `--model
   provider/model` routes to Anthropic natively or to any OpenAI-compatible
   endpoint — OpenAI, Ollama, OpenRouter, DeepSeek, Groq, Mistral, xAI,

@@ -12,6 +12,7 @@
     <Compile Include="Tools.fs" />
     <Compile Include="Providers.fs" />
     <Compile Include="Fixtures.fs" />
+    <Compile Include="Git.fs" />
     <Compile Include="Session.fs" />
     <Compile Include="SessionStore.fs" />
     <Compile Include="TestRunner.fs" />

@@ -19,6 +19,7 @@
     <Compile Include="ChatTests.fs" />
     <Compile Include="ProviderTests.fs" />
     <Compile Include="OpenAIHttpTests.fs" />
+    <Compile Include="GitTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

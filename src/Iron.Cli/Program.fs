@@ -18,6 +18,7 @@ Usage:
                       (trace in .iron/)
                       --yes approves policy-gated actions (writes, shell)
                       --agent runs a different agent package (the headline)
+  iron undo           Revert the last iron-authored commit (also /undo in chat)
   iron eject          Copy the default agent's source into ./agents/default
   iron repl           Kernel REPL inside the agent's restricted environment
   iron script <file>  Run a .ikr script as agent code under the handler stack
@@ -185,6 +186,10 @@ let private runChat (resumeId: string option) (model: string option) =
             | line when line.Trim() = "" -> ()
             | line when [ "exit"; "quit" ] |> List.contains (line.Trim().ToLowerInvariant()) ->
                 running <- false
+            | line when line.Trim() = "/undo" ->
+                match Git.undoLast root with
+                | Ok subject -> printfn "undone: %s" subject
+                | Error message -> eprintfn "iron: %s" message
             | line ->
                 match Session.runChatTurn session messages line with
                 | Choice1Of2 error -> eprintfn "error : %s" (showError error)
@@ -235,6 +240,15 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
             if meter.SawUsage then printfn "%s" meter.Line
             printfn "Trace: %s" tracePath
             0
+
+let private runUndo () =
+    match Git.undoLast Environment.CurrentDirectory with
+    | Ok subject ->
+        printfn "undone: %s" subject
+        0
+    | Error message ->
+        eprintfn "iron undo: %s" message
+        1
 
 let private banner () =
     printfn ""
@@ -320,6 +334,7 @@ let main argv =
         | None ->
             eprintfn "usage: iron run [--yes] [--agent <dir>] [--model <spec>] \"task\""
             2
+    | ["undo"] -> runUndo ()
     | ["eject"] ->
         // Copy the installed default agent into the workspace for editing.
         let source = Session.defaultAgentDir ()

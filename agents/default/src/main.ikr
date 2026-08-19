@@ -8,11 +8,24 @@
 ; the tests after every edit, extend run-tool-use to perform a "shell" tool
 ; call whenever the tool was "edit_file".
 
-(define system-prompt
+(define base-prompt
   "You are iron, a terminal coding agent operating in the user's workspace.
 Use the tools to inspect and change files; keep going until the task is done,
 then reply with a short summary. Prefer minimal, precise edits. When a tool
 fails, read the error and adapt. Never invent file contents you have not read.")
+
+; Project conventions, aider-style: if the workspace has a CONVENTIONS.md,
+; its contents ride along in the system prompt. Reads are policy-free, so
+; this costs one tool call per model turn and no approvals.
+(define system-prompt-with-conventions
+  (lambda ()
+    (sequence
+      (define result (call-tool "read_file" (list :path "CONVENTIONS.md")))
+      (if (eqv? (plist-get result :is_error) #t)
+          base-prompt
+          (String.concat base-prompt
+            (String.concat "\n\nProject conventions (from CONVENTIONS.md):\n"
+                           (plist-get result :content)))))))
 
 (define max-turns 50)
 
@@ -46,11 +59,16 @@ fails, read the error and adapt. Never invent file contents you have not read.")
           (perform iron/log (list :event "max-turns-reached"))
           messages)
         (sequence
+          ; :cache_control rides the request verbatim: Anthropic auto-places
+          ; the cache breakpoint on the last cacheable block (so the whole
+          ; conversation prefix caches turn over turn); other providers'
+          ; bridges simply ignore it. Prompt caching, from agent source.
           (define response
             (perform iron/llm-call
-              (list :system system-prompt
+              (list :system (system-prompt-with-conventions)
                     :max_tokens 8192
                     :tools (tools-for-llm)
+                    :cache_control (list :type "ephemeral")
                     :messages (apply vector (reverse messages)))))
           (show-progress response)
           (define with-assistant

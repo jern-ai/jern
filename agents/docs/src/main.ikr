@@ -58,6 +58,7 @@ summary when done.")
               (list :system system-prompt
                     :max_tokens 4096
                     :tools (tools-for-llm)
+                    :cache_control (list :type "ephemeral")
                     :messages (apply vector (reverse messages)))))
           (show-progress response)
           (define with-assistant

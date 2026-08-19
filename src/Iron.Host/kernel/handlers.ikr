@@ -35,27 +35,77 @@
       (eval body env))))
 
 ; iron/log: structured events from agent code go straight to the trace.
+; A logged :task is remembered so git commit messages can carry it.
+(define *task-box* (vector :null))
+
 (define with-log-handler
   (vau (body) env
     (prompt iron/log
       (lambda (event resume-log)
         (sequence
+          (if (pair? event)
+              (sequence
+                (define task (plist-get event :task))
+                (if (eqv? task :null) #inert (vector-set! *task-box* 0 task)))
+              #inert)
           (iron/host-trace (list :event "log" :data event))
           (resume resume-log #inert)))
+      (eval body env))))
+
+; Git safety, aider-style, as replaceable Kernel source. Around every
+; edit_file that policy lets through:
+;   - if the target has uncommitted user changes, commit them first on their
+;     own ("save your edits"), so the agent's change is isolated;
+;   - after a successful edit, commit just that file, authored as iron, with
+;     the task in the message. `iron undo` (or /undo in chat) pops exactly
+;     one such commit.
+; Outside a git repository both host primitives answer :null and nothing
+; happens.
+(define git-commit-message
+  (lambda (path)
+    (sequence
+      (define task (vector-ref *task-box* 0))
+      (if (eqv? task :null)
+          (String.concat "iron: edit " path)
+          (String.concat (String.concat "iron: edit " path)
+                         (String.concat "\n\n" task))))))
+
+(define with-git-handler
+  (vau (body) env
+    (prompt iron/tool-call
+      (lambda (call resume-call)
+        (sequence
+          (define name (plist-get call :name))
+          (define path (plist-get (plist-get call :input) :path))
+          (if (equal? name "edit_file")
+              (iron/host-git-save-dirty path)
+              #inert)
+          (define result (perform iron/tool-call call))
+          (if (and? (equal? name "edit_file")
+                    (not? (eqv? (plist-get result :is_error) #t)))
+              (sequence
+                (define hash (iron/host-git-commit path (git-commit-message path)))
+                (if (eqv? hash :null)
+                    #inert
+                    (iron/host-trace (list :event "git-commit" :hash hash :path path))))
+              #inert)
+          (resume resume-call result)))
       (eval body env))))
 
 ; Run a form in the agent environment under the full handler stack.
 ; `agent-env` is bound host-side in this environment.
 ;
 ; Order matters. The policy handler sits closest to the agent, so it sees
-; every iron/tool-call first; when it re-performs an allowed call, the search
-; continues outward to the executor. Its approval questions (iron/approve)
-; are answered by the approval handler, which must therefore sit outside it.
+; every iron/tool-call first; an allowed call re-performs outward into the
+; git handler (dirty-guard before, auto-commit after), which re-performs
+; into the executor. Policy's approval questions (iron/approve) are answered
+; by the approval handler, which must therefore sit outside it.
 (define run-in-session
   (vau (form) #ignore
     (with-log-handler
       (with-approval-handler
         (with-provider-handler
           (with-tool-handler
-            (with-policy-handler
-              (eval form agent-env))))))))
+            (with-git-handler
+              (with-policy-handler
+                (eval form agent-env)))))))))
