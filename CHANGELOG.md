@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.4 — 2026-08-19
+
+- Fixed the osx-x64 release build (cross-compiled on arm64 macOS runners):
+  the IronKernel Exe reference is now built once, RID-agnostic, instead of
+  once per target-plus-host RID (NETSDK1047/NETSDK1152). No behavior change
+  in the shipped binaries. (0.2.1–0.2.3 were CI-infrastructure iterations
+  on the same problem.)
+
 ## 0.2.0 — 2026-08-19
 
 The productization release. The project is now **jern** (Norwegian for
