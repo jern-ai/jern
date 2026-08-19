@@ -65,10 +65,10 @@
                                     <span class="c"># catches any change to agent behavior</span></code></pre>
 
   <div class="loop">
-    <div><b>use it</b><p>Anthropic, OpenAI, Ollama, or any OpenAI-compatible endpoint. MCP servers as tools. Streaming, git auto-commit with undo, approval gates with diff previews, a full JSONL audit trace.</p></div>
-    <div><b>read it</b><p>The loop, the tools, and the allow/ask/deny policy are IronKernel source shipped beside the binary — not hooks into an opaque core.</p></div>
+    <div><b>use it</b><p>Anthropic, OpenAI, Ollama, or any OpenAI-compatible endpoint. MCP servers as tools. Streaming, git auto-commit with undo, a local web UI with approval cards, a full JSONL audit trace.</p></div>
+    <div><b>read it</b><p>The loop, the tools, the allow/ask/deny policy, and the run budgets are IronKernel source shipped beside the binary — not hooks into an opaque core. Your repo can carry its own enforced policy.</p></div>
     <div><b>edit it</b><p>Agent code runs in a capability environment holding no file, network, or process authority — only unforgeable effect tags. Editing the brain never means trusting it.</p></div>
-    <div><b>test it</b><p><code>jern test</code> replays recorded LLM fixtures and fails on any divergence. A unit-tested agent: name another one.</p></div>
+    <div><b>test it</b><p><code>jern test</code> replays recorded LLM fixtures byte-exactly and asserts trajectory properties — "never shelled out", "edits only under src/". A regression-tested agent: name another one.</p></div>
   </div>
 
   <h2>Why a language matters</h2>
