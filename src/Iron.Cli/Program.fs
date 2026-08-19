@@ -74,14 +74,29 @@ type private UsageMeter() =
         sprintf "tokens: %s in, %s out" (fmt input) (fmt output)
     member _.SawUsage = input > 0L || output > 0L
 
-/// The provider-routing bridge for live commands.
-let private newBridge (model: string option) (stream: ConsoleStream option) (meter: UsageMeter) =
+let private loadProviders () =
     match Providers.load Environment.CurrentDirectory with
-    | Error message -> Error message
-    | Ok config ->
-        Providers.createBridge config model (stream |> Option.map (fun s -> s.Write))
-        |> meter.Wrap stream
-        |> Ok
+    | Error message ->
+        eprintfn "iron: %s" message
+        exit 1
+    | Ok config -> config
+
+/// The provider-routing bridge for live commands. `interrupted` aborts a
+/// streaming turn from inside the text callback.
+let private routedBridge (config: Providers.Config) (model: string option)
+                         (stream: ConsoleStream option) (meter: UsageMeter)
+                         (interrupted: (unit -> bool) option) =
+    let onText =
+        stream
+        |> Option.map (fun s ->
+            fun piece ->
+                match interrupted with
+                | Some check when check () -> raise Interrupted
+                | _ -> s.Write piece)
+    Providers.createBridge config model onText |> meter.Wrap stream
+
+let private newBridge (model: string option) (stream: ConsoleStream option) (meter: UsageMeter) =
+    Ok(routedBridge (loadProviders ()) model stream meter None)
 
 let private runTests (dirArg: string option) (record: bool) (model: string option) =
     let agentDir =
@@ -153,29 +168,43 @@ let private runChat (resumeId: string option) (model: string option) =
                eprintfn "iron: %s" message
                exit 1
            | Ok pair -> pair
+    let providers = loadProviders ()
     let stream = ConsoleStream()
     let meter = UsageMeter()
-    let bridge =
-        match newBridge model (Some stream) meter with
-        | Error message ->
-            eprintfn "iron: %s" message
-            exit 1
-        | Ok bridge -> bridge
+    let interrupted = ref false
+    Console.CancelKeyPress.Add(fun e ->
+        e.Cancel <- true
+        interrupted.Value <- true)
     let writer, _ = newTraceSink root
-    let config =
-        { Session.configIn root bridge with
-            traceSink = Some writer.WriteLine
-            agentSources = Session.agentPackageSources (Session.defaultAgentDir ())
-            approver = Some ttyApprover }
-    match Session.createWith config with
+    let mutable currentModel = model
+
+    let makeSession () =
+        let bridge =
+            routedBridge providers currentModel (Some stream) meter (Some(fun () -> interrupted.Value))
+        Session.createWith
+            { Session.configIn root bridge with
+                traceSink = Some writer.WriteLine
+                agentSources = Session.agentPackageSources (Session.defaultAgentDir ())
+                approver = Some ttyApprover
+                agentConfig = Providers.agentConfig providers
+                interrupted = fun () -> interrupted.Value }
+
+    let effectiveModel () =
+        match currentModel with
+        | Some m -> m
+        | None -> providers.defaultModel
+
+    match makeSession () with
     | Choice1Of2 error ->
         eprintfn "Startup error: %s" (showError error)
         1
-    | Choice2Of2 session ->
+    | Choice2Of2 first ->
+        let mutable session = first
         printfn ""
-        printfn " iron v%s — chat (session %s%s)" AgentEnv.version id
+        printfn " iron v%s — chat (session %s%s, model %s)" AgentEnv.version id
             (match initial with Nil -> "" | _ -> ", resumed")
-        printfn " The agent works in %s; quit with 'exit' or ctrl-d." root
+            (effectiveModel ())
+        printfn " %s; /help for commands, 'exit' or ctrl-d to quit." root
         printfn ""
         let mutable messages = initial
         let mutable running = true
@@ -183,20 +212,53 @@ let private runChat (resumeId: string option) (model: string option) =
             printf "you> "
             match Console.ReadLine() with
             | null -> running <- false
-            | line when line.Trim() = "" -> ()
+            | line when line.Trim() = "" -> interrupted.Value <- false
             | line when [ "exit"; "quit" ] |> List.contains (line.Trim().ToLowerInvariant()) ->
                 running <- false
-            | line when line.Trim() = "/undo" ->
-                match Git.undoLast root with
-                | Ok subject -> printfn "undone: %s" subject
-                | Error message -> eprintfn "iron: %s" message
+            | line when line.Trim().StartsWith "/" ->
+                interrupted.Value <- false
+                match line.Trim().Split(' ', 2) |> Array.toList with
+                | ["/help"] | ["/help"; _] ->
+                    printfn "/model [provider/model]  show or switch the model"
+                    printfn "/undo                    revert the last iron commit"
+                    printfn "/clear                   forget this conversation's history"
+                    printfn "/cost                    token totals for this session"
+                    printfn "/help                    this list"
+                | ["/undo"] ->
+                    match Git.undoLast root with
+                    | Ok subject -> printfn "undone: %s" subject
+                    | Error message -> eprintfn "iron: %s" message
+                | ["/model"] ->
+                    printfn "model: %s" (effectiveModel ())
+                | ["/model"; spec] ->
+                    match Providers.resolve providers (spec.Trim()) with
+                    | Error message -> eprintfn "iron: %s" message
+                    | Ok _ ->
+                        currentModel <- Some(spec.Trim())
+                        match makeSession () with
+                        | Choice1Of2 error -> eprintfn "iron: %s" (showError error)
+                        | Choice2Of2 fresh ->
+                            session <- fresh
+                            printfn "model: %s" (effectiveModel ())
+                | ["/clear"] ->
+                    messages <- Nil
+                    SessionStore.save root id messages
+                    printfn "history cleared"
+                | ["/cost"] ->
+                    printfn "%s" meter.Line
+                | command :: _ ->
+                    eprintfn "iron: unknown command %s (try /help)" command
+                | [] -> ()
             | line ->
+                interrupted.Value <- false
                 match Session.runChatTurn session messages line with
+                | Choice1Of2 error when interrupted.Value ->
+                    printfn "interrupted — turn discarded (%s)" (showError error)
                 | Choice1Of2 error -> eprintfn "error : %s" (showError error)
                 | Choice2Of2 updated ->
                     messages <- updated
                     SessionStore.save root id messages
-                    if meter.SawUsage then printfn "%s[%s]%s" "" meter.Line ""
+                    printfn "[%s · %s · session %s]" (effectiveModel ()) meter.Line id
         writer.Dispose()
         match messages with
         | Nil -> ()
@@ -205,14 +267,10 @@ let private runChat (resumeId: string option) (model: string option) =
 
 let private runTask (autoApprove: bool) (agentDir: string option) (model: string option) (task: string) =
     let root = Environment.CurrentDirectory
+    let providers = loadProviders ()
     let stream = ConsoleStream()
     let meter = UsageMeter()
-    let bridge =
-        match newBridge model (Some stream) meter with
-        | Error message ->
-            eprintfn "iron: %s" message
-            exit 1
-        | Ok bridge -> bridge
+    let bridge = routedBridge providers model (Some stream) meter None
     let writer, tracePath = newTraceSink root
     let agent =
         match agentDir with
@@ -222,7 +280,8 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
         { Session.configIn root bridge with
             traceSink = Some writer.WriteLine
             agentSources = Session.agentPackageSources agent
-            approver = Some(if autoApprove then (fun _ -> true) else ttyApprover) }
+            approver = Some(if autoApprove then (fun _ -> true) else ttyApprover)
+            agentConfig = Providers.agentConfig providers }
     match Session.createWith config with
     | Choice1Of2 error ->
         eprintfn "Startup error: %s" (showError error)

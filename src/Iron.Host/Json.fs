@@ -5,6 +5,10 @@ open System.Text.Json.Nodes
 open IronKernel
 open IronKernel.Ast
 
+/// Raised from host callbacks (Ctrl-C) to abort the current turn. Bridges
+/// convert it into a Kernel error and never fall back to a retry.
+exception Interrupted
+
 /// JSON ⇄ Kernel data, the frozen boundary convention (implementation plan §4.2).
 ///
 /// | JSON            | Kernel                                            |

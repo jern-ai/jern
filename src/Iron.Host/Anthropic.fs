@@ -31,6 +31,16 @@ module AnthropicBridge =
 
     let private clientLazy = lazy (new AnthropicClient())
 
+    /// Ctrl-C surfaces as Interrupted (possibly wrapped by the task machinery).
+    let internal isInterrupt (e: exn) =
+        match e with
+        | Interrupted -> true
+        | :? AggregateException as a when not (isNull a.InnerException) ->
+            match a.InnerException with
+            | Interrupted -> true
+            | _ -> false
+        | _ -> false
+
     /// Accumulates Messages API stream events (wire JSON) into the final
     /// message, emitting text deltas as they arrive. Pure JSON-to-JSON, so
     /// it is unit-testable without the SDK or the network.
@@ -171,7 +181,9 @@ module AnthropicBridge =
                     | Some emit ->
                         try
                             streamCompletion parameters emit
-                        with _ ->
+                        with
+                        | e when isInterrupt e -> raise Interrupted
+                        | _ ->
                             let node = complete (toParams (prepareBody model request))
                             match node.["content"] with
                             | :? JsonArray as blocks ->
@@ -186,6 +198,8 @@ module AnthropicBridge =
                             node
                 Choice2Of2 (Json.toLispVal responseNode)
             with
+            | e when isInterrupt e ->
+                Choice1Of2 (Default "llm-call interrupted by user")
             | :? AggregateException as ex when ex.InnerException <> null ->
                 Choice1Of2 (Default("llm-call failed: " + ex.InnerException.Message))
             | ex ->

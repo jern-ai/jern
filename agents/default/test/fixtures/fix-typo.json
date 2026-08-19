@@ -36,123 +36,14 @@
             }
           },
           {
-            "name": "grep",
-            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
-            "input_schema": {
-              "type": "object",
-              "properties": {
-                "pattern": {
-                  "type": "string",
-                  "description": ".NET regular expression to search for"
-                },
-                "path": {
-                  "type": "string",
-                  "description": "File or directory to search; defaults to the workspace root"
-                }
-              },
-              "required": [
-                "pattern"
-              ]
-            }
-          },
-          {
-            "name": "edit_file",
-            "description": "Edit a workspace file by exact string replacement. old_string must occur exactly once.",
+            "name": "file_tree",
+            "description": "An indented tree of a workspace directory (depth-limited, build and VCS directories skipped).",
             "input_schema": {
               "type": "object",
               "properties": {
                 "path": {
                   "type": "string",
-                  "description": "Workspace-relative file path"
-                },
-                "old_string": {
-                  "type": "string",
-                  "description": "Exact text to replace (must be unique in the file)"
-                },
-                "new_string": {
-                  "type": "string",
-                  "description": "Replacement text"
-                }
-              },
-              "required": [
-                "path",
-                "old_string",
-                "new_string"
-              ]
-            }
-          },
-          {
-            "name": "shell",
-            "description": "Run a shell command in the workspace and return its combined output.",
-            "input_schema": {
-              "type": "object",
-              "properties": {
-                "command": {
-                  "type": "string",
-                  "description": "Command line, run with sh -c"
-                }
-              },
-              "required": [
-                "command"
-              ]
-            }
-          }
-        ],
-        "cache_control": {
-          "type": "ephemeral"
-        },
-        "messages": [
-          {
-            "role": "user",
-            "content": "Fix the typo in greeting.txt"
-          }
-        ]
-      },
-      "response": {
-        "role": "assistant",
-        "stop_reason": "tool_use",
-        "content": [
-          {
-            "type": "tool_use",
-            "id": "t1",
-            "name": "read_file",
-            "input": {
-              "path": "greeting.txt"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "request": {
-        "system": "You are iron, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
-        "max_tokens": 8192,
-        "tools": [
-          {
-            "name": "read_file",
-            "description": "Read a UTF-8 text file from the workspace and return its contents.",
-            "input_schema": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Workspace-relative file path"
-                }
-              },
-              "required": [
-                "path"
-              ]
-            }
-          },
-          {
-            "name": "list_dir",
-            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
-            "input_schema": {
-              "type": "object",
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "description": "Workspace-relative directory path; defaults to the workspace root"
+                  "description": "Workspace-relative directory; defaults to the workspace root"
                 }
               },
               "required": []
@@ -227,7 +118,144 @@
         "messages": [
           {
             "role": "user",
-            "content": "Fix the typo in greeting.txt"
+            "content": "Fix the typo in greeting.txt\n\nWorkspace layout:\ngreeting.txt"
+          }
+        ]
+      },
+      "response": {
+        "role": "assistant",
+        "stop_reason": "tool_use",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "t1",
+            "name": "read_file",
+            "input": {
+              "path": "greeting.txt"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "system": "You are iron, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
+        "max_tokens": 8192,
+        "tools": [
+          {
+            "name": "read_file",
+            "description": "Read a UTF-8 text file from the workspace and return its contents.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "list_dir",
+            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative directory path; defaults to the workspace root"
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "name": "file_tree",
+            "description": "An indented tree of a workspace directory (depth-limited, build and VCS directories skipped).",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative directory; defaults to the workspace root"
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "name": "grep",
+            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "pattern": {
+                  "type": "string",
+                  "description": ".NET regular expression to search for"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": [
+                "pattern"
+              ]
+            }
+          },
+          {
+            "name": "edit_file",
+            "description": "Edit a workspace file by exact string replacement. old_string must occur exactly once.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "old_string": {
+                  "type": "string",
+                  "description": "Exact text to replace (must be unique in the file)"
+                },
+                "new_string": {
+                  "type": "string",
+                  "description": "Replacement text"
+                }
+              },
+              "required": [
+                "path",
+                "old_string",
+                "new_string"
+              ]
+            }
+          },
+          {
+            "name": "shell",
+            "description": "Run a shell command in the workspace and return its combined output.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "description": "Command line, run with sh -c"
+                }
+              },
+              "required": [
+                "command"
+              ]
+            }
+          }
+        ],
+        "cache_control": {
+          "type": "ephemeral"
+        },
+        "messages": [
+          {
+            "role": "user",
+            "content": "Fix the typo in greeting.txt\n\nWorkspace layout:\ngreeting.txt"
           },
           {
             "role": "assistant",
@@ -308,6 +336,20 @@
             }
           },
           {
+            "name": "file_tree",
+            "description": "An indented tree of a workspace directory (depth-limited, build and VCS directories skipped).",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative directory; defaults to the workspace root"
+                }
+              },
+              "required": []
+            }
+          },
+          {
             "name": "grep",
             "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
             "input_schema": {
@@ -376,7 +418,7 @@
         "messages": [
           {
             "role": "user",
-            "content": "Fix the typo in greeting.txt"
+            "content": "Fix the typo in greeting.txt\n\nWorkspace layout:\ngreeting.txt"
           },
           {
             "role": "assistant",

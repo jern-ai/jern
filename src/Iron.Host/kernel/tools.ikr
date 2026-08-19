@@ -19,6 +19,13 @@
         (list :path (list :type "string" :description "Workspace-relative directory path; defaults to the workspace root"))
         :required (vector)))
 
+(define-tool "file_tree"
+  "An indented tree of a workspace directory (depth-limited, build and VCS directories skipped)."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative directory; defaults to the workspace root"))
+        :required (vector)))
+
 (define-tool "grep"
   "Search workspace files with a regular expression. Returns 'path:line: text' matches."
   (list :type "object"

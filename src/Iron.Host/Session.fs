@@ -33,7 +33,13 @@ module Session =
           /// None denies everything with a warning to stderr.
           approver: (string -> bool) option
           /// Extra bindings injected into the agent environment (test hooks).
-          agentBindings: (string * LispVal) list }
+          agentBindings: (string * LispVal) list
+          /// Workspace configuration exposed to agent source as the
+          /// `iron/workspace-config` plist (e.g. :test_command). Data only.
+          agentConfig: LispVal
+          /// Polled before every llm/tool dispatch; true aborts the turn
+          /// with a Kernel error (Ctrl-C).
+          interrupted: unit -> bool }
 
     type Session =
         { agentEnv: LispVal
@@ -71,20 +77,29 @@ module Session =
             let tags = AgentEnv.newEffectTags ()
 
             let agentEnv =
-                bindVars (newEnv [std]) (AgentEnv.baseBindings tags @ config.agentBindings)
+                bindVars (newEnv [std])
+                    (AgentEnv.baseBindings tags
+                     @ [ "iron/workspace-config", config.agentConfig ]
+                     @ config.agentBindings)
 
             let hostLlmCall env cont = function
                 | [request] ->
-                    match config.bridge request with
-                    | Choice1Of2 error -> signal cont error
-                    | Choice2Of2 reply -> bounceContinue env cont reply
+                    if config.interrupted () then
+                        signal cont (Default "interrupted by user")
+                    else
+                        match config.bridge request with
+                        | Choice1Of2 error -> signal cont error
+                        | Choice2Of2 reply -> bounceContinue env cont reply
                 | bad -> signal cont (NumArgs(1, bad))
 
             let hostToolCall env cont = function
                 | [call] ->
-                    match Tools.dispatch config.workspaceRoot call with
-                    | Choice1Of2 error -> signal cont error
-                    | Choice2Of2 reply -> bounceContinue env cont reply
+                    if config.interrupted () then
+                        signal cont (Default "interrupted by user")
+                    else
+                        match Tools.dispatch config.workspaceRoot call with
+                        | Choice1Of2 error -> signal cont error
+                        | Choice2Of2 reply -> bounceContinue env cont reply
                 | bad -> signal cont (NumArgs(1, bad))
 
             let hostTrace env cont = function
@@ -186,7 +201,9 @@ module Session =
           traceSink = None
           agentSources = []
           approver = Some(fun _ -> true)
-          agentBindings = [] }
+          agentBindings = []
+          agentConfig = Nil
+          interrupted = fun () -> false }
 
     /// Build a session around an LLM bridge with tools scoped to `root`.
     let createIn (root: string) (bridge: AnthropicBridge.LlmBridge) : ThrowsError<Session> =

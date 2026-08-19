@@ -338,7 +338,9 @@ module OpenAIBridge =
                     if payload = "[DONE]" then running <- false
                     elif payload <> "" then
                         try accumulator.Apply(JsonNode.Parse(payload).AsObject())
-                        with _ -> ()
+                        with
+                        | e when AnthropicBridge.isInterrupt e -> raise Interrupted
+                        | _ -> ()
                 | _ -> ()
             Ok(accumulator.Final())
 
@@ -379,5 +381,8 @@ module OpenAIBridge =
                 match outcome with
                 | Ok canonical -> Choice2Of2 (Json.toLispVal canonical)
                 | Error message -> Choice1Of2 (Default("llm-call failed: " + message))
-            with ex ->
+            with
+            | e when AnthropicBridge.isInterrupt e ->
+                Choice1Of2 (Default "llm-call interrupted by user")
+            | ex ->
                 Choice1Of2 (Default("llm-call failed: " + ex.Message))

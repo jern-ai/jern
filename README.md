@@ -34,6 +34,13 @@ $ iron test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M9 — chat UX** (v0.2 roadmap): Ctrl-C interrupts the turn (streaming
+  aborts, the next dispatch refuses, history stays consistent); chat gets
+  `/model` (switch providers mid-session), `/undo`, `/clear`, `/cost`,
+  `/help`, and a status line (model · tokens · session). The default agent
+  opens with a `file_tree` snapshot in the first message (cache-friendly:
+  the system prompt stays byte-stable) and, when `iron.json` sets
+  `test_command`, runs your tests after every edit and reacts to the result.
 - **M8 — git safety** (v0.2 roadmap): every approved `edit_file` is
   auto-committed (author `iron <iron@localhost>`, task in the message), with
   your uncommitted changes to that file saved on their own commit first;

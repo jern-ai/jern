@@ -91,3 +91,29 @@ let ``falls back to a plain call when the server rejects streaming`` () =
             Assert.Contains("\"text\":\"plain reply\"", Json.serialize response)
     finally
         listener.Stop()
+
+[<Fact>]
+let ``an interrupt during streaming aborts without the plain-call fallback`` () =
+    let mutable hits = 0
+    let url, listener, _ =
+        serve (fun ctx ->
+            hits <- hits + 1
+            ctx.Response.ContentType <- "text/event-stream"
+            let payload =
+                String.concat "\n\n"
+                    [ """data: {"model":"m","choices":[{"delta":{"content":"chunk1"}}]}"""
+                      """data: {"choices":[{"delta":{"content":"chunk2"}}]}"""
+                      "data: [DONE]"; "" ]
+            let bytes = Encoding.UTF8.GetBytes payload
+            ctx.Response.OutputStream.Write(bytes, 0, bytes.Length)
+            ctx.Response.Close())
+    try
+        let onText = fun (_: string) -> raise Interrupted
+        let bridge = OpenAIBridge.call url None "test-model" (Some onText)
+        match bridge (request ()) with
+        | Choice2Of2 v -> failwithf "expected interrupt, got %A" v
+        | Choice1Of2 error ->
+            Assert.Contains("interrupted", IronKernel.Errors.showError error)
+        Assert.Equal(1, hits)
+    finally
+        listener.Stop()

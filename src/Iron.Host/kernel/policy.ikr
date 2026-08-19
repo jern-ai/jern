@@ -31,6 +31,7 @@
             ((equal? name "edit_file") :ask)
             ((equal? name "read_file") :allow)
             ((equal? name "list_dir") :allow)
+            ((equal? name "file_tree") :allow)
             ((equal? name "grep") :allow)
             (#t :ask)))))
 

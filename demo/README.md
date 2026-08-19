@@ -37,8 +37,9 @@ behavior is pinned the way a unit test pins code. Say the sentence out loud:
 
 **Act 4 — edit it, and get caught** *(no key; blessing the change needs one)*.
 Apply a real behavior change — after every file edit, the loop immediately
-runs the project's tests and shows the model the result. Ten lines of Kernel,
-no recompile. Rerun `iron test`: **it fails**, pointing at exactly where the
+runs the project's tests and shows the model the result. Since M9 the loop
+already does this when the workspace configures a `test_command`; the demo
+edit is one line that switches it on unconditionally. No recompile. Rerun `iron test`: **it fails**, pointing at exactly where the
 conversation diverged from the recording. That's the payoff moment: you just
 watched an agent's CI catch a change to the agent itself. With a key,
 `iron test --record` blesses the change, and rerunning `iron run --agent`

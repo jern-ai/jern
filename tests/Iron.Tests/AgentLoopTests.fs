@@ -57,15 +57,16 @@ let ``default agent loop reads, edits, and finishes a task`` () =
             | other -> failwith ("unexpected final value: " + showVal other)
         Assert.Equal(3, turn)
         Assert.Equal("hello world\n", File.ReadAllText(Path.Combine(root, "greeting.txt")))
-        // The trace saw every effect: agent log, 3 llm calls, and 5 tool
-        // calls (read + edit, plus one CONVENTIONS.md probe per model turn).
+        // The trace saw every effect: agent log, 3 llm calls, and 6 tool
+        // calls (read + edit, one first-turn file_tree, and one
+        // CONVENTIONS.md probe per model turn).
         let count (marker: string) =
             trace |> Seq.filter (fun (l: string) -> l.Contains marker) |> Seq.length
         Assert.Equal(1, count "\"event\":\"log\"")
         Assert.Equal(3, count "\"event\":\"llm-call\"")
         Assert.Equal(3, count "\"event\":\"llm-response\"")
-        Assert.Equal(5, count "\"event\":\"tool-call\"")
-        Assert.Equal(5, count "\"event\":\"tool-result\"")
+        Assert.Equal(6, count "\"event\":\"tool-call\"")
+        Assert.Equal(6, count "\"event\":\"tool-result\"")
         // Trace lines are timestamped JSON.
         Assert.All(trace, fun line -> Assert.StartsWith("{\"ts\":\"", line))
     finally

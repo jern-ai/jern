@@ -53,12 +53,16 @@ module Providers =
     type Config =
         { defaultModel: string
           aliases: Map<string, string>
-          providers: Map<string, Provider> }
+          providers: Map<string, Provider>
+          /// Shell command the default agent runs after every edit
+          /// (iron.json "test_command"); exposed to agent source.
+          testCommand: string option }
 
     let defaultConfig =
         { defaultModel = "anthropic/" + AnthropicBridge.defaultModel
           aliases = Map.empty
-          providers = builtIns |> List.map (fun p -> p.name, p) |> Map.ofList }
+          providers = builtIns |> List.map (fun p -> p.name, p) |> Map.ofList
+          testCommand = None }
 
     let private applyFile (config: Config) (path: string) : Config =
         if not (File.Exists path) then config
@@ -100,7 +104,14 @@ module Providers =
                             Map.add kv.Key provider acc)
                         config.providers
                 | _ -> config.providers
-            { defaultModel = defaultModel; aliases = aliases; providers = providers }
+            let testCommand =
+                match doc.["test_command"] with
+                | null -> config.testCommand
+                | t -> Some(t.GetValue<string>())
+            { defaultModel = defaultModel
+              aliases = aliases
+              providers = providers
+              testCommand = testCommand }
 
     /// Global config, then the workspace's iron.json on top.
     let load (workspaceRoot: string) : Result<Config, string> =
@@ -134,6 +145,13 @@ module Providers =
             | None ->
                 Error(sprintf "unknown provider '%s' (known: %s; add custom ones in iron.json)"
                           providerName (config.providers |> Map.toList |> List.map fst |> String.concat ", "))
+
+    /// The workspace-config plist handed to agent source (data, no authority).
+    let agentConfig (config: Config) : LispVal =
+        match config.testCommand with
+        | Some command ->
+            ofList [ Keyword "test_command"; Obj(command :> obj) ]
+        | None -> Nil
 
     /// The per-request model spec inside the canonical request, if any.
     let private requestModel (request: LispVal) =

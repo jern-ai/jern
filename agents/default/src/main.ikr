@@ -29,13 +29,32 @@ fails, read the error and adapt. Never invent file contents you have not read.")
 
 (define max-turns 50)
 
+; The workspace's test command (iron.json "test_command"), or :null.
+(define test-command (plist-get iron/workspace-config :test_command))
+
+; First-turn context: a workspace tree rides the opening user message, so
+; the model starts oriented. In the *first message* rather than the system
+; prompt on purpose — messages are history, so the snapshot stays fixed and
+; the cached prompt prefix survives later edits.
+(define first-context
+  (lambda (text)
+    (sequence
+      (define tree (call-tool "file_tree" (list)))
+      (if (eqv? (plist-get tree :is_error) #t)
+          text
+          (String.concat text
+            (String.concat "\n\nWorkspace layout:\n" (plist-get tree :content)))))))
+
 ; The host streams assistant text to the terminal as it arrives, so there is
 ; nothing to print here; tool dispatch below still announces each call.
 ; (Make this print (response-blocks response "text") if your host doesn't
 ; stream.)
 (define show-progress (lambda (response) #inert))
 
-; Dispatch one tool_use block; answer with a tool_result block.
+; Dispatch one tool_use block; answer with a tool_result block. When the
+; workspace configures a test_command, every successful edit is followed by
+; a test run whose output rides the same tool result, so the model reacts
+; to breakage immediately.
 (define run-tool-use
   (lambda (block)
     (sequence
@@ -43,9 +62,20 @@ fails, read the error and adapt. Never invent file contents you have not read.")
         (String.concat "→ " (plist-get block :name)))
       (define outcome
         (call-tool (plist-get block :name) (plist-get block :input)))
+      (define content
+        (if (and? (equal? (plist-get block :name) "edit_file")
+                  (and? (not? (eqv? (plist-get outcome :is_error) #t))
+                        (not? (eqv? test-command :null))))
+            (sequence
+              (Console.write-line "→ shell (test_command after edit)")
+              (String.concat (plist-get outcome :content)
+                (String.concat "\n\n[test_command]\n"
+                  (plist-get (call-tool "shell" (list :command test-command))
+                             :content))))
+            (plist-get outcome :content)))
       (list :type "tool_result"
             :tool_use_id (plist-get block :id)
-            :content (plist-get outcome :content)
+            :content content
             :is_error (plist-get outcome :is_error)))))
 
 ; One turn: ask the model, dispatch any tool calls, recurse with the results.
@@ -98,11 +128,16 @@ fails, read the error and adapt. Never invent file contents you have not read.")
   (lambda (task)
     (perform iron/log (list :event "agent-started" :task task))
     (last-assistant-text
-      (agent-loop (cons (list :role "user" :content task) ()) max-turns))))
+      (agent-loop (cons (list :role "user" :content (first-context task)) ())
+                  max-turns))))
 
 ; Entry point for chat: one user turn on an existing conversation
 ; (newest-first). Returns the updated conversation for the host to persist.
 (define chat-turn
   (lambda (messages user-text)
     (perform iron/log (list :event "chat-turn"))
-    (agent-loop (cons (list :role "user" :content user-text) messages) max-turns)))
+    (agent-loop
+      (cons (list :role "user"
+                  :content (if (null? messages) (first-context user-text) user-text))
+            messages)
+      max-turns)))

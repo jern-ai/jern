@@ -92,7 +92,46 @@ module Tools =
                         |> String.concat "\n"
                     ok (if entries = "" then "(empty directory)" else entries)
 
-    let private skippedDirs = set [ ".git"; "bin"; "obj"; "node_modules"; ".vs"; ".idea" ]
+    let private skippedDirs = set [ ".git"; "bin"; "obj"; "node_modules"; ".vs"; ".idea"; ".iron" ]
+
+    let private maxTreeEntries = 200
+
+    /// An indented, depth-limited tree of the workspace (or a subdirectory),
+    /// for cheap first-turn context and for the model to orient itself.
+    let private fileTree root input =
+        match optionalStringArg "path" "." input with
+        | Error e -> toolError e
+        | Ok path ->
+            match resolve root path with
+            | Error e -> toolError e
+            | Ok full ->
+                if not (Directory.Exists full) then
+                    toolError (sprintf "directory '%s' does not exist" path)
+                else
+                    let lines = ResizeArray<string>()
+                    let mutable truncated = false
+                    let rec walk dir depth =
+                        if depth <= 3 && not truncated then
+                            let entries =
+                                Directory.EnumerateFileSystemEntries dir
+                                |> Seq.sortBy (fun e -> Path.GetFileName e)
+                                |> List.ofSeq
+                            for entry in entries do
+                                if lines.Count >= maxTreeEntries then truncated <- true
+                                else
+                                    let name = Path.GetFileName entry
+                                    let indent = String.replicate depth "  "
+                                    if Directory.Exists entry then
+                                        if not (skippedDirs.Contains name) then
+                                            lines.Add(indent + name + "/")
+                                            walk entry (depth + 1)
+                                    else
+                                        lines.Add(indent + name)
+                    walk full 0
+                    let listing = String.concat "\n" lines
+                    ok (if truncated then listing + sprintf "\n… truncated at %d entries" maxTreeEntries
+                        elif listing = "" then "(empty directory)"
+                        else listing)
 
     let private grep root input =
         match stringArg "pattern" input, optionalStringArg "path" "." input with
@@ -235,6 +274,7 @@ module Tools =
                 match name with
                 | "read_file" -> Some readFile
                 | "list_dir" -> Some listDir
+                | "file_tree" -> Some fileTree
                 | "grep" -> Some grep
                 | "edit_file" -> Some editFile
                 | "shell" -> Some shell
