@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.6 — 2026-08-19
+
+- 0.2.5 was verified on SDK 10.0.1xx; CI runs 10.0.4xx, whose new
+  host-RID `PublishRuntimeIdentifier` default re-broke every publish
+  job. IronKernel now also sets `UseDefaultPublishRuntimeIdentifier=false`
+  upstream. This release was verified on the CI's exact SDK band.
+
 ## 0.2.5 — 2026-08-19
 
 - The 0.2.4 cross-compile workaround raced on Windows (CS2012 in the
