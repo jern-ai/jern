@@ -22,7 +22,9 @@
   header svg { flex: none; }
   header .name { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
   header .chip { font-family: var(--mono); font-size: .74rem; color: var(--steel);
-                 border: 1px solid var(--line); border-radius: 99px; padding: .1rem .6rem; }
+                 border: 1px solid var(--line); border-radius: 99px; padding: .1rem .6rem;
+                 cursor: pointer; }
+  header .chip:hover { border-color: var(--steel); }
   header .meta { color: var(--dim); font-size: .78rem; }
   header .spacer { flex: 1; }
   header button { background: none; border: 1px solid var(--line); color: var(--dim);
@@ -42,11 +44,21 @@
   .msg.assistant::before { content: "jern"; display: block; font-family: var(--mono);
                            font-size: .7rem; color: var(--steel); margin-bottom: .25rem; }
   .msg.assistant.streaming::after { content: "▌"; color: var(--rust); animation: blink 1s infinite; }
+  .msg.assistant pre.code { background: var(--panel); border: 1px solid var(--line);
+                            border-radius: 8px; padding: .6rem .8rem; margin: .4rem 0;
+                            font-family: var(--mono); font-size: .82rem; overflow-x: auto; }
+  .msg.assistant code { font-family: var(--mono); font-size: .88em; color: var(--steel); }
   @keyframes blink { 50% { opacity: 0; } }
 
   .tool { align-self: flex-start; font-family: var(--mono); font-size: .78rem;
-          color: var(--dim); padding: .1rem .2rem; }
+          color: var(--dim); padding: .1rem .2rem; cursor: pointer; max-width: 100%; }
   .tool b { color: var(--steel); font-weight: 500; }
+  .tool .detail { display: none; white-space: pre-wrap; overflow-wrap: break-word;
+                  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+                  padding: .5rem .7rem; margin-top: .3rem; cursor: auto; }
+  .tool.open .detail { display: block; }
+  .tool .minus { color: var(--red); }
+  .tool .plus { color: var(--green); }
   .note { align-self: center; font-size: .78rem; color: var(--dim); }
   .error { align-self: stretch; color: var(--red); font-family: var(--mono);
            font-size: .82rem; white-space: pre-wrap; }
@@ -76,16 +88,72 @@
   .composer button { background: var(--rust); color: #fff; border: none; border-radius: 8px;
                      padding: .6rem 1.1rem; font-size: .9rem; cursor: pointer; }
   .composer button:disabled { opacity: .45; cursor: default; }
+
+  /* ------- drawer (files / editor / settings) ------- */
+  #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(38rem, 100vw);
+            background: var(--panel); border-left: 1px solid var(--line);
+            transform: translateX(100%); transition: transform .18s ease-out;
+            display: flex; flex-direction: column; z-index: 10; }
+  #drawer.open { transform: none; }
+  #drawer .bar { display: flex; align-items: center; gap: .6rem; padding: .65rem 1rem;
+                 border-bottom: 1px solid var(--line); }
+  #drawer .bar h3 { font-size: .85rem; text-transform: uppercase; letter-spacing: .08em;
+                    color: var(--steel); flex: 1; }
+  #drawer .bar button { background: none; border: 1px solid var(--line); color: var(--dim);
+                        border-radius: 6px; padding: .2rem .6rem; font-size: .78rem; cursor: pointer; }
+  #drawer .body { flex: 1; overflow-y: auto; padding: 1rem; }
+  #drawer .body h5 { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
+                     color: var(--dim); margin: 1rem 0 .4rem; }
+  .filerow { display: flex; align-items: center; gap: .6rem; padding: .45rem .6rem;
+             border: 1px solid var(--line); border-radius: 8px; margin-bottom: .5rem;
+             cursor: pointer; font-family: var(--mono); font-size: .82rem; }
+  .filerow:hover { border-color: var(--steel); }
+  .filerow .tag { font-size: .68rem; color: var(--dim); border: 1px solid var(--line);
+                  border-radius: 99px; padding: 0 .5rem; }
+  #editor { display: none; flex: 1; flex-direction: column; padding: 1rem; gap: .6rem;
+            overflow: hidden; }
+  #editor.open { display: flex; }
+  #editor textarea { flex: 1; font-family: var(--mono); font-size: .82rem; line-height: 1.5;
+                     white-space: pre; max-height: none; }
+  #editor .row { display: flex; gap: .6rem; align-items: center; }
+  #editor .row .grow { flex: 1; font-family: var(--mono); font-size: .78rem; color: var(--dim);
+                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #editor button { background: var(--rust); color: #fff; border: none; border-radius: 6px;
+                   padding: .4rem .9rem; font-size: .82rem; cursor: pointer; }
+  #editor button.ghost { background: none; border: 1px solid var(--line); color: var(--dim); }
+  #teststatus { font-family: var(--mono); font-size: .78rem; white-space: pre-wrap; }
+  #teststatus .ok { color: var(--green); }
+  #teststatus .bad { color: var(--red); }
+  .provrow { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem;
+             font-family: var(--mono); font-size: .8rem; }
+  .provrow .dot { width: .55rem; height: .55rem; border-radius: 99px; background: var(--line); }
+  .provrow .dot.on { background: var(--green); }
+  .provrow .pname { width: 6.5rem; }
+  .provrow .tag { font-size: .68rem; color: var(--dim); border: 1px solid var(--line);
+                  border-radius: 99px; padding: 0 .5rem; }
+  .provrow input { flex: 1; background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+                   border-radius: 6px; padding: .3rem .5rem; font: inherit; }
+  .provrow button, #settings-view .mrow button {
+    background: var(--rust); color: #fff; border: none; border-radius: 6px;
+    padding: .3rem .7rem; font-size: .78rem; cursor: pointer; }
+  #settings-view .mrow { display: flex; gap: .5rem; margin-bottom: .4rem; }
+  #settings-view .mrow input { flex: 1; background: var(--bg); color: var(--ink);
+                               border: 1px solid var(--line); border-radius: 6px;
+                               padding: .3rem .5rem; font-family: var(--mono); font-size: .8rem; }
+  #settings-view .hint, #files-view .hint { font-size: .74rem; color: var(--dim); margin-top: .3rem; }
+  #settings-view label { font-size: .74rem; color: var(--dim); }
 </style>
 </head>
 <body>
 <header>
   <svg width="26" height="26" viewBox="0 0 128 128"><rect width="128" height="128" rx="28" fill="#0f1114"/><g stroke="#c2643a" stroke-width="12" stroke-linecap="square" fill="none"><polyline points="46,24 83,43 46,62"/><polyline points="82,104 45,85 82,66"/></g></svg>
   <span class="name">jern</span>
-  <span class="chip" id="model">…</span>
+  <span class="chip" id="model" title="Model settings">…</span>
   <span class="meta" id="session"></span>
   <span class="spacer"></span>
   <span class="meta" id="cost"></span>
+  <button id="filesbtn" title="Inspect and edit the agent's source">brain</button>
+  <button id="settingsbtn" title="Models and API keys">settings</button>
   <button id="interrupt" title="Interrupt the current turn">stop</button>
   <button id="undo" title="Revert the last jern commit">undo</button>
 </header>
@@ -96,11 +164,50 @@
     <button id="send">send</button>
   </div>
 </footer>
+
+<div id="drawer">
+  <div class="bar"><h3 id="drawer-title">brain</h3><button id="drawer-close">close</button></div>
+  <div class="body" id="files-view">
+    <div id="filelist"></div>
+    <p class="hint">These are the sources this session loaded, plus the workspace
+    policy. Saving rebuilds the session; the conversation continues on the new
+    brain. Files installed beside the binary are read-only — run
+    <code>jern eject</code> and <code>jern ui --agent agents/default</code> to
+    edit a workspace copy.</p>
+  </div>
+  <div class="body" id="settings-view" style="display:none">
+    <h5>model</h5>
+    <div class="mrow"><input id="modelinput" list="modelopts" placeholder="provider/model">
+      <datalist id="modelopts"></datalist>
+      <button id="modelapply">switch</button></div>
+    <div class="hint" id="modelhint"></div>
+    <h5>api keys</h5>
+    <div id="providers"></div>
+    <label><input type="checkbox" id="persist"> persist to ~/.config/jern/credentials.json (0600)
+    — otherwise the key lives only in this jern process</label>
+  </div>
+  <div id="editor">
+    <div class="row"><span class="grow" id="editor-path"></span>
+      <button class="ghost" id="editor-back">files</button>
+      <button id="runtests">run tests</button>
+      <button id="save">save + reload</button></div>
+    <textarea id="editor-text" spellcheck="false"></textarea>
+    <div id="teststatus"></div>
+  </div>
+</div>
+
 <script>
+// ---- token: from the printed URL, then kept off the address bar ----
+const token = new URLSearchParams(location.search).get("token") || "";
+history.replaceState(null, "", location.pathname);
+const api = (path, opts = {}) =>
+  fetch(path, { ...opts, headers: { "X-Jern-Token": token, ...(opts.headers || {}) } });
+
 const feed = document.getElementById("feed");
 const input = document.getElementById("input");
 const send = document.getElementById("send");
 let streamingBlock = null;
+const pendingChips = [];
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -111,26 +218,65 @@ function el(tag, cls, text) {
   return node;
 }
 
+// ---- minimal markdown: fences, inline code, bold ----
+function renderMd(raw) {
+  const esc = s => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return raw.split("```").map((part, i) => {
+    if (i % 2 === 1) {
+      const nl = part.indexOf("\n");
+      return "<pre class='code'>" + esc(nl >= 0 ? part.slice(nl + 1) : part) + "</pre>";
+    }
+    return esc(part)
+      .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+  }).join("");
+}
+
 function assistantBlock() {
-  if (!streamingBlock) streamingBlock = el("div", "msg assistant streaming", "");
+  if (!streamingBlock) {
+    streamingBlock = el("div", "msg assistant streaming", "");
+    streamingBlock.raw = "";
+  }
   return streamingBlock;
 }
-
-function endTurn() {
+function endStreamSegment() {
   if (streamingBlock) streamingBlock.classList.remove("streaming");
   streamingBlock = null;
-  send.disabled = false;
 }
+function endTurn() { endStreamSegment(); send.disabled = false; }
 
+// ---- tool chips: click to expand; edit_file gets a diff ----
 function toolChip(call) {
-  const input = call.input || {};
-  const detail = input.path || input.command || "";
+  endStreamSegment();
+  const chipInput = call.input || {};
+  const summary = chipInput.path || chipInput.command || "";
   const chip = el("div", "tool");
   chip.append("→ ");
   const name = document.createElement("b");
   name.textContent = call.name;
   chip.appendChild(name);
-  if (detail) chip.append(" " + (detail.length > 80 ? detail.slice(0, 77) + "…" : detail));
+  if (summary) chip.append(" " + (summary.length > 80 ? summary.slice(0, 77) + "…" : summary));
+  const detail = document.createElement("div");
+  detail.className = "detail";
+  if (call.name === "edit_file" && chipInput.old_string !== undefined) {
+    const minus = document.createElement("div"); minus.className = "minus";
+    minus.textContent = "- " + chipInput.old_string;
+    const plus = document.createElement("div"); plus.className = "plus";
+    plus.textContent = "+ " + chipInput.new_string;
+    detail.append(minus, plus);
+  }
+  chip.appendChild(detail);
+  chip.onclick = e => { if (!detail.contains(e.target)) chip.classList.toggle("open"); };
+  pendingChips.push(detail);
+}
+function toolResult(result) {
+  const detail = pendingChips.shift();
+  if (!detail || !result) return;
+  const pre = document.createElement("div");
+  const content = String(result.content ?? "");
+  pre.textContent = content.length > 4000 ? content.slice(0, 4000) + "\n…" : content;
+  if (result.is_error) pre.className = "minus";
+  detail.appendChild(pre);
 }
 
 function approvalCard(id, description) {
@@ -147,7 +293,7 @@ function approvalCard(id, description) {
   card.appendChild(pre);
   const buttons = document.createElement("div"); buttons.className = "buttons";
   const answer = approved => {
-    fetch("/approve", { method: "POST", body: JSON.stringify({ id, approved }) });
+    api("/approve", { method: "POST", body: JSON.stringify({ id, approved }) });
     card.classList.add("decided");
     h.textContent = approved ? "approved" : "denied";
   };
@@ -167,26 +313,157 @@ function onState(s) {
   document.getElementById("cost").textContent = tokens ? tokens.toLocaleString() + " tokens" : "";
 }
 
-const events = new EventSource("/events");
+// ---- drawer ----
+const drawer = document.getElementById("drawer");
+const filesView = document.getElementById("files-view");
+const settingsView = document.getElementById("settings-view");
+const editor = document.getElementById("editor");
+const testStatus = document.getElementById("teststatus");
+let policyTemplate = "";
+
+function openDrawer(which) {
+  drawer.classList.add("open");
+  filesView.style.display = which === "files" ? "" : "none";
+  settingsView.style.display = which === "settings" ? "" : "none";
+  editor.classList.remove("open");
+  document.getElementById("drawer-title").textContent = which === "files" ? "brain" : "settings";
+  if (which === "files") loadFiles();
+  else loadSettings();
+}
+document.getElementById("drawer-close").onclick = () => drawer.classList.remove("open");
+document.getElementById("filesbtn").onclick = () => openDrawer("files");
+document.getElementById("settingsbtn").onclick = () => openDrawer("settings");
+document.getElementById("model").onclick = () => openDrawer("settings");
+document.getElementById("editor-back").onclick = () => {
+  editor.classList.remove("open");
+  filesView.style.display = "";
+  loadFiles();
+};
+
+function loadFiles() {
+  api("/files").then(r => r.json()).then(data => {
+    policyTemplate = data.policy_template || "";
+    const list = document.getElementById("filelist");
+    list.textContent = "";
+    (data.files || []).forEach(f => {
+      const row = document.createElement("div");
+      row.className = "filerow";
+      const label = document.createElement("span");
+      label.textContent = f.name;
+      row.appendChild(label);
+      if (!f.editable) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "read-only"; row.appendChild(t); }
+      if (!f.exists) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "create"; row.appendChild(t); }
+      row.onclick = () => openEditor(f);
+      list.appendChild(row);
+    });
+  });
+}
+
+function openEditor(f) {
+  api("/file?path=" + encodeURIComponent(f.path)).then(r => r.json()).then(data => {
+    filesView.style.display = "none";
+    editor.classList.add("open");
+    document.getElementById("editor-path").textContent = f.path;
+    const text = document.getElementById("editor-text");
+    text.value = data.content || (!f.exists && f.name.endsWith("policy.ikr") ? policyTemplate : "");
+    text.readOnly = !f.editable;
+    document.getElementById("save").style.display = f.editable ? "" : "none";
+    testStatus.textContent = "";
+    document.getElementById("save").onclick = () => {
+      testStatus.textContent = "saving…";
+      api("/file", { method: "POST", body: JSON.stringify({ path: f.path, content: text.value }) })
+        .then(r => r.json().then(b => {
+          testStatus.textContent = r.ok ? "saved — session reloaded" : (b.error || "save failed");
+        }));
+    };
+  });
+}
+document.getElementById("runtests").onclick = () => {
+  testStatus.textContent = "running the agent's test suite…\n";
+  api("/test", { method: "POST", body: "{}" })
+    .then(r => { if (!r.ok) r.json().then(b => testStatus.textContent = b.error); });
+};
+
+function loadSettings() {
+  api("/settings").then(r => r.json()).then(s => {
+    document.getElementById("modelinput").value = s.model || "";
+    const opts = document.getElementById("modelopts");
+    opts.textContent = "";
+    (s.aliases || []).forEach(a => { const o = document.createElement("option"); o.value = a; opts.appendChild(o); });
+    const box = document.getElementById("providers");
+    box.textContent = "";
+    (s.providers || []).forEach(p => {
+      const row = document.createElement("div");
+      row.className = "provrow";
+      const dot = document.createElement("span"); dot.className = "dot" + (p.has_key ? " on" : "");
+      const name = document.createElement("span"); name.className = "pname"; name.textContent = p.name;
+      row.append(dot, name);
+      if (p.key_env) {
+        const key = document.createElement("input");
+        key.type = "password"; key.placeholder = p.key_env;
+        const btn = document.createElement("button"); btn.textContent = "set";
+        btn.onclick = () => {
+          if (!key.value.trim()) return;
+          api("/settings/key", { method: "POST",
+              body: JSON.stringify({ provider: p.name, key: key.value.trim(),
+                                     persist: document.getElementById("persist").checked }) })
+            .then(() => { key.value = ""; loadSettings(); });
+        };
+        row.append(key, btn);
+      } else {
+        const t = document.createElement("span"); t.className = "tag"; t.textContent = "no key needed";
+        row.appendChild(t);
+      }
+      box.appendChild(row);
+    });
+  });
+}
+document.getElementById("modelapply").onclick = () => {
+  const spec = document.getElementById("modelinput").value.trim();
+  if (!spec) return;
+  api("/settings/model", { method: "POST", body: JSON.stringify({ model: spec }) })
+    .then(r => r.json().then(b => {
+      document.getElementById("modelhint").textContent = r.ok ? "switched" : (b.error || "invalid model");
+    }));
+};
+
+// ---- event stream ----
+const events = new EventSource("/events?token=" + encodeURIComponent(token));
 events.onmessage = e => {
   const m = JSON.parse(e.data);
-  if (m.type === "text") assistantBlock().insertAdjacentText("beforeend", m.text),
-                          feed.lastElementChild.scrollIntoView({ block: "end" });
+  if (m.type === "text") {
+    const block = assistantBlock();
+    block.raw += m.text;
+    block.innerHTML = renderMd(block.raw);
+    block.scrollIntoView({ block: "end" });
+  }
   else if (m.type === "state") onState(m);
   else if (m.type === "approval") approvalCard(m.id, m.description);
   else if (m.type === "done") endTurn();
   else if (m.type === "error") { el("div", "error", m.message); endTurn(); }
+  else if (m.type === "reloaded") el("div", "note", "brain reloaded: " + m.path);
+  else if (m.type === "test-result") {
+    const line = document.createElement("span");
+    line.className = m.ok ? "ok" : "bad";
+    line.textContent = (m.ok ? "ok   - " : "FAIL - ") + m.name + (m.error ? "\n       " + m.error : "");
+    testStatus.appendChild(line);
+    testStatus.appendChild(document.createTextNode("\n"));
+  }
+  else if (m.type === "test-done") {
+    const line = document.createElement("span");
+    if (m.error) { line.className = "bad"; line.textContent = m.error; }
+    else {
+      line.className = m.failed ? "bad" : "ok";
+      line.textContent = m.passed + " passed, " + m.failed + " failed";
+    }
+    testStatus.appendChild(line);
+  }
   else if (m.type === "trace" && m.event) {
-    if (m.event.event === "tool-call" && m.event.call) { endStreamSegment(); toolChip(m.event.call); }
+    if (m.event.event === "tool-call" && m.event.call) toolChip(m.event.call);
+    if (m.event.event === "tool-result") toolResult(m.event.result);
     if (m.event.event === "git-commit") el("div", "note", "committed " + m.event.path);
   }
 };
-
-// A tool call visually closes the current text block; new text opens another.
-function endStreamSegment() {
-  if (streamingBlock) streamingBlock.classList.remove("streaming");
-  streamingBlock = null;
-}
 
 function submit() {
   const text = input.value.trim();
@@ -194,7 +471,7 @@ function submit() {
   el("div", "msg user", text);
   input.value = "";
   send.disabled = true;
-  fetch("/message", { method: "POST", body: JSON.stringify({ text }) })
+  api("/message", { method: "POST", body: JSON.stringify({ text }) })
     .then(r => { if (!r.ok) return r.json().then(b => { el("div", "error", b.error); endTurn(); }); });
 }
 
@@ -202,9 +479,9 @@ send.onclick = submit;
 input.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
 });
-document.getElementById("interrupt").onclick = () => fetch("/interrupt", { method: "POST", body: "{}" });
+document.getElementById("interrupt").onclick = () => api("/interrupt", { method: "POST", body: "{}" });
 document.getElementById("undo").onclick = () =>
-  fetch("/undo", { method: "POST", body: "{}" }).then(r => r.json())
+  api("/undo", { method: "POST", body: "{}" }).then(r => r.json())
     .then(b => el("div", "note", b.subject ? "undone: " + b.subject : b.message));
 </script>
 </body>

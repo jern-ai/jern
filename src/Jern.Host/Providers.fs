@@ -162,6 +162,46 @@ module Providers =
               budgetLlmCalls = budgetLlmCalls
               budgetTokens = budgetTokens }
 
+    /// Optional persisted API keys: ~/.config/jern/credentials.json holds
+    /// { "<ENV_NAME>": "<key>", … } with 0600 permissions. Environment
+    /// variables always win; this only fills in the gaps at startup.
+    let credentialsPath () =
+        Path.Combine(Environment.GetFolderPath Environment.SpecialFolder.UserProfile,
+                     ".config", "jern", "credentials.json")
+
+    /// Set stored credentials as process-local environment variables so the
+    /// provider bridges (which read env at call time) pick them up. Called
+    /// once at CLI startup; never overrides a variable that is already set.
+    let applyCredentials () =
+        let path = credentialsPath ()
+        if File.Exists path then
+            try
+                match JsonNode.Parse(File.ReadAllText path) with
+                | :? JsonObject as o ->
+                    for kv in o do
+                        if String.IsNullOrEmpty(Environment.GetEnvironmentVariable kv.Key) then
+                            Environment.SetEnvironmentVariable(kv.Key, kv.Value.GetValue<string>())
+                | _ -> ()
+            with _ -> ()
+
+    /// Persist one credential (merging with the file) and apply it now.
+    let saveCredential (envName: string) (key: string) =
+        let path = credentialsPath ()
+        Directory.CreateDirectory(Path.GetDirectoryName path) |> ignore
+        let existing =
+            if File.Exists path then
+                try
+                    match JsonNode.Parse(File.ReadAllText path) with
+                    | :? JsonObject as o -> o
+                    | _ -> JsonObject()
+                with _ -> JsonObject()
+            else JsonObject()
+        existing.[envName] <- JsonValue.Create(key: string)
+        File.WriteAllText(path, existing.ToJsonString())
+        if not (OperatingSystem.IsWindows()) then
+            File.SetUnixFileMode(path, UnixFileMode.UserRead ||| UnixFileMode.UserWrite)
+        Environment.SetEnvironmentVariable(envName, key)
+
     /// Global config, then the workspace's jern.json on top.
     let load (workspaceRoot: string) : Result<Config, string> =
         let files =

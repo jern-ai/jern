@@ -18,10 +18,12 @@ Usage:
                       (trace in .jern/)
                       --yes approves policy-gated actions (writes, shell)
                       --agent runs a different agent package (the headline)
-  jern ui [--port n]  The chat session as a local web app (127.0.0.1):
-                      streaming replies, tool activity, and approval cards
-                      with diffs. The page is ui/index.html beside the
-                      binary — edit it like everything else
+  jern ui [--port n] [--agent <dir>]
+                      The chat session as a local web app (127.0.0.1),
+                      guarded by a startup token in the printed URL:
+                      streaming replies, tool activity, approval cards with
+                      diffs, a brain editor with one-click test runs, and
+                      settings for models and API keys
   jern undo           Revert the last jern-authored commit (also /undo in chat)
   jern eject          Copy the default agent's source into ./agents/default
   jern repl           Kernel REPL inside the agent's restricted environment
@@ -412,30 +414,6 @@ let private runMcp () =
                 Mcp.shutdown server
         if failures = 0 then 0 else 1
 
-let private policyTemplate = """; Workspace tool policy — loaded after the built-in kernel/policy.ikr and
-; overrides what it redefines. Decisions: :allow, :ask, or a reason string
-; (a denial the model sees). Helpers in scope: call-path, call-command,
-; (path-within? call "src/"), (command-is? call "pytest"),
-; string-prefix?/string-suffix?/string-contains?.
-;
-; This file runs privileged. Review it in repositories you did not author,
-; the same way you review a repo's test_command.
-
-(define tool-policy
-  (lambda (call)
-    (sequence
-      (define name (plist-get call :name))
-      (cond ; ((path-within? call "src/") :allow)      ; scope edits to src/
-            ; ((command-is? call "pytest") :allow)     ; allowlist a command
-            ; ((equal? name "mcp__github__get_issue") :allow)
-            ((equal? name "shell") :ask)
-            ((equal? name "edit_file") :ask)
-            ((equal? name "read_file") :allow)
-            ((equal? name "list_dir") :allow)
-            ((equal? name "file_tree") :allow)
-            ((equal? name "grep") :allow)
-            (#t :ask)))))
-"""
 
 /// `jern policy` — show which policy governs this workspace;
 /// `jern policy init` — write the workspace override template.
@@ -448,7 +426,7 @@ let private runPolicy (init: bool) =
             1
         else
             IO.Directory.CreateDirectory(IO.Path.GetDirectoryName workspacePath) |> ignore
-            IO.File.WriteAllText(workspacePath, policyTemplate)
+            IO.File.WriteAllText(workspacePath, Session.policyTemplate)
             printfn "wrote %s" workspacePath
             printfn "it now governs every jern session in this workspace; edit and re-run"
             0
@@ -465,24 +443,26 @@ let private runPolicy (init: bool) =
         0
 
 /// `jern ui` — serve the chat session as a local web app and open it.
-let private runUi (model: string option) (cliBudget: int option) (port: int) =
+let private runUi (model: string option) (cliBudget: int option) (port: int) (agentDir: string option) =
     let root = Environment.CurrentDirectory
     let providers = loadProviders ()
-    let modelLabel =
-        match model with
-        | Some m -> m
-        | None -> providers.defaultModel
+    let agent =
+        match agentDir with
+        | Some dir -> dir
+        | None -> Session.defaultAgentDir ()
     let server =
         Ui.start
             { root = root
               // Streaming goes to the browser, not the console; the Ui
               // server does its own usage metering for the header.
-              makeBridge = fun onText -> Providers.createBridge providers model (Some onText)
-              agentSources = Session.agentPackageSources (Session.defaultAgentDir ())
+              makeBridge = fun currentModel onText -> Providers.createBridge providers currentModel (Some onText)
+              providers = providers
+              model = model
+              agentDir = Some agent
+              agentSources = Session.agentPackageSources agent
               agentConfig = Providers.agentConfig providers
               mcpServers = providers.mcpServers
               budget = sessionBudget providers cliBudget
-              modelLabel = modelLabel
               port = port }
     printfn " %s %s — ui at %s" (Style.rust "jern") (Style.steel ("v" + AgentEnv.version)) (Style.bold server.url)
     printfn " %s" (Style.dim (root + " · ctrl-c to stop"))
@@ -563,6 +543,7 @@ let private extractModel (args: string list) =
 
 [<EntryPoint>]
 let main argv =
+    Providers.applyCredentials ()
     let args, model = extractModel (Array.toList argv)
     let args, cliBudget = extractBudget args
     match args with
@@ -588,12 +569,20 @@ let main argv =
             eprintfn "usage: jern run [--yes] [--agent <dir>] [--model <spec>] [--budget <n>] \"task\""
             2
     | ["undo"] -> runUndo ()
-    | ["ui"] -> runUi model cliBudget 0
-    | ["ui"; "--port"; p] ->
-        (match Int32.TryParse p with
-         | true, port -> runUi model cliBudget port
-         | _ ->
-             eprintfn "jern ui: --port needs a number, got '%s'" p
+    | "ui" :: rest ->
+        // jern ui [--port n] [--agent <dir>]
+        let rec parse port agent = function
+            | "--port" :: p :: more ->
+                (match Int32.TryParse(p: string) with
+                 | true, n -> parse n agent more
+                 | _ -> None)
+            | "--agent" :: dir :: more -> parse port (Some dir) more
+            | [] -> Some(port, agent)
+            | _ -> None
+        (match parse 0 None rest with
+         | Some(port, agent) -> runUi model cliBudget port agent
+         | None ->
+             eprintfn "usage: jern ui [--port <n>] [--agent <dir>] [--model <spec>] [--budget <n>]"
              2)
     | ["mcp"] -> runMcp ()
     | ["policy"] -> runPolicy false

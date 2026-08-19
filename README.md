@@ -35,6 +35,13 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M17 — the UI opens the brain** (v0.9): a drawer in `jern ui` lists
+  the session's loaded sources and the workspace policy; edit, save, and
+  the session rebuilds mid-conversation — with a one-click run of the
+  agent's regression suite right beside the editor. Settings switch
+  models and set provider API keys (never echoed back; optional 0600
+  credentials file). The server is guarded by a startup token, Jupyter
+  style. Assistant markdown, expandable tool chips with diffs.
 - **M16 — `jern ui` and a styled CLI** (v0.8): the session as a local web
   app served by the binary itself — streaming replies, live tool-call
   chips from the trace, and approval cards with colored diffs the agent

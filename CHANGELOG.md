@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.0 — 2026-08-19
+
+- **The UI can now open the brain.** A "brain" drawer lists the sources
+  the session loaded plus the workspace policy; open one in the editor,
+  save, and the session rebuilds on the new source while the conversation
+  continues. A "run tests" button runs the agent package's regression
+  suite (offline replay) with live verdicts. Installed files are
+  read-only — edit a workspace copy (`jern eject`). The workspace policy
+  can be created from its template in place. `jern ui --agent <dir>`
+  serves a different agent package.
+- **Settings in the UI**: switch models (validated against the provider
+  table) and set API keys per provider — key status shown as presence
+  only, values never echoed back; keys live in the jern process unless
+  you opt into persisting to `~/.config/jern/credentials.json` (0600),
+  which the CLI also reads at startup (env vars always win).
+- **Token-guarded server.** Every request must carry the startup token
+  from the printed URL (query or `X-Jern-Token`), so other local
+  processes cannot drive the session, edit the brain, or set keys.
+- **Feed upgrades**: assistant text renders markdown (code fences,
+  inline code, bold); tool chips expand on click to show results, with
+  red/green diffs for edits; brain-reload notes.
+
 ## 0.8.2 — 2026-08-19
 
 - UI layout: the message feed and the composer now span the full window

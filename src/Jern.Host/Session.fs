@@ -55,6 +55,33 @@ module Session =
           tags: AgentEnv.EffectTags
           workspaceRoot: string }
 
+    /// Starting point for a workspace policy (`jern policy init`, and the
+    /// UI's policy editor when no workspace policy exists yet).
+    let policyTemplate = """; Workspace tool policy — loaded after the built-in kernel/policy.ikr and
+; overrides what it redefines. Decisions: :allow, :ask, or a reason string
+; (a denial the model sees). Helpers in scope: call-path, call-command,
+; (path-within? call "src/"), (command-is? call "pytest"),
+; string-prefix?/string-suffix?/string-contains?.
+;
+; This file runs privileged. Review it in repositories you did not author,
+; the same way you review a repo's test_command.
+
+(define tool-policy
+  (lambda (call)
+    (sequence
+      (define name (plist-get call :name))
+      (cond ; ((path-within? call "src/") :allow)      ; scope edits to src/
+            ; ((command-is? call "pytest") :allow)     ; allowlist a command
+            ; ((equal? name "mcp__github__get_issue") :allow)
+            ((equal? name "shell") :ask)
+            ((equal? name "edit_file") :ask)
+            ((equal? name "read_file") :allow)
+            ((equal? name "list_dir") :allow)
+            ((equal? name "file_tree") :allow)
+            ((equal? name "grep") :allow)
+            (#t :ask)))))
+"""
+
     let kernelFile name =
         let local = Path.Combine("kernel", name)
         let installed = Path.Combine(AppContext.BaseDirectory, "kernel", name)
