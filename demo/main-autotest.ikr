@@ -1,0 +1,106 @@
+; The default iron agent: a function-calling loop in ~80 lines of Kernel.
+;
+; The agent holds no authority. Everything reaches the world by performing
+; against host-created effect tags (iron/llm-call, iron/tool-call, iron/log),
+; answered by the handler stack the host installs: trace -> provider/tools.
+;
+; Edit this file and rerun — no recompile. For example, to make the agent run
+; the tests after every edit, extend run-tool-use to perform a "shell" tool
+; call whenever the tool was "edit_file".
+
+(define system-prompt
+  "You are iron, a terminal coding agent operating in the user's workspace.
+Use the tools to inspect and change files; keep going until the task is done,
+then reply with a short summary. Prefer minimal, precise edits. When a tool
+fails, read the error and adapt. Never invent file contents you have not read.")
+
+(define max-turns 50)
+
+; Print assistant-authored text so the user can follow along.
+(define show-progress
+  (lambda (response)
+    (for-each
+      (lambda (block) (Console.write-line (plist-get block :text)))
+      (response-blocks response "text"))))
+
+; Dispatch one tool_use block; answer with a tool_result block.
+;
+; DEMO EDIT — run the tests after every edit: when the model edits a file,
+; the loop immediately runs the project's test script and puts the result in
+; front of the model inside the same tool result, so it reacts at once. A
+; behavior change made by editing agent source; iron itself is unchanged.
+(define run-tool-use
+  (lambda (block)
+    (sequence
+      (Console.write-line
+        (String.concat "→ " (plist-get block :name)))
+      (define outcome
+        (call-tool (plist-get block :name) (plist-get block :input)))
+      (define content
+        (if (and? (equal? (plist-get block :name) "edit_file")
+                  (not? (eqv? (plist-get outcome :is_error) #t)))
+            (sequence
+              (Console.write-line "→ shell (tests after edit)")
+              (String.concat (plist-get outcome :content)
+                (String.concat "\n\n[tests after edit]\n"
+                  (plist-get (call-tool "shell" (list :command "sh test.sh 2>&1"))
+                             :content))))
+            (plist-get outcome :content)))
+      (list :type "tool_result"
+            :tool_use_id (plist-get block :id)
+            :content content
+            :is_error (plist-get outcome :is_error)))))
+
+; One turn: ask the model, dispatch any tool calls, recurse with the results.
+; `messages` is kept newest-first; it is reversed at the boundary. Returns the
+; conversation with the model's final response consed on, so callers can
+; persist it and continue later.
+(define agent-loop
+  (lambda (messages turns-left)
+    (if (<= turns-left 0)
+        (sequence
+          (perform iron/log (list :event "max-turns-reached"))
+          messages)
+        (sequence
+          (define response
+            (perform iron/llm-call
+              (list :system system-prompt
+                    :max_tokens 8192
+                    :tools (tools-for-llm)
+                    :messages (apply vector (reverse messages)))))
+          (show-progress response)
+          (define with-assistant
+            (cons (list :role "assistant"
+                        :content (plist-get response :content))
+                  messages))
+          (define tool-uses (response-blocks response "tool_use"))
+          (if (null? tool-uses)
+              with-assistant
+              (agent-loop
+                (cons (list :role "user"
+                            :content (apply vector (map run-tool-use tool-uses)))
+                      with-assistant)
+                (- turns-left 1)))))))
+
+; The text of the newest assistant message, or :null.
+(define last-assistant-text
+  (lambda (messages)
+    (if (null? messages)
+        :null
+        (if (equal? (plist-get (car messages) :role) "assistant")
+            (response-text (car messages))
+            (last-assistant-text (cdr messages))))))
+
+; Entry point for one-shot tasks: the host calls (run-agent "task").
+(define run-agent
+  (lambda (task)
+    (perform iron/log (list :event "agent-started" :task task))
+    (last-assistant-text
+      (agent-loop (cons (list :role "user" :content task) ()) max-turns))))
+
+; Entry point for chat: one user turn on an existing conversation
+; (newest-first). Returns the updated conversation for the host to persist.
+(define chat-turn
+  (lambda (messages user-text)
+    (perform iron/log (list :event "chat-turn"))
+    (agent-loop (cons (list :role "user" :content user-text) messages) max-turns)))

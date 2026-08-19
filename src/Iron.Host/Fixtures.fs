@@ -76,10 +76,21 @@ module Fixtures =
                         let recorded = exchange.["request"].ToJsonString()
                         let actual = JsonNode.Parse(canonical request).ToJsonString()
                         if recorded <> actual then
+                            // Point at the first divergence with a little
+                            // context, rather than dumping both requests.
+                            let firstDiff =
+                                Seq.zip recorded actual
+                                |> Seq.tryFindIndex (fun (a, b) -> a <> b)
+                                |> Option.defaultValue (min recorded.Length actual.Length)
+                            let excerpt (s: string) =
+                                let from = max 0 (firstDiff - 60)
+                                let piece = s.Substring(from, min 160 (s.Length - from))
+                                (if from > 0 then "…" else "") + piece
+                                + (if from + 160 < s.Length then "…" else "")
                             Choice1Of2 (Default(
                                 "llm request diverged from its recording — behavior changed; "
-                                + "re-record if intended.\n  recorded: " + recorded
-                                + "\n  actual:   " + actual))
+                                + "re-record if intended. First difference:\n  recorded: "
+                                + excerpt recorded + "\n  actual:   " + excerpt actual))
                         else
                             Choice2Of2 (Json.toLispVal exchange.["response"])
                 | _ ->
