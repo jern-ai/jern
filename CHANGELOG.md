@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1 — 2026-08-19
+
+- The TDD agent's recorded fixture embedded bash's "command not found"
+  wording, which diverged on dash (Linux CI) — replay caught its own
+  fixture being platform-dependent. The recorded failing test now
+  silences the shell and prints its own marker, so the fixture replays
+  identically everywhere.
+
 ## 0.4.0 — 2026-08-19
 
 - **The TDD agent** (`agents/tdd`): a bundled example that enforces

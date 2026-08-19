@@ -266,7 +266,7 @@
             "input": {
               "path": "test.sh",
               "old_string": "echo OK",
-              "new_string": "test x$(subtract 5 3) = x2 || { echo FAIL subtract; exit 1; }\necho OK"
+              "new_string": "test x$(subtract 5 3 2\u003E/dev/null) = x2 || { echo FAIL subtract; exit 1; }\necho OK"
             }
           }
         ]
@@ -412,7 +412,7 @@
                 "input": {
                   "path": "test.sh",
                   "old_string": "echo OK",
-                  "new_string": "test x$(subtract 5 3) = x2 || { echo FAIL subtract; exit 1; }\necho OK"
+                  "new_string": "test x$(subtract 5 3 2\u003E/dev/null) = x2 || { echo FAIL subtract; exit 1; }\necho OK"
                 }
               }
             ]
@@ -423,7 +423,7 @@
               {
                 "type": "tool_result",
                 "tool_use_id": "g2",
-                "content": "edited \u0027test.sh\u0027\n\n[test run]\ntest.sh: line 4: subtract: command not found\nFAIL subtract\n\n(exit code 1)",
+                "content": "edited \u0027test.sh\u0027\n\n[test run]\nFAIL subtract\n\n(exit code 1)",
                 "is_error": false
               }
             ]
@@ -587,7 +587,7 @@
                 "input": {
                   "path": "test.sh",
                   "old_string": "echo OK",
-                  "new_string": "test x$(subtract 5 3) = x2 || { echo FAIL subtract; exit 1; }\necho OK"
+                  "new_string": "test x$(subtract 5 3 2\u003E/dev/null) = x2 || { echo FAIL subtract; exit 1; }\necho OK"
                 }
               }
             ]
@@ -598,7 +598,7 @@
               {
                 "type": "tool_result",
                 "tool_use_id": "g2",
-                "content": "edited \u0027test.sh\u0027\n\n[test run]\ntest.sh: line 4: subtract: command not found\nFAIL subtract\n\n(exit code 1)",
+                "content": "edited \u0027test.sh\u0027\n\n[test run]\nFAIL subtract\n\n(exit code 1)",
                 "is_error": false
               }
             ]

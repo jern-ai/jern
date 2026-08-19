@@ -136,7 +136,7 @@ let private tddUpstream: AnthropicBridge.LlmBridge =
                 """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"g3","name":"edit_file","input":{"path":"lib.sh","old_string":"add() { echo $(( $1 + $2 )); }","new_string":"add() { echo $(( $1 + $2 )); }\nsubtract() { echo $(( $1 - $2 )); }"}}]}"""
             elif json.Contains "TDD gate" then
                 // Refused — write the failing test instead.
-                """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"g2","name":"edit_file","input":{"path":"test.sh","old_string":"echo OK","new_string":"test x$(subtract 5 3) = x2 || { echo FAIL subtract; exit 1; }\necho OK"}}]}"""
+                """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"g2","name":"edit_file","input":{"path":"test.sh","old_string":"echo OK","new_string":"test x$(subtract 5 3 2>/dev/null) = x2 || { echo FAIL subtract; exit 1; }\necho OK"}}]}"""
             else
                 // First move: jump straight to the implementation (wrong).
                 """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"g1","name":"edit_file","input":{"path":"lib.sh","old_string":"add() { echo $(( $1 + $2 )); }","new_string":"add() { echo $(( $1 + $2 )); }\nsubtract() { echo $(( $1 - $2 )); }"}}]}"""
