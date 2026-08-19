@@ -69,6 +69,9 @@ https://github.com/jern-ai/jern/blob/main/docs/security-model.md
 The TDD agent, gate and tests included:
 https://github.com/jern-ai/jern/blob/main/agents/tdd/README.md
 
+One-minute screencast of exactly this (tamper with the prompt, watch
+replay catch it): https://jern.ai/screencast.webm
+
 Repo (Apache-2.0): https://github.com/jern-ai/jern
 
 ---
