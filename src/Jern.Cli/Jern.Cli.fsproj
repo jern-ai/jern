@@ -4,10 +4,6 @@
     <RootNamespace>Jern.Cli</RootNamespace>
     <AssemblyName>jern</AssemblyName>
     <Tailcalls>true</Tailcalls>
-    <!-- The IronKernel Exe reference gets collected once RID-agnostic and once
-         through the SDK's recursive publish walk; the flavors are identical
-         IL/content, so keep the first instead of failing (NETSDK1152). -->
-    <ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.fs" />

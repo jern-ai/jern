@@ -32,14 +32,12 @@
     <!--
       The exe project carries the parser, compiler, and bootstrap (kernel.ikr).
       Referencing an exe project is legal; its kernel.ikr/promises.ikr content
-      flows into our output directory transitively.
-
-      UndefineProperties: on self-contained publishes the SDK flows
-      SelfContained/RuntimeIdentifier into referenced Exe projects, which makes
-      this one build for BOTH the target and host RIDs (NETSDK1047 on restore,
-      then NETSDK1152 duplicate outputs when cross-compiling, e.g. osx-x64 on
-      an arm64 runner). It is pure IL consumed as a library, so build it once,
-      RID-agnostic.
+      flows into our output directory transitively. It declares
+      IsRidAgnostic=true so self-contained publishes (incl. cross-compiles)
+      build it once, RID-less, instead of once per target-plus-host RID;
+      UndefineProperties strips the same globals from the publish-walk calls
+      that bypass the reference-protocol negotiation (else NETSDK1191, or a
+      concurrent double build racing on Windows: CS2012).
     -->
     <ProjectReference Include="$(IronKernelRepo)/IronKernel/IronKernel.fsproj"
                       UndefineProperties="RuntimeIdentifier;RuntimeIdentifiers;SelfContained;PublishSingleFile" />

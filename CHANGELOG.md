@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.5 — 2026-08-19
+
+- The 0.2.4 cross-compile workaround raced on Windows (CS2012 in the
+  win-x64 build). Root-caused for real: IronKernel now declares
+  `IsRidAgnostic=true` upstream, so referencing hosts build it exactly
+  once, RID-less, on every platform. The workaround is removed.
+
 ## 0.2.4 — 2026-08-19
 
 - Fixed the osx-x64 release build (cross-compiled on arm64 macOS runners):
