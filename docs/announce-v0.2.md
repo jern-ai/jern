@@ -42,7 +42,7 @@ The demo (`demo/demo.sh`, acts 2–4 need no API key) is the whole thesis in
 four commands: use it, read it, edit it, watch `jern test` catch the edit.
 
 - Site: https://jern.ai
-- Repo: https://github.com/ademar/IronAgent  (Apache-2.0)
+- Repo: https://github.com/jern-ai/jern  (Apache-2.0)
 - Why a niche language instead of Python: docs/why-ironkernel.md
 - The honest security model: docs/security-model.md
 
