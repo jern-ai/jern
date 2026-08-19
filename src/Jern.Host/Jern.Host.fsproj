@@ -33,8 +33,16 @@
       The exe project carries the parser, compiler, and bootstrap (kernel.ikr).
       Referencing an exe project is legal; its kernel.ikr/promises.ikr content
       flows into our output directory transitively.
+
+      UndefineProperties: on self-contained publishes the SDK flows
+      SelfContained/RuntimeIdentifier into referenced Exe projects, which makes
+      this one build for BOTH the target and host RIDs (NETSDK1047 on restore,
+      then NETSDK1152 duplicate outputs when cross-compiling, e.g. osx-x64 on
+      an arm64 runner). It is pure IL consumed as a library, so build it once,
+      RID-agnostic.
     -->
-    <ProjectReference Include="$(IronKernelRepo)/IronKernel/IronKernel.fsproj" />
+    <ProjectReference Include="$(IronKernelRepo)/IronKernel/IronKernel.fsproj"
+                      UndefineProperties="RuntimeIdentifier;RuntimeIdentifiers;SelfContained;PublishSingleFile" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Anthropic" Version="12.40.0" />

@@ -81,12 +81,11 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Restore (cross-compile)
-        if: matrix.rid == 'osx-x64'
-        run: dotnet restore jern/src/Jern.Cli/Jern.Cli.fsproj -p:RuntimeIdentifiers="osx-x64;osx-arm64"
-
+      # Cross-compiling (osx-x64 on Blacksmith's arm64 Macs) needs no special
+      # handling: the IronKernel Exe reference is built RID-agnostic (see
+      # Jern.Host.fsproj UndefineProperties + ErrorOnDuplicatePublishOutputFiles
+      # in Jern.Cli.fsproj).
       - name: Restore
-        if: matrix.rid != 'osx-x64'
         run: dotnet restore jern/src/Jern.Cli/Jern.Cli.fsproj -r ${{ matrix.rid }}
 
       - name: Publish self-contained binary
