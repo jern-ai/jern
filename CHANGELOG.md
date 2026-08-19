@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.2 — 2026-08-19
+
+- UI layout: the message feed and the composer now span the full window
+  instead of a centered 46rem column.
+
 ## 0.8.1 — 2026-08-19
 
 - Fixed an SSE subscription race the slower CI runner exposed: the
