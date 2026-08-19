@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.7 — 2026-08-19
+
+- Serialize the release publish build (`-m:1`): the SDK's transitive
+  publish walk builds the same project several times with differing
+  leaked global properties, and on Windows those concurrent builds race
+  on one obj path (CS2012 in win-x64). Confirmed via binlog; the build
+  graph is a linear chain so this costs nothing.
+
 ## 0.2.6 — 2026-08-19
 
 - 0.2.5 was verified on SDK 10.0.1xx; CI runs 10.0.4xx, whose new

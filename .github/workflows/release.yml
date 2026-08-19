@@ -88,6 +88,10 @@ jobs:
       - name: Restore
         run: dotnet restore jern/src/Jern.Cli/Jern.Cli.fsproj -r ${{ matrix.rid }}
 
+      # -m:1: the SDK's transitive publish walk issues several Build requests
+      # for the same project with different (leaked) global-property sets, all
+      # writing one obj path. In parallel that races — Windows locks the file
+      # (CS2012). The graph is a linear F# chain, so serializing costs nothing.
       - name: Publish self-contained binary
         run: >
           dotnet publish jern/src/Jern.Cli/Jern.Cli.fsproj
@@ -95,6 +99,7 @@ jobs:
           -r ${{ matrix.rid }}
           --self-contained true
           --no-restore
+          -m:1
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:EnableCompressionInSingleFile=true
