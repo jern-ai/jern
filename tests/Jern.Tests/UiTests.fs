@@ -144,6 +144,8 @@ let ``ui denies an approval and the agent sees the refusal`` () =
             match found with
             | Some e -> e
             | None -> failwithf "no SSE event containing %s" marker
+        // Wait for the state hello: only then is the SSE client subscribed.
+        awaitEvent "\"type\":\"state\"" |> ignore
         client.PostAsync("/message", new StringContent("""{"text":"Fix it"}""", Encoding.UTF8)).Result |> ignore
         let approval = awaitEvent "\"type\":\"approval\""
         let id =

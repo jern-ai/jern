@@ -247,10 +247,12 @@ module Ui =
                         respond stream 200 "application/json" (stateJson ())
                     | "GET", "/events" ->
                         stream.Write(sseHeader, 0, sseHeader.Length)
+                        // Register before the hello event: a client that has
+                        // received state is guaranteed to be subscribed.
+                        clients.[Guid.NewGuid()] <- stream
                         let hello = Encoding.UTF8.GetBytes("data: " + stateJson () + "\n\n")
                         stream.Write(hello, 0, hello.Length)
                         stream.Flush()
-                        clients.[Guid.NewGuid()] <- stream
                         keepOpen <- true
                     | "POST", "/message" ->
                         match bodyField request "text" with

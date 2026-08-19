@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1 — 2026-08-19
+
+- Fixed an SSE subscription race the slower CI runner exposed: the
+  `/events` client is now registered before its hello event, so a client
+  that has received state is guaranteed to see every later broadcast
+  (an approval fired into the gap could previously be lost).
+
 ## 0.8.0 — 2026-08-19
 
 - **`jern ui`** — the chat session as a local web app, served by the
