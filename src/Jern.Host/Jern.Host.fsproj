@@ -46,4 +46,7 @@
   <ItemGroup>
     <PackageReference Include="Anthropic" Version="12.40.0" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Jern.Tests" />
+  </ItemGroup>
 </Project>

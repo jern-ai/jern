@@ -189,3 +189,21 @@ let ``per-request model beats the cli model`` () =
     | Choice1Of2 (Default message) -> resolvedError <- message
     | _ -> failwith "expected a routing error"
     Assert.Contains("alsonosuch", resolvedError)
+
+/// Regression for the first live run: the SDK client reads
+/// ANTHROPIC_API_KEY in its constructor, so a client cached before the key
+/// existed stayed unauthorized forever (keys arrive mid-process via the ui
+/// settings panel). The bridge must rebuild the client when the key changes
+/// and reuse it when it does not.
+[<Fact>]
+let ``the anthropic client is rebuilt when the key changes`` () =
+    let previous = System.Environment.GetEnvironmentVariable "ANTHROPIC_API_KEY"
+    try
+        System.Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", "key-one")
+        let first = AnthropicBridge.client ()
+        System.Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", "key-two")
+        let second = AnthropicBridge.client ()
+        Assert.NotSame(first, second)
+        Assert.Same(second, AnthropicBridge.client ())
+    finally
+        System.Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", previous)

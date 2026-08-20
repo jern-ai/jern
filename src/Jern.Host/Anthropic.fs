@@ -29,7 +29,26 @@ module AnthropicBridge =
     let defaultModel = "claude-opus-5"
     let defaultMaxTokens = 16000L
 
-    let private clientLazy = lazy (new AnthropicClient())
+    /// The SDK client reads ANTHROPIC_API_KEY once, in its constructor — so
+    /// it is rebuilt whenever the variable changes. Keys can arrive
+    /// mid-process (the jern ui settings panel, persisted credentials), and
+    /// a client constructed before the key existed would otherwise stay
+    /// unauthorized for the life of the process.
+    let mutable private cachedClient : (string * AnthropicClient) option = None
+    let private clientSync = obj ()
+
+    let internal client () =
+        let key =
+            match Environment.GetEnvironmentVariable "ANTHROPIC_API_KEY" with
+            | null -> ""
+            | k -> k
+        lock clientSync (fun () ->
+            match cachedClient with
+            | Some (cachedKey, c) when cachedKey = key -> c
+            | _ ->
+                let c = new AnthropicClient()
+                cachedClient <- Some(key, c)
+                c)
 
     /// Ctrl-C surfaces as Interrupted (possibly wrapped by the task machinery).
     let internal isInterrupt (e: exn) =
@@ -140,14 +159,14 @@ module AnthropicBridge =
         MessageCreateParams.FromRawUnchecked(empty, empty, body)
 
     let private complete (parameters: MessageCreateParams) =
-        clientLazy.Value.Messages.Create(parameters)
+        (client ()).Messages.Create(parameters)
         |> Async.AwaitTask
         |> Async.RunSynchronously
         |> fun message -> JsonNode.Parse(JsonSerializer.Serialize(message))
 
     let private streamCompletion (parameters: MessageCreateParams) (onText: string -> unit) =
         let accumulator = StreamAccumulator(onText)
-        let events = clientLazy.Value.Messages.CreateStreaming(parameters)
+        let events = (client ()).Messages.CreateStreaming(parameters)
         let consume =
             task {
                 let enumerator = events.GetAsyncEnumerator()

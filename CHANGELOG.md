@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.2 — 2026-08-19
+
+- Fixed `Unauthorized` after setting an Anthropic key in the UI settings:
+  the SDK client reads `ANTHROPIC_API_KEY` in its constructor and was
+  cached forever on first use, so a key that arrived mid-process (settings
+  panel, persisted credentials) never reached it. The bridge now rebuilds
+  the client whenever the key changes. (Found on the first live run —
+  restarting `jern ui` was the workaround; now unnecessary.)
+
 ## 0.9.1 — 2026-08-19
 
 - The brain editor gained Kernel syntax highlighting — a dependency-free
