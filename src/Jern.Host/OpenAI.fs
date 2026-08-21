@@ -51,6 +51,21 @@ module OpenAIBridge =
         | null -> ()
         | tokens -> out.["max_tokens"] <- tokens.DeepClone()
 
+        // Reasoning models: canonical :reasoning_effort passes through to
+        // Chat Completions; the Anthropic-shaped :thinking block does not
+        // exist here and is dropped. Models that take reasoning_effort
+        // (o-series and friends) reject max_tokens in favor of
+        // max_completion_tokens, so the token cap moves with it.
+        match canonical.["reasoning_effort"] with
+        | null -> ()
+        | effort ->
+            out.["reasoning_effort"] <- effort.DeepClone()
+            match out.["max_tokens"] with
+            | null -> ()
+            | tokens ->
+                out.["max_completion_tokens"] <- tokens.DeepClone()
+                out.Remove "max_tokens" |> ignore
+
         let messages = JsonArray()
         match canonical.["system"] with
         | null -> ()
@@ -141,12 +156,20 @@ module OpenAIBridge =
 
     /// Build a canonical response from the pieces a completion (streamed or
     /// not) yields.
-    let private buildCanonical (model: string) (text: string) (toolCalls: (string * string * string) list)
+    let private buildCanonical (model: string) (reasoning: string) (text: string)
+                               (toolCalls: (string * string * string) list)
                                (finishReason: string option) (usage: JsonObject option) : JsonObject =
         let response = JsonObject()
         response.["role"] <- str "assistant"
         response.["model"] <- str model
         let content = JsonArray()
+        // DeepSeek-style reasoning_content becomes a canonical thinking
+        // block, first, mirroring the Anthropic shape.
+        if reasoning <> "" then
+            let block = JsonObject()
+            block.["type"] <- str "thinking"
+            block.["thinking"] <- str reasoning
+            content.Add block
         if text <> "" then
             let block = JsonObject()
             block.["type"] <- str "text"
@@ -192,6 +215,11 @@ module OpenAIBridge =
                 | null -> ""
                 | c when c.GetValueKind() = JsonValueKind.String -> c.GetValue<string>()
                 | _ -> ""
+            let reasoning =
+                match message.["reasoning_content"], message.["reasoning"] with
+                | (:? JsonValue as r), _ when r.GetValueKind() = JsonValueKind.String -> r.GetValue<string>()
+                | _, (:? JsonValue as r) when r.GetValueKind() = JsonValueKind.String -> r.GetValue<string>()
+                | _ -> ""
             let toolCalls =
                 match message.["tool_calls"] with
                 | :? JsonArray as calls ->
@@ -214,13 +242,14 @@ module OpenAIBridge =
                 match openai.["model"] with
                 | null -> ""
                 | m -> m.GetValue<string>()
-            Ok(buildCanonical model text toolCalls finish usage)
+            Ok(buildCanonical model reasoning text toolCalls finish usage)
         | _ ->
             Error("provider returned no choices: " + openai.ToJsonString())
 
     /// Accumulates Chat Completions stream chunks into the same pieces.
     type StreamAccumulator(onText: string -> unit) =
         let text = StringBuilder()
+        let reasoning = StringBuilder()
         let calls = SortedDictionary<int, string * string * StringBuilder>()
         let mutable finishReason: string option = None
         let mutable usage: JsonObject option = None
@@ -249,6 +278,12 @@ module OpenAIBridge =
                         let piece = c.GetValue<string>()
                         text.Append piece |> ignore
                         onText piece
+                    | _ -> ()
+                    match delta.["reasoning_content"], delta.["reasoning"] with
+                    | (:? JsonValue as r), _ when r.GetValueKind() = JsonValueKind.String ->
+                        reasoning.Append(r.GetValue<string>()) |> ignore
+                    | _, (:? JsonValue as r) when r.GetValueKind() = JsonValueKind.String ->
+                        reasoning.Append(r.GetValue<string>()) |> ignore
                     | _ -> ()
                     match delta.["tool_calls"] with
                     | :? JsonArray as deltaCalls ->
@@ -290,7 +325,7 @@ module OpenAIBridge =
         member _.Final() : JsonObject =
             let toolCalls =
                 [ for kv in calls -> let (id, name, arguments) = kv.Value in id, name, arguments.ToString() ]
-            buildCanonical model (text.ToString()) toolCalls finishReason usage
+            buildCanonical model (reasoning.ToString()) (text.ToString()) toolCalls finishReason usage
 
     // ── HTTP ────────────────────────────────────────────────────────────────
 

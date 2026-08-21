@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.0 — 2026-08-19
+
+- **`--auto`** on any command auto-approves everything the policy would
+  ask about — explicit policy denials still deny (they never reach an
+  approver). Interactive prompts now take `y`/`n`/`a`, where `a` approves
+  and stops asking about that tool for the session; the UI's approval
+  cards grow an "always" button and a live auto toggle in the header.
+- **Reasoning models.** `--think <tokens>` (or jern.json
+  `"thinking_tokens"`) enables Anthropic extended thinking with that
+  budget — thinking blocks are preserved across turns and `max_tokens`
+  grows automatically. `--effort low|medium|high` (or
+  `"reasoning_effort"`) drives OpenAI-style reasoning models: the effort
+  passes through, the token cap moves to `max_completion_tokens`, and
+  DeepSeek-style `reasoning_content` comes back as a canonical thinking
+  block (streaming included). The request wiring is ~15 lines of the
+  default agent's own source.
+- **jern.ai/docs** — the full CLI reference (commands, flags,
+  configuration, providers, reasoning, approvals, policy, budgets, MCP,
+  testing, the UI); the homepage gets a sticky nav with a Download
+  button and a `curl … | sh` installer (`https://jern.ai/install.sh`).
+
 ## 0.9.2 — 2026-08-19
 
 - Fixed `Unauthorized` after setting an Anthropic key in the UI settings:

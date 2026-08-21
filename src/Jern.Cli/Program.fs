@@ -44,6 +44,18 @@ Models & providers:
   jern.json / ~/.config/jern/config.json. Keys via provider env vars
   (ANTHROPIC_API_KEY, OPENAI_API_KEY, …); ollama and lmstudio need none.
 
+Reasoning:
+  --think <tokens> turns on Anthropic extended thinking with that budget;
+  --effort low|medium|high sets reasoning effort for OpenAI-style
+  reasoning models (o-series, R1, …). Or set jern.json
+  "thinking_tokens" / "reasoning_effort". Thinking rides the request
+  from agent source; each provider bridge consumes its own knob.
+
+Approvals:
+  --auto on any command auto-approves what the policy would ask about
+  (explicit denials still deny). At the interactive prompt, answer `a`
+  to approve and stop asking about that tool for the session.
+
 Budgets:
   --budget <n> caps the run at n model calls (or set jern.json
   "budget": { "llm_calls": n, "tokens": m }). Enforced in the handler
@@ -55,6 +67,8 @@ MCP:
     "mcp_servers": { "github": { "command": "npx",
                                  "args": ["-y", "@modelcontextprotocol/server-github"],
                                  "env": { "GITHUB_TOKEN": "…" } } }
+
+Docs: https://jern.ai/docs/
 """
 
 /// ANSI styling for the terminal, in the brand's palette (rust and steel on
@@ -122,12 +136,18 @@ type private UsageMeter() =
         sprintf "tokens: %s in, %s out" (fmt input) (fmt output)
     member _.SawUsage = input > 0L || output > 0L
 
+let mutable private cliThink : int option = None
+let mutable private cliEffort : string option = None
+
 let private loadProviders () =
     match Providers.load Environment.CurrentDirectory with
     | Error message ->
         eprintfn "jern: %s" message
         exit 1
-    | Ok config -> config
+    | Ok config ->
+        { config with
+            thinkingTokens = (match cliThink with Some t -> Some t | None -> config.thinkingTokens)
+            reasoningEffort = (match cliEffort with Some e -> Some e | None -> config.reasoningEffort) }
 
 /// Pull a global `--budget <n>` (model-call cap) out of the argument list.
 let private extractBudget (args: string list) =
@@ -141,6 +161,31 @@ let private extractBudget (args: string list) =
         | arg :: rest -> go (arg :: acc) budget rest
         | [] -> List.rev acc, budget
     go [] None args
+
+/// Pull a global `--auto` out of the argument list: auto-approve every
+/// action the policy would ask about. Explicit policy denials still deny —
+/// they never reach an approver at all.
+let private extractAuto (args: string list) =
+    let rec go acc auto = function
+        | "--auto" :: rest -> go acc true rest
+        | arg :: rest -> go (arg :: acc) auto rest
+        | [] -> List.rev acc, auto
+    go [] false args
+
+/// Pull global `--think <tokens>` (Anthropic extended-thinking budget) and
+/// `--effort <low|medium|high>` (OpenAI-style reasoning effort) flags.
+let private extractReasoning (args: string list) =
+    let rec go acc think effort = function
+        | "--think" :: n :: rest ->
+            (match Int32.TryParse(n: string) with
+             | true, tokens when tokens > 0 -> go acc (Some tokens) effort rest
+             | _ ->
+                 eprintfn "jern: --think needs a positive token budget, got '%s'" n
+                 exit 2)
+        | "--effort" :: level :: rest -> go acc think (Some level) rest
+        | arg :: rest -> go (arg :: acc) think effort rest
+        | [] -> List.rev acc, think, effort
+    go [] None None args
 
 /// The session budget plist: the CLI --budget (model calls) wins over
 /// jern.json's "budget" object.
@@ -205,21 +250,33 @@ let private newTraceSink (root: string) =
     let writer = new IO.StreamWriter(path, append = true, AutoFlush = true)
     writer, path
 
-/// Ask on the terminal; deny when there is no terminal to ask.
-let private ttyApprover (description: string) =
-    if Console.IsInputRedirected then
-        eprintfn "jern: denied (no terminal to ask on; use --yes): %s" description
-        false
-    else
-        printf "%s %s%s %s " (Style.yellow "approve") (Style.describe description)
-            (Style.yellow "?") (Style.bold "[y/N]")
-        match Console.ReadLine() with
-        | null -> false
-        | answer -> answer.Trim().ToLowerInvariant() = "y"
+/// Ask on the terminal; deny when there is no terminal to ask. `a` answers
+/// yes and stops asking about that tool for the rest of the session.
+let private makeTtyApprover (auto: bool) =
+    let memory = Approvals.Memory(auto)
+    fun (description: string) ->
+        if memory.Covers description then
+            printfn "%s %s" (Style.dim "auto-approved:") (Style.dim (Approvals.key description))
+            true
+        elif Console.IsInputRedirected then
+            eprintfn "jern: denied (no terminal to ask on; use --auto): %s" description
+            false
+        else
+            printf "%s %s%s %s " (Style.yellow "approve") (Style.describe description)
+                (Style.yellow "?") (Style.bold "[y/N/a]")
+            match Console.ReadLine() with
+            | null -> false
+            | answer ->
+                match answer.Trim().ToLowerInvariant() with
+                | "y" -> true
+                | "a" ->
+                    memory.RememberAlways description
+                    true
+                | _ -> false
 
 /// Interactive chat: one agent turn per user message, history persisted
 /// after every turn so a session survives interruption and `--resume`.
-let private runChat (resumeId: string option) (model: string option) (cliBudget: int option) =
+let private runChat (resumeId: string option) (model: string option) (cliBudget: int option) (auto: bool) =
     Console.OutputEncoding <- Encoding.UTF8
     let root = Environment.CurrentDirectory
     let id, initial =
@@ -255,7 +312,7 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
             { Session.configIn root bridge with
                 traceSink = Some writer.WriteLine
                 agentSources = Session.agentPackageSources (Session.defaultAgentDir ())
-                approver = Some ttyApprover
+                approver = Some(makeTtyApprover auto)
                 agentConfig = Providers.agentConfig providers
                 mcpServers = providers.mcpServers
                 budget = sessionBudget providers cliBudget
@@ -277,7 +334,8 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
             (Style.dim ("session " + id))
             (match initial with Nil -> "" | _ -> Style.dim ", resumed")
             (Style.steel (effectiveModel ()))
-        printfn " %s" (Style.dim (root + " · /help for commands · 'exit' or ctrl-d to quit"))
+        printfn " %s" (Style.dim (root + " · /help for commands · 'exit' or ctrl-d to quit"
+                                + (if auto then " · auto-approve on" else "")))
         printfn ""
         let mutable messages = initial
         let mutable running = true
@@ -353,7 +411,7 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
         { Session.configIn root bridge with
             traceSink = Some writer.WriteLine
             agentSources = Session.agentPackageSources agent
-            approver = Some(if autoApprove then (fun _ -> true) else ttyApprover)
+            approver = Some(if autoApprove then (fun _ -> true) else makeTtyApprover false)
             agentConfig = Providers.agentConfig providers
             mcpServers = providers.mcpServers
             budget = sessionBudget providers cliBudget }
@@ -443,7 +501,7 @@ let private runPolicy (init: bool) =
         0
 
 /// `jern ui` — serve the chat session as a local web app and open it.
-let private runUi (model: string option) (cliBudget: int option) (port: int) (agentDir: string option) =
+let private runUi (model: string option) (cliBudget: int option) (auto: bool) (port: int) (agentDir: string option) =
     let root = Environment.CurrentDirectory
     let providers = loadProviders ()
     let agent =
@@ -463,6 +521,7 @@ let private runUi (model: string option) (cliBudget: int option) (port: int) (ag
               agentConfig = Providers.agentConfig providers
               mcpServers = providers.mcpServers
               budget = sessionBudget providers cliBudget
+              auto = auto
               port = port }
     printfn " %s %s — ui at %s" (Style.rust "jern") (Style.steel ("v" + AgentEnv.version)) (Style.bold server.url)
     printfn " %s" (Style.dim (root + " · ctrl-c to stop"))
@@ -546,14 +605,18 @@ let main argv =
     Providers.applyCredentials ()
     let args, model = extractModel (Array.toList argv)
     let args, cliBudget = extractBudget args
+    let args, auto = extractAuto args
+    let args, think, effort = extractReasoning args
+    cliThink <- think
+    cliEffort <- effort
     match args with
     | ["--version"] | ["version"] ->
         printfn "%s" AgentEnv.version
         0
     | [] when not Console.IsInputRedirected ->
-        runChat None model cliBudget
-    | ["--resume"] -> runChat (Some "") model cliBudget
-    | ["--resume"; id] -> runChat (Some id) model cliBudget
+        runChat None model cliBudget auto
+    | ["--resume"] -> runChat (Some "") model cliBudget auto
+    | ["--resume"; id] -> runChat (Some id) model cliBudget auto
     | ["repl"] ->
         runRepl model
     | "run" :: rest ->
@@ -564,7 +627,7 @@ let main argv =
             | [task] -> Some(yes, agent, task)
             | _ -> None
         match parse false None rest with
-        | Some(yes, agent, task) -> runTask yes agent model cliBudget task
+        | Some(yes, agent, task) -> runTask (yes || auto) agent model cliBudget task
         | None ->
             eprintfn "usage: jern run [--yes] [--agent <dir>] [--model <spec>] [--budget <n>] \"task\""
             2
@@ -580,7 +643,7 @@ let main argv =
             | [] -> Some(port, agent)
             | _ -> None
         (match parse 0 None rest with
-         | Some(port, agent) -> runUi model cliBudget port agent
+         | Some(port, agent) -> runUi model cliBudget auto port agent
          | None ->
              eprintfn "usage: jern ui [--port <n>] [--agent <dir>] [--model <spec>] [--budget <n>]"
              2)

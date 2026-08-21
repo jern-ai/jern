@@ -35,6 +35,13 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M18 — approvals, reasoning, docs** (v0.10): `--auto` approves
+  whatever policy would ask (denials still deny); `y/n/a` prompts and an
+  "always" card button remember per-tool answers for the session.
+  `--think <tokens>` / `--effort <level>` drive Anthropic extended
+  thinking and OpenAI-style reasoning models from ~15 lines of agent
+  source. Full CLI reference at https://jern.ai/docs/ and a one-line
+  installer at https://jern.ai/install.sh.
 - **M17 — the UI opens the brain** (v0.9): a drawer in `jern ui` lists
   the session's loaded sources and the workspace policy; edit, save, and
   the session rebuilds mid-conversation — with a one-click run of the

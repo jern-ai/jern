@@ -23,6 +23,7 @@ let private startServer root makeBridge agentSources agentDir model : Ui.Server 
               agentConfig = Nil
               mcpServers = []
               budget = Nil
+              auto = false
               port = 0 }
     Task.Run(server.run) |> ignore
     server
@@ -256,5 +257,52 @@ let ``settings report key status, accept keys, and switch models`` () =
         client.AwaitEvent "\"model\":\"ollama/qwen3\"" |> ignore
     finally
         Environment.SetEnvironmentVariable("GROQ_API_KEY", null)
+        server.stop ()
+        Directory.Delete(root, true)
+
+/// --auto and "always allow": auto-approved actions emit a note instead of
+/// a card, and an "always" answer stops cards for that tool.
+[<Fact>]
+let ``auto mode and always answers replace approval cards`` () =
+    let root = newRoot "jern-uiauto-"
+    File.WriteAllText(Path.Combine(root, "a.txt"), "one\n")
+    File.WriteAllText(Path.Combine(root, "b.txt"), "one\n")
+    let mutable turn = 0
+    let makeBridge _ (_: string -> unit) : AnthropicBridge.LlmBridge =
+        fun _ ->
+            turn <- turn + 1
+            match turn with
+            | 1 ->
+                Choice2Of2(Json.deserialize """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"x1","name":"edit_file","input":{"path":"a.txt","old_string":"one","new_string":"two"}}]}""")
+            | 2 ->
+                Choice2Of2(Json.deserialize """{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"first done"}]}""")
+            | 3 ->
+                Choice2Of2(Json.deserialize """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"x2","name":"edit_file","input":{"path":"b.txt","old_string":"one","new_string":"two"}}]}""")
+            | _ ->
+                Choice2Of2(Json.deserialize """{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"second done"}]}""")
+    let server =
+        startServer root makeBridge (Session.agentPackageSources (repoAgentDir ())) None (Some "test/model")
+    try
+        use client = new UiClient(server)
+        client.AwaitEvent "\"type\":\"state\"" |> ignore
+        // Answer the first card with always=true…
+        client.Post "/message" """{"text":"edit a"}""" |> ignore
+        let approval = client.AwaitEvent "\"type\":\"approval\""
+        let id =
+            match Tools.plistTryGet "id" (Json.deserialize approval) with
+            | Some (Obj (:? string as s)) -> s
+            | _ -> failwith "no id"
+        client.Post "/approve" (sprintf """{"id":"%s","approved":true,"always":true}""" id) |> ignore
+        client.AwaitEvent "\"type\":\"done\"" |> ignore
+        Assert.Equal("two\n", File.ReadAllText(Path.Combine(root, "a.txt")))
+        // …and the second edit_file goes through with a note, no card.
+        client.Post "/message" """{"text":"edit b"}""" |> ignore
+        client.AwaitEvent "\"type\":\"auto-approved\"" |> ignore
+        client.AwaitEvent "\"type\":\"done\"" |> ignore
+        Assert.Equal("two\n", File.ReadAllText(Path.Combine(root, "b.txt")))
+        // The live toggle exists too.
+        Assert.Equal(200, client.Post "/settings/auto" """{"on":true}""")
+        client.AwaitEvent "\"auto\":true" |> ignore
+    finally
         server.stop ()
         Directory.Delete(root, true)

@@ -63,7 +63,12 @@ module Providers =
           /// Hard run budgets (jern.json "budget": {"llm_calls": N, "tokens": M});
           /// enforced by the budget handler — exhaustion asks for approval.
           budgetLlmCalls: int option
-          budgetTokens: int option }
+          budgetTokens: int option
+          /// Reasoning knobs (jern.json "thinking_tokens"/"reasoning_effort"
+          /// or --think/--effort): Anthropic extended-thinking budget and
+          /// OpenAI-style reasoning effort. Each bridge consumes its own.
+          thinkingTokens: int option
+          reasoningEffort: string option }
 
     let defaultConfig =
         { defaultModel = "anthropic/" + AnthropicBridge.defaultModel
@@ -72,7 +77,9 @@ module Providers =
           testCommand = None
           mcpServers = []
           budgetLlmCalls = None
-          budgetTokens = None }
+          budgetTokens = None
+          thinkingTokens = None
+          reasoningEffort = None }
 
     let private applyFile (config: Config) (path: string) : Config =
         if not (File.Exists path) then config
@@ -154,13 +161,23 @@ module Providers =
                         | v -> Some(v.GetValue<int>())
                     field "llm_calls" config.budgetLlmCalls, field "tokens" config.budgetTokens
                 | _ -> config.budgetLlmCalls, config.budgetTokens
+            let thinkingTokens =
+                match doc.["thinking_tokens"] with
+                | null -> config.thinkingTokens
+                | t -> Some(t.GetValue<int>())
+            let reasoningEffort =
+                match doc.["reasoning_effort"] with
+                | null -> config.reasoningEffort
+                | e -> Some(e.GetValue<string>())
             { defaultModel = defaultModel
               aliases = aliases
               providers = providers
               testCommand = testCommand
               mcpServers = mcpServers
               budgetLlmCalls = budgetLlmCalls
-              budgetTokens = budgetTokens }
+              budgetTokens = budgetTokens
+              thinkingTokens = thinkingTokens
+              reasoningEffort = reasoningEffort }
 
     /// Optional persisted API keys: ~/.config/jern/credentials.json holds
     /// { "<ENV_NAME>": "<key>", … } with 0600 permissions. Environment
@@ -237,10 +254,16 @@ module Providers =
 
     /// The workspace-config plist handed to agent source (data, no authority).
     let agentConfig (config: Config) : LispVal =
-        match config.testCommand with
-        | Some command ->
-            ofList [ Keyword "test_command"; Obj(command :> obj) ]
-        | None -> Nil
+        (match config.testCommand with
+         | Some command -> [ Keyword "test_command"; Obj(command :> obj) ]
+         | None -> [])
+        @ (match config.thinkingTokens with
+           | Some tokens -> [ Keyword "thinking_tokens"; Obj(tokens :> obj) ]
+           | None -> [])
+        @ (match config.reasoningEffort with
+           | Some effort -> [ Keyword "reasoning_effort"; Obj(effort :> obj) ]
+           | None -> [])
+        |> ofList
 
     /// The budget plist handed to the budget handler (handler environment):
     /// (:llm_calls N :tokens M), omitting unset limits; Nil = unlimited.

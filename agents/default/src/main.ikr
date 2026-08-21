@@ -32,6 +32,31 @@ fails, read the error and adapt. Never invent file contents you have not read.")
 ; The workspace's test command (jern.json "test_command"), or :null.
 (define test-command (plist-get jern/workspace-config :test_command))
 
+; Reasoning knobs (jern.json "thinking_tokens"/"reasoning_effort", or
+; --think/--effort). Anthropic extended thinking rides the request as
+; :thinking; OpenAI-style reasoning models take :reasoning_effort. Each
+; provider bridge consumes its own knob and drops the other — the agent
+; just states intent. Thinking needs headroom, so max_tokens grows by the
+; thinking budget.
+(define thinking-tokens (plist-get jern/workspace-config :thinking_tokens))
+(define reasoning-effort (plist-get jern/workspace-config :reasoning_effort))
+
+(define response-max-tokens
+  (if (eqv? thinking-tokens :null) 8192 (+ 8192 thinking-tokens)))
+
+(define with-reasoning
+  (lambda (request)
+    (sequence
+      (define with-think
+        (if (eqv? thinking-tokens :null)
+            request
+            (cons :thinking
+                  (cons (list :type "enabled" :budget_tokens thinking-tokens)
+                        request))))
+      (if (eqv? reasoning-effort :null)
+          with-think
+          (cons :reasoning_effort (cons reasoning-effort with-think))))))
+
 ; First-turn context: a workspace tree rides the opening user message, so
 ; the model starts oriented. In the *first message* rather than the system
 ; prompt on purpose — messages are history, so the snapshot stays fixed and
@@ -95,11 +120,12 @@ fails, read the error and adapt. Never invent file contents you have not read.")
           ; bridges simply ignore it. Prompt caching, from agent source.
           (define response
             (perform jern/llm-call
-              (list :system (system-prompt-with-conventions)
-                    :max_tokens 8192
-                    :tools (tools-for-llm)
-                    :cache_control (list :type "ephemeral")
-                    :messages (apply vector (reverse messages)))))
+              (with-reasoning
+                (list :system (system-prompt-with-conventions)
+                      :max_tokens response-max-tokens
+                      :tools (tools-for-llm)
+                      :cache_control (list :type "ephemeral")
+                      :messages (apply vector (reverse messages))))))
           (show-progress response)
           (define with-assistant
             (cons (list :role "assistant"

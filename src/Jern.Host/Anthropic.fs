@@ -142,7 +142,7 @@ module AnthropicBridge =
 
     /// Fill :model and :max_tokens when the agent omitted them; an explicit
     /// `model` argument (from provider routing) overrides the request's.
-    let private prepareBody (model: string option) (request: LispVal) =
+    let internal prepareBody (model: string option) (request: LispVal) =
         let bodyJson = Json.serialize request
         let body = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(bodyJson)
         match model with
@@ -152,6 +152,10 @@ module AnthropicBridge =
                 body.["model"] <- JsonSerializer.SerializeToElement(defaultModel)
         if not (body.ContainsKey "max_tokens") then
             body.["max_tokens"] <- JsonSerializer.SerializeToElement(defaultMaxTokens)
+        // :reasoning_effort belongs to the OpenAI-compatible bridge; the
+        // Messages API rejects unknown top-level fields. (:thinking is
+        // native here and passes through untouched.)
+        body.Remove "reasoning_effort" |> ignore
         body
 
     let private toParams (body: Dictionary<string, JsonElement>) =

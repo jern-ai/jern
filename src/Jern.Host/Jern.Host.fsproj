@@ -10,6 +10,7 @@
     <Compile Include="Anthropic.fs" />
     <Compile Include="OpenAI.fs" />
     <Compile Include="Tools.fs" />
+    <Compile Include="Approvals.fs" />
     <Compile Include="Mcp.fs" />
     <Compile Include="Providers.fs" />
     <Compile Include="Fixtures.fs" />

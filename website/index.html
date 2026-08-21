@@ -21,7 +21,25 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: var(--bg); color: var(--ink);
          font: 17px/1.65 -apple-system, "Segoe UI", system-ui, sans-serif; }
-  main { max-width: 60rem; margin: 0 auto; padding: 4rem 1.25rem 6rem; }
+  nav { position: sticky; top: 0; z-index: 5; background: rgba(22,24,29,.92);
+        backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
+  nav .inner { max-width: 60rem; margin: 0 auto; display: flex; align-items: center;
+               gap: 1.1rem; padding: .6rem 1.25rem; }
+  nav img { border-radius: 8px; }
+  nav .brand { font-weight: 700; color: var(--ink); text-decoration: none; }
+  nav a { color: var(--dim); text-decoration: none; font-size: .92rem; }
+  nav a:hover { color: var(--ink); }
+  nav .spacer { flex: 1; }
+  nav .cta { background: var(--rust); color: #fff; padding: .35rem .95rem;
+             border-radius: 7px; font-weight: 600; }
+  nav .cta:hover { color: #fff; filter: brightness(1.1); }
+  .install { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap;
+             margin: 1.4rem 0 0; }
+  .install pre { flex: 1; min-width: 18rem; margin: 0; }
+  .install .cta { background: var(--rust); color: #fff; padding: .65rem 1.2rem;
+                  border-radius: 8px; font-weight: 600; text-decoration: none;
+                  white-space: nowrap; }
+  main { max-width: 60rem; margin: 0 auto; padding: 2.6rem 1.25rem 6rem; }
   video { display: block; width: 100%; border: 1px solid var(--line);
           border-radius: 8px; margin: 1.6rem 0 .4rem; }
   .caption { font-size: .85rem; color: var(--dim); margin: 0 0 1rem; }
@@ -53,8 +71,15 @@
 </style>
 </head>
 <body>
+<nav><div class="inner">
+  <img src="icon.svg" alt="" width="26" height="26">
+  <a class="brand" href="/">jern</a>
+  <a href="/docs/">Docs</a>
+  <a href="https://github.com/jern-ai/jern">GitHub</a>
+  <span class="spacer"></span>
+  <a class="cta" href="https://github.com/jern-ai/jern/releases/latest">Download</a>
+</div></nav>
 <main>
-  <img src="icon.svg" alt="" width="72" height="72" style="display:block; margin-bottom:1.2rem; border-radius:16px;">
   <h1>jern<span class="no">/jæɳ/ — Norwegian for <em>iron</em></span></h1>
 
   <p class="tagline">A terminal coding agent whose brain is a
@@ -68,6 +93,14 @@
   card; the agent's own source opens in <code>jern ui</code>; its regression
   suite runs green; a tampered system prompt is caught by replay on the exact
   divergence; revert — green again.</p>
+
+  <div class="install">
+    <pre><code><span class="p">$</span> curl -fsSL https://jern.ai/install.sh | sh</code></pre>
+    <a class="cta" href="https://github.com/jern-ai/jern/releases/latest">Download&nbsp;binaries</a>
+  </div>
+  <p class="caption">macOS &amp; Linux, arm64 &amp; x64 — Windows builds on the
+  <a href="https://github.com/jern-ai/jern/releases/latest">releases page</a>.
+  Full reference in the <a href="/docs/">docs</a>.</p>
 
   <pre><code><span class="p">$</span> jern run "fix the failing test"   <span class="c"># works like the agents you know</span>
 <span class="p">$</span> jern eject                        <span class="c"># the whole brain: ~120 lines of source</span>

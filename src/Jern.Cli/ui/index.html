@@ -30,6 +30,7 @@
   header button { background: none; border: 1px solid var(--line); color: var(--dim);
                   border-radius: 6px; padding: .25rem .7rem; font-size: .78rem; cursor: pointer; }
   header button:hover { color: var(--ink); border-color: var(--dim); }
+  header button.on { color: var(--yellow); border-color: var(--yellow); }
 
   main { flex: 1; overflow-y: auto; padding: 1.2rem; }
   .feed { width: 100%; display: flex; flex-direction: column; gap: .8rem; }
@@ -168,6 +169,7 @@
   <span class="meta" id="cost"></span>
   <button id="filesbtn" title="Inspect and edit the agent's source">brain</button>
   <button id="settingsbtn" title="Models and API keys">settings</button>
+  <button id="autobtn" title="Auto-approve everything policy would ask (explicit denials still deny)">auto</button>
   <button id="interrupt" title="Interrupt the current turn">stop</button>
   <button id="undo" title="Revert the last jern commit">undo</button>
 </header>
@@ -309,21 +311,27 @@ function approvalCard(id, description) {
   });
   card.appendChild(pre);
   const buttons = document.createElement("div"); buttons.className = "buttons";
-  const answer = approved => {
-    api("/approve", { method: "POST", body: JSON.stringify({ id, approved }) });
+  const answer = (approved, always = false) => {
+    api("/approve", { method: "POST", body: JSON.stringify({ id, approved, always }) });
     card.classList.add("decided");
-    h.textContent = approved ? "approved" : "denied";
+    h.textContent = approved ? (always ? "always allowed" : "approved") : "denied";
   };
   const yes = document.createElement("button"); yes.className = "yes"; yes.textContent = "approve";
+  const always = document.createElement("button"); always.className = "yes"; always.textContent = "always";
+  always.title = "Approve and stop asking about this tool for the session";
   const no = document.createElement("button"); no.className = "no"; no.textContent = "deny";
   yes.onclick = () => answer(true);
+  always.onclick = () => answer(true, true);
   no.onclick = () => answer(false);
-  buttons.append(yes, no);
+  buttons.append(yes, always, no);
   card.appendChild(buttons);
   card.scrollIntoView({ block: "end" });
 }
 
+let autoOn = false;
 function onState(s) {
+  autoOn = !!s.auto;
+  document.getElementById("autobtn").classList.toggle("on", autoOn);
   document.getElementById("model").textContent = s.model;
   document.getElementById("session").textContent = "session " + s.session + " · v" + s.version;
   const tokens = (s.input_tokens || 0) + (s.output_tokens || 0);
@@ -495,6 +503,7 @@ events.onmessage = e => {
   else if (m.type === "done") endTurn();
   else if (m.type === "error") { el("div", "error", m.message); endTurn(); }
   else if (m.type === "reloaded") el("div", "note", "brain reloaded: " + m.path);
+  else if (m.type === "auto-approved") el("div", "note", "auto-approved: " + m.description);
   else if (m.type === "test-result") {
     const line = document.createElement("span");
     line.className = m.ok ? "ok" : "bad";
@@ -532,6 +541,8 @@ send.onclick = submit;
 input.addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
 });
+document.getElementById("autobtn").onclick = () =>
+  api("/settings/auto", { method: "POST", body: JSON.stringify({ on: !autoOn }) });
 document.getElementById("interrupt").onclick = () => api("/interrupt", { method: "POST", body: "{}" });
 document.getElementById("undo").onclick = () =>
   api("/undo", { method: "POST", body: "{}" }).then(r => r.json())

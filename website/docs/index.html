@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jern docs — CLI reference</title>
+<meta name="description" content="jern CLI reference: commands, flags, configuration, providers, reasoning models, approvals, policy, budgets, MCP, and agent testing.">
+<link rel="icon" type="image/svg+xml" href="../icon.svg">
+<style>
+  :root {
+    --bg: #16181d; --panel: #1e2128; --ink: #e8e6e1; --dim: #9a9890;
+    --rust: #c2643a; --steel: #7fa6bd; --line: #2c303a;
+    --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--ink);
+         font: 16px/1.65 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  nav { position: sticky; top: 0; z-index: 5; background: rgba(22,24,29,.92);
+        backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
+  nav .inner { max-width: 60rem; margin: 0 auto; display: flex; align-items: center;
+               gap: 1.1rem; padding: .6rem 1.25rem; }
+  nav img { border-radius: 8px; }
+  nav .brand { font-weight: 700; color: var(--ink); text-decoration: none; }
+  nav a { color: var(--dim); text-decoration: none; font-size: .92rem; }
+  nav a:hover { color: var(--ink); }
+  nav .spacer { flex: 1; }
+  nav .cta { background: var(--rust); color: #fff; padding: .35rem .95rem;
+             border-radius: 7px; font-weight: 600; }
+  main { max-width: 60rem; margin: 0 auto; padding: 2.6rem 1.25rem 6rem; }
+  h1 { font-size: 2rem; letter-spacing: -0.01em; margin-bottom: .3rem; }
+  .sub { color: var(--dim); margin-bottom: 1.6rem; }
+  h2 { font-size: 1.1rem; text-transform: uppercase; letter-spacing: .12em;
+       color: var(--steel); margin: 3rem 0 .8rem; }
+  h3 { font-family: var(--mono); font-size: 1rem; color: var(--rust);
+       margin: 2rem 0 .5rem; }
+  p, ul { margin: .8rem 0; }
+  ul { padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+        padding: .8rem 1rem; overflow-x: auto; font-family: var(--mono);
+        font-size: .84rem; line-height: 1.6; margin: .8rem 0; }
+  code { font-family: var(--mono); font-size: .9em; color: var(--steel); }
+  pre code { color: var(--ink); }
+  pre .c { color: var(--dim); }
+  pre .p { color: var(--rust); }
+  a { color: var(--steel); }
+  table { border-collapse: collapse; width: 100%; margin: .8rem 0;
+          font-size: .88rem; }
+  th, td { text-align: left; padding: .45rem .7rem; border: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; background: var(--panel); }
+  td code { white-space: nowrap; }
+  .toc { display: flex; flex-wrap: wrap; gap: .5rem 1.1rem; margin: 1rem 0 0;
+         font-size: .9rem; }
+  .toc a { color: var(--dim); }
+  .toc a:hover { color: var(--steel); }
+</style>
+</head>
+<body>
+<nav><div class="inner">
+  <img src="../icon.svg" alt="" width="26" height="26">
+  <a class="brand" href="/">jern</a>
+  <a href="/docs/">Docs</a>
+  <a href="https://github.com/jern-ai/jern">GitHub</a>
+  <span class="spacer"></span>
+  <a class="cta" href="https://github.com/jern-ai/jern/releases/latest">Download</a>
+</div></nav>
+<main>
+  <h1>jern documentation</h1>
+  <p class="sub">The complete CLI reference. jern is a terminal coding agent
+  whose loop, tools, and policies are IronKernel source you can read, edit,
+  and regression-test — see the <a href="/">homepage</a> for the thesis and
+  the <a href="https://github.com/jern-ai/jern/blob/main/docs/security-model.md">security
+  model</a> for the honest fine print.</p>
+  <div class="toc">
+    <a href="#install">Install</a>
+    <a href="#quickstart">Quick start</a>
+    <a href="#commands">Commands</a>
+    <a href="#global-flags">Global flags</a>
+    <a href="#configuration">Configuration</a>
+    <a href="#providers">Providers &amp; models</a>
+    <a href="#reasoning">Reasoning models</a>
+    <a href="#approvals">Approvals &amp; policy</a>
+    <a href="#budgets">Budgets</a>
+    <a href="#mcp">MCP</a>
+    <a href="#testing">Testing agents</a>
+    <a href="#ui">The web UI</a>
+  </div>
+
+  <h2 id="install">Install</h2>
+  <pre><code><span class="p">$</span> curl -fsSL https://jern.ai/install.sh | sh</code></pre>
+  <p>macOS and Linux, arm64 and x64. The script installs to
+  <code>~/.jern/bin</code> (override with <code>JERN_INSTALL=…</code>) and
+  tells you the <code>PATH</code> line to add. Windows and manual installs:
+  download an archive from the
+  <a href="https://github.com/jern-ai/jern/releases/latest">releases page</a>,
+  untar, and put <code>jern</code> on your <code>PATH</code> — the archive
+  carries the binary plus its Kernel source (<code>kernel/</code>,
+  <code>agents/</code>, <code>ui/</code>); all of it is the product.</p>
+  <p>Building from source needs the .NET 10 SDK and a sibling checkout of
+  <a href="https://github.com/ironkernel-lang/IronKernel">IronKernel</a>;
+  see the <a href="https://github.com/jern-ai/jern#building">repository</a>.</p>
+
+  <h2 id="quickstart">Quick start</h2>
+  <pre><code><span class="p">$</span> export ANTHROPIC_API_KEY=…      <span class="c"># or OPENAI_API_KEY, or none for ollama</span>
+<span class="p">$</span> jern                            <span class="c"># interactive chat in this workspace</span>
+<span class="p">$</span> jern run "fix the failing test" <span class="c"># one-shot task; asks before writes/shell</span>
+<span class="p">$</span> jern ui                         <span class="c"># the same session as a local web app</span></code></pre>
+
+  <h2 id="commands">Commands</h2>
+
+  <h3>jern</h3>
+  <p>Interactive chat in the current workspace. History persists to
+  <code>.jern/sessions/&lt;id&gt;.json</code>; a session survives interruption.</p>
+  <table>
+    <tr><th>Flag / command</th><th>Description</th></tr>
+    <tr><td><code>--resume [id]</code></td><td>Continue the latest (or the given) session</td></tr>
+    <tr><td><code>/model [spec]</code></td><td>Show or switch the model mid-session</td></tr>
+    <tr><td><code>/undo</code></td><td>Revert the last jern-authored commit</td></tr>
+    <tr><td><code>/clear</code></td><td>Forget this conversation's history</td></tr>
+    <tr><td><code>/cost</code></td><td>Token totals for the session</td></tr>
+  </table>
+  <p>Ctrl-C interrupts the current turn; the conversation stays consistent.</p>
+
+  <h3>jern run</h3>
+  <pre><code><span class="p">$</span> jern run [--yes] [--agent &lt;dir&gt;] "task"</code></pre>
+  <table>
+    <tr><th>Flag</th><th>Description</th></tr>
+    <tr><td><code>--yes</code></td><td>Approve everything the policy would ask about (same as <code>--auto</code>)</td></tr>
+    <tr><td><code>--agent &lt;dir&gt;</code></td><td>Run a different agent package (e.g. an ejected or custom agent)</td></tr>
+  </table>
+  <p>Every run writes a JSONL effect trace to <code>.jern/trace-*.jsonl</code>.</p>
+
+  <h3>jern ui</h3>
+  <pre><code><span class="p">$</span> jern ui [--port n] [--agent &lt;dir&gt;]</code></pre>
+  <p>The session as a local web app on 127.0.0.1, guarded by a startup token
+  in the printed URL: streamed replies, tool chips with diffs, interactive
+  approval cards, a brain editor with syntax highlighting and one-click test
+  runs, and settings for models and API keys. See <a href="#ui">the web UI</a>.</p>
+
+  <h3>jern test</h3>
+  <pre><code><span class="p">$</span> jern test [&lt;agent-dir&gt;] [--record]</code></pre>
+  <p>Runs an agent package's test suite. Replay is deterministic and
+  network-free; <code>--record</code> captures new fixtures from the live
+  provider. See <a href="#testing">testing agents</a>.</p>
+
+  <h3>jern policy</h3>
+  <pre><code><span class="p">$</span> jern policy        <span class="c"># show the active tool policy</span>
+<span class="p">$</span> jern policy init   <span class="c"># write .jern/policy.ikr for this workspace</span></code></pre>
+
+  <h3>jern mcp</h3>
+  <p>Connects the configured MCP servers and lists their tools.
+  See <a href="#mcp">MCP</a>.</p>
+
+  <h3>jern undo · eject · repl · script</h3>
+  <table>
+    <tr><th>Command</th><th>Description</th></tr>
+    <tr><td><code>jern undo</code></td><td>Revert the last jern-authored commit (exactly one; refuses anything else)</td></tr>
+    <tr><td><code>jern eject</code></td><td>Copy the installed default agent's source into <code>./agents/default</code> for editing</td></tr>
+    <tr><td><code>jern repl</code></td><td>Kernel REPL inside the agent's restricted environment</td></tr>
+    <tr><td><code>jern script &lt;file&gt;</code></td><td>Run a <code>.ikr</code> file as agent code under the full handler stack</td></tr>
+  </table>
+
+  <h2 id="global-flags">Global flags</h2>
+  <p>These work on any command.</p>
+  <table>
+    <tr><th>Flag</th><th>Description</th></tr>
+    <tr><td><code>--model provider/model</code></td><td>Route this run to a provider and model (<a href="#providers">providers</a>)</td></tr>
+    <tr><td><code>--auto</code></td><td>Auto-approve permissions that are not explicitly denied (<a href="#approvals">approvals</a>)</td></tr>
+    <tr><td><code>--budget &lt;n&gt;</code></td><td>Hard cap the run at n model calls (<a href="#budgets">budgets</a>)</td></tr>
+    <tr><td><code>--think &lt;tokens&gt;</code></td><td>Anthropic extended thinking with that budget (<a href="#reasoning">reasoning</a>)</td></tr>
+    <tr><td><code>--effort low|medium|high</code></td><td>Reasoning effort for OpenAI-style reasoning models</td></tr>
+  </table>
+
+  <h2 id="configuration">Configuration</h2>
+  <p>JSON, merged from <code>~/.config/jern/config.json</code> then the
+  workspace's <code>jern.json</code> (workspace wins per key):</p>
+  <pre><code>{
+  "default_model": "anthropic/claude-opus-5",
+  "aliases": { "fast": "groq/llama-3.3-70b-versatile" },
+  "providers": {
+    "myproxy": { "base_url": "https://llm.corp/v1", "api_key_env": "MYPROXY_KEY" }
+  },
+  "test_command": "pytest -q",
+  "budget": { "llm_calls": 30, "tokens": 200000 },
+  "thinking_tokens": 8192,
+  "reasoning_effort": "high",
+  "mcp_servers": {
+    "github": { "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-github"],
+                "env": { "GITHUB_TOKEN": "…" } }
+  }
+}</code></pre>
+  <table>
+    <tr><th>Key</th><th>Description</th></tr>
+    <tr><td><code>default_model</code></td><td>Used when no <code>--model</code> is given</td></tr>
+    <tr><td><code>aliases</code></td><td>Short names for model specs</td></tr>
+    <tr><td><code>providers</code></td><td>Custom or overridden endpoints (any OpenAI-compatible API)</td></tr>
+    <tr><td><code>test_command</code></td><td>The default agent runs this after every edit and reacts to failures</td></tr>
+    <tr><td><code>budget</code></td><td>Hard model-call / token caps, enforced in the handler stack</td></tr>
+    <tr><td><code>thinking_tokens</code></td><td>Anthropic extended-thinking budget</td></tr>
+    <tr><td><code>reasoning_effort</code></td><td>Effort for OpenAI-style reasoning models</td></tr>
+    <tr><td><code>mcp_servers</code></td><td>MCP servers whose tools join the agent's toolset</td></tr>
+  </table>
+  <p>API keys come from provider environment variables
+  (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, …). Keys set
+  in the UI can be persisted to <code>~/.config/jern/credentials.json</code>
+  (mode 0600); environment variables always win.</p>
+
+  <h2 id="providers">Providers &amp; models</h2>
+  <p>Models are named <code>provider/model</code>, aider-style. Built in:
+  <code>anthropic</code> (native wire format) and, through one
+  OpenAI-compatible layer: <code>openai</code>, <code>ollama</code>,
+  <code>openrouter</code>, <code>deepseek</code>, <code>groq</code>,
+  <code>mistral</code>, <code>xai</code>, <code>gemini</code>,
+  <code>lmstudio</code> — plus anything you add under
+  <code>providers</code> in <code>jern.json</code>.
+  <code>ollama</code> and <code>lmstudio</code> need no key.</p>
+  <pre><code><span class="p">$</span> jern run --model anthropic/claude-opus-5 "…"
+<span class="p">$</span> jern run --model ollama/qwen3 "…"
+<span class="p">$</span> jern --model fast              <span class="c"># an alias from jern.json</span></code></pre>
+  <p>Sessions, traces, and test fixtures use one canonical conversation
+  format regardless of provider — recorded fixtures replay against any of
+  them.</p>
+
+  <h2 id="reasoning">Reasoning models</h2>
+  <p>Two knobs, one intent — the agent states it once and each provider
+  bridge consumes what it understands:</p>
+  <ul>
+    <li><code>--think &lt;tokens&gt;</code> (or <code>"thinking_tokens"</code>)
+    turns on <b>Anthropic extended thinking</b> with that budget; the
+    response's thinking blocks are preserved across turns, and
+    <code>max_tokens</code> grows by the budget automatically.</li>
+    <li><code>--effort low|medium|high</code> (or
+    <code>"reasoning_effort"</code>) sets <b>reasoning effort</b> for
+    OpenAI-style reasoning models (o-series, R1, …). The token cap is sent
+    as <code>max_completion_tokens</code> for these models, and
+    DeepSeek-style <code>reasoning_content</code> comes back as a canonical
+    thinking block.</li>
+  </ul>
+  <pre><code><span class="p">$</span> jern run --think 8192 "untangle the circular import"
+<span class="p">$</span> jern run --model deepseek/deepseek-reasoner --effort high "…"</code></pre>
+  <p>Because requests are authored in agent source, the wiring is ~15 lines
+  of the default agent's <code>main.ikr</code> — read it, change it.</p>
+
+  <h2 id="approvals">Approvals &amp; policy</h2>
+  <p>The policy decides first — <code>:allow</code>, <code>:ask</code>, or
+  an explicit denial with a reason the model sees. Only <code>:ask</code>
+  reaches you:</p>
+  <ul>
+    <li>Interactive prompts answer <code>y</code> (once), <code>n</code>
+    (deny), or <code>a</code> — approve <em>and stop asking about that tool
+    for the session</em>. The web UI's cards have the same three buttons.</li>
+    <li><code>--auto</code> (any command, and a live toggle in the UI)
+    auto-approves everything the policy would ask about. <b>Explicit policy
+    denials still deny</b> — they never reach an approver at all.</li>
+  </ul>
+  <p>The rules themselves are enforced Kernel source. The workspace can
+  carry its own: <code>jern policy init</code> writes
+  <code>.jern/policy.ikr</code>, which overrides the built-in rules for
+  every session in that repo:</p>
+  <pre><code>(define tool-policy
+  (lambda (call)
+    (cond ((path-within? call "src/") :allow)   <span class="c">; scope edits</span>
+          ((command-is? call "pytest") :allow)  <span class="c">; allowlist a command</span>
+          ((equal? (plist-get call :name) "read_file") :allow)
+          (#t :ask))))</code></pre>
+  <p>A workspace policy runs privileged — review it in repositories you did
+  not author, like a <code>Makefile</code>. Every session that loads one
+  announces it.</p>
+
+  <h2 id="budgets">Budgets</h2>
+  <p><code>--budget 20</code> (or the <code>budget</code> object in
+  <code>jern.json</code>) is a hard cap enforced in the handler stack: the
+  21st model call becomes an approval question — grant another round or the
+  run ends with a budget error. Token budgets account real usage from each
+  response. Not advice to the model; a wall in front of it.</p>
+
+  <h2 id="mcp">MCP</h2>
+  <p>jern is an MCP client (stdio transport). Servers configured in
+  <code>jern.json</code> contribute tools named
+  <code>mcp__&lt;server&gt;__&lt;tool&gt;</code>, which pass through the same
+  policy, approval, trace, and fixture layers as the built-ins — every MCP
+  call is ask-gated until your policy allows specific ones.
+  <code>jern mcp</code> connects the configured servers and lists what they
+  offer.</p>
+
+  <h2 id="testing">Testing agents</h2>
+  <p>An agent package's <code>test/*.ikr</code> holds
+  <code>(deftest …)</code> forms; each runs in a fresh session and temp
+  workspace, with model traffic answered from recorded fixtures:</p>
+  <pre><code>(deftest "fixes a typo end to end"
+  (setup-file "greeting.txt" "helo world\n")
+  (with-fixtures "fixtures/fix-typo.json"
+    (assert-equal "Fixed the typo." (run-agent "Fix the typo in greeting.txt"))
+    (assert-file-contains "greeting.txt" "hello world")
+    <span class="c">; …and properties of the whole run:</span>
+    (assert-no-tool-call "shell")
+    (assert-edits-within "greeting.txt")
+    (assert-max-llm-calls 3)))</code></pre>
+  <p>Replay compares each request byte-for-byte with the recording and fails
+  on the first divergence — a changed system prompt, reordered message, or
+  different tool wiring is a test failure, offline, with no API key. The
+  trajectory assertions add behavioral contracts on top. Re-record with
+  <code>jern test --record</code> to bless a deliberate change.</p>
+
+  <h2 id="ui">The web UI</h2>
+  <p><code>jern ui</code> serves a single page from the binary on
+  127.0.0.1. Every request needs the startup token from the printed URL, so
+  other local processes can't drive the session. From the page you can:
+  chat with streamed replies and expandable tool chips; answer approval
+  cards (approve / always / deny) or flip the auto toggle; open the
+  <b>brain</b> drawer to edit the agent's sources and the workspace policy
+  with Kernel syntax highlighting, saving mid-conversation; run the agent's
+  regression suite with one click; and manage models and API keys in
+  settings. The page itself is <code>ui/index.html</code> beside the
+  binary — edit it like everything else.</p>
+
+  <footer style="margin-top:4rem; color:var(--dim); font-size:.85rem;
+                 border-top:1px solid var(--line); padding-top:1.4rem;">
+    Apache-2.0 · built on <a href="https://ironkernel.org/">IronKernel</a> ·
+    <a href="https://github.com/jern-ai/jern">GitHub</a> ·
+    <a href="https://github.com/jern-ai/jern/blob/main/docs/security-model.md">security model</a>
+  </footer>
+</main>
+</body>
+</html>

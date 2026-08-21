@@ -207,3 +207,50 @@ let ``the anthropic client is rebuilt when the key changes`` () =
         Assert.Same(second, AnthropicBridge.client ())
     finally
         System.Environment.SetEnvironmentVariable("ANTHROPIC_API_KEY", previous)
+
+[<Fact>]
+let ``approval keys and memory behave`` () =
+    Assert.Equal("edit_file", Approvals.key "edit_file: greeting.txt\n  - a\n  + b")
+    Assert.Equal("shell", Approvals.key "shell: pytest -q")
+    Assert.Equal("read_file", Approvals.key "read_file")
+    let memory = Approvals.Memory(false)
+    Assert.False(memory.Covers "shell: rm -rf /tmp/x")
+    memory.RememberAlways "shell: ls"
+    Assert.True(memory.Covers "shell: anything else")
+    Assert.False(memory.Covers "edit_file: f")
+    let auto = Approvals.Memory(true)
+    Assert.True(auto.Covers "edit_file: whatever")
+    auto.Auto <- false
+    Assert.False(auto.Covers "edit_file: whatever")
+
+[<Fact>]
+let ``reasoning effort maps to chat completions and moves the token cap`` () =
+    let canonical = JsonNode.Parse("""{"max_tokens":8192,"reasoning_effort":"high","messages":[]}""").AsObject()
+    let out = OpenAIBridge.translateRequest "o4-mini" canonical
+    Assert.Equal("high", out.["reasoning_effort"].GetValue<string>())
+    Assert.Equal(8192, out.["max_completion_tokens"].GetValue<int>())
+    Assert.Null(out.["max_tokens"])
+    // Without effort, max_tokens stays put.
+    let plain = JsonNode.Parse("""{"max_tokens":8192,"messages":[]}""").AsObject()
+    let out2 = OpenAIBridge.translateRequest "gpt-4.1" plain
+    Assert.Equal(8192, out2.["max_tokens"].GetValue<int>())
+    Assert.Null(out2.["reasoning_effort"])
+
+[<Fact>]
+let ``reasoning content becomes a canonical thinking block`` () =
+    let response = JsonNode.Parse("""{"model":"deepseek-reasoner","choices":[{"message":{"content":"answer","reasoning_content":"chain of thought"},"finish_reason":"stop"}]}""").AsObject()
+    match OpenAIBridge.translateResponse response with
+    | Error e -> failwith e
+    | Ok canonical ->
+        let content = canonical.["content"].AsArray()
+        Assert.Equal("thinking", content.[0].AsObject().["type"].GetValue<string>())
+        Assert.Equal("chain of thought", content.[0].AsObject().["thinking"].GetValue<string>())
+        Assert.Equal("text", content.[1].AsObject().["type"].GetValue<string>())
+
+[<Fact>]
+let ``the anthropic body drops reasoning_effort and keeps thinking`` () =
+    let request =
+        Json.deserialize """{"max_tokens":9000,"reasoning_effort":"high","thinking":{"type":"enabled","budget_tokens":2048},"messages":[]}"""
+    let body = AnthropicBridge.prepareBody None request
+    Assert.False(body.ContainsKey "reasoning_effort")
+    Assert.True(body.ContainsKey "thinking")

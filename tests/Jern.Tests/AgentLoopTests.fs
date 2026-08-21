@@ -100,3 +100,33 @@ let ``agent loop stops at max turns`` () =
         Assert.Equal(50, calls)
     finally
         Directory.Delete(root, true)
+
+/// The reasoning knobs materialize on the wire from agent source: with
+/// :thinking_tokens configured, every request carries the Anthropic
+/// extended-thinking block and a grown max_tokens.
+[<Fact>]
+let ``configured thinking rides every request from agent source`` () =
+    let root = Path.Combine(Path.GetTempPath(), "jern-think-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory root |> ignore
+    try
+        let mutable sawThinking = false
+        let bridge: AnthropicBridge.LlmBridge =
+            fun request ->
+                let json = Json.serialize request
+                Assert.Contains("\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":2048}", json)
+                Assert.Contains("\"max_tokens\":10240", json)
+                sawThinking <- true
+                Choice2Of2(Json.deserialize """{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"ok"}]}""")
+        let repoAgentDir = Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "agents", "default")
+        let config =
+            { Session.configIn root bridge with
+                agentSources = Session.agentPackageSources repoAgentDir
+                agentConfig = ofList [ Keyword "thinking_tokens"; Obj(2048 :> obj) ] }
+        match Session.createWith config with
+        | Choice1Of2 error -> failwith (showError error)
+        | Choice2Of2 session ->
+            match Session.runAgent session "say ok" with
+            | Choice1Of2 error -> failwith (showError error)
+            | Choice2Of2 _ -> Assert.True sawThinking
+    finally
+        Directory.Delete(root, true)

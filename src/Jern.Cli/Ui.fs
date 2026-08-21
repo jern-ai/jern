@@ -56,6 +56,8 @@ module Ui =
           agentConfig: LispVal
           mcpServers: Mcp.ServerSpec list
           budget: LispVal
+          /// Start with auto-approve on (the --auto flag); toggleable live.
+          auto: bool
           /// 0 picks a free port.
           port: int }
 
@@ -190,12 +192,19 @@ module Ui =
         let currentModel = ref config.model
 
         let pendingApprovals = ConcurrentDictionary<string, TaskCompletionSource<bool>>()
+        let approvalDescriptions = ConcurrentDictionary<string, string>()
+        let approvals = Approvals.Memory(config.auto)
         let approver (description: string) =
-            let id = Guid.NewGuid().ToString "N"
-            let tcs = TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)
-            pendingApprovals.[id] <- tcs
-            broadcast (jsonEvent [ "type", str "approval"; "id", str id; "description", str description ])
-            tcs.Task.Result
+            if approvals.Covers description then
+                broadcast (jsonEvent [ "type", str "auto-approved"; "description", str (Approvals.key description) ])
+                true
+            else
+                let id = Guid.NewGuid().ToString "N"
+                let tcs = TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)
+                pendingApprovals.[id] <- tcs
+                approvalDescriptions.[id] <- description
+                broadcast (jsonEvent [ "type", str "approval"; "id", str id; "description", str description ])
+                tcs.Task.Result
 
         let onText piece =
             if interrupted.Value then raise Interrupted
@@ -253,6 +262,7 @@ module Ui =
                   "session", str sessionId
                   "root", str config.root
                   "version", str AgentEnv.version
+                  "auto", Bool approvals.Auto
                   "input_tokens", Obj(inputTokens.Value :> obj)
                   "output_tokens", Obj(outputTokens.Value :> obj) ]
 
@@ -464,6 +474,13 @@ module Ui =
                                        respond stream 400 "application/json" """{"error":"this provider needs no key"}""")
                               | None -> respond stream 404 "application/json" """{"error":"unknown provider"}""")
                          | _ -> respond stream 400 "application/json" """{"error":"body must be {\"provider\":\"...\",\"key\":\"...\"}"}""")
+                    | "POST", "/settings/auto" ->
+                        (match bodyField request "on" with
+                         | Some flag ->
+                             approvals.Auto <- (flag = "true")
+                             broadcast (stateJson ())
+                             respond stream 200 "application/json" (stateJson ())
+                         | None -> respond stream 400 "application/json" """{"error":"body must be {\"on\":bool}"}""")
                     | "POST", "/settings/model" ->
                         (match bodyField request "model" with
                          | Some spec ->
@@ -493,6 +510,10 @@ module Ui =
                          | Some id, Some answer ->
                              (match pendingApprovals.TryRemove id with
                               | true, tcs ->
+                                  if answer = "true" && bodyField request "always" = Some "true" then
+                                      match approvalDescriptions.TryRemove id with
+                                      | true, description -> approvals.RememberAlways description
+                                      | _ -> ()
                                   tcs.TrySetResult((answer = "true")) |> ignore
                                   respond stream 200 "application/json" """{"ok":true}"""
                               | _ -> respond stream 404 "application/json" """{"error":"no such approval"}""")
