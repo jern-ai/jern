@@ -67,7 +67,9 @@ module Session =
 ; overrides what it redefines. Decisions: :allow, :ask, or a reason string
 ; (a denial the model sees). Helpers in scope: call-path, call-command,
 ; (path-within? call "src/"), (command-is? call "pytest"),
-; string-prefix?/string-suffix?/string-contains?.
+; string-prefix?/string-suffix?/string-contains?. command-is? never
+; auto-allows a command containing shell metacharacters (; & | ` $( > <):
+; those fall through to your next clause.
 ;
 ; This file runs privileged, so jern asks you to trust it the first time it
 ; loads — and again whenever its content changes.
@@ -81,6 +83,7 @@ module Session =
             ; ((equal? name "mcp__github__get_issue") :allow)
             ((equal? name "shell") :ask)
             ((equal? name "edit_file") :ask)
+            ((equal? name "write_file") :ask)
             ((equal? name "read_file") :allow)
             ((equal? name "list_dir") :allow)
             ((equal? name "file_tree") :allow)

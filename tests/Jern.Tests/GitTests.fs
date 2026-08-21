@@ -97,6 +97,31 @@ let ``undo refuses when head is not a jern commit`` () =
         | Ok _ -> failwith "expected refusal"
         | Error message -> Assert.Contains("not a jern commit", message))
 
+/// `reset --hard` discards tracked working-tree changes: undo must refuse
+/// rather than silently destroy edits the user made after jern's commit.
+[<Fact>]
+let ``undo refuses when the working tree has uncommitted changes`` () =
+    withRepo (fun root ->
+        File.WriteAllText(Path.Combine(root, "a.txt"), "one\n")
+        sh root "git add a.txt && git -c user.name=u -c user.email=u@x commit -qm files" |> ignore
+        let session = newSession root (editBridge ())
+        Session.runAgent session "task" |> ignore
+        Assert.Equal("two\n", File.ReadAllText(Path.Combine(root, "a.txt")))
+        // The user edits by hand after jern's commit…
+        File.WriteAllText(Path.Combine(root, "a.txt"), "hand edit\n")
+        match Git.undoLast root with
+        | Ok _ -> failwith "expected refusal"
+        | Error message -> Assert.Contains("uncommitted changes", message)
+        Assert.Equal("hand edit\n", File.ReadAllText(Path.Combine(root, "a.txt")))
+        // …but a merely untracked file does not block undo (reset keeps it).
+        File.Delete(Path.Combine(root, "a.txt"))
+        sh root "git checkout -- a.txt" |> ignore
+        File.WriteAllText(Path.Combine(root, "new.txt"), "untracked\n")
+        match Git.undoLast root with
+        | Error e -> failwith e
+        | Ok subject -> Assert.Equal("jern: edit a.txt", subject)
+        Assert.Equal("untracked\n", File.ReadAllText(Path.Combine(root, "new.txt"))))
+
 [<Fact>]
 let ``outside a repository the git layer is silent`` () =
     let root = Path.Combine(Path.GetTempPath(), "jern-nogit-" + Guid.NewGuid().ToString("N"))

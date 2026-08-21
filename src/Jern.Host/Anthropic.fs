@@ -60,6 +60,26 @@ module AnthropicBridge =
             | _ -> false
         | _ -> false
 
+    /// A cancelled HTTP call (possibly wrapped by the task machinery) — how
+    /// an interrupt lands when it cancels an in-flight provider request.
+    let internal isCanceled (e: exn) =
+        match e with
+        | :? OperationCanceledException -> true
+        | :? AggregateException as a -> (a.InnerException :? OperationCanceledException)
+        | _ -> false
+
+    /// A token that cancels when `interrupted` flips true (polled every
+    /// 100 ms), so /interrupt and Ctrl-C land even on a non-streaming call
+    /// or before the first streamed token, instead of only inside the text
+    /// callback. Dispose the returned watcher when the call finishes.
+    let internal interruptTokenSource (interrupted: unit -> bool) =
+        let cts = new System.Threading.CancellationTokenSource()
+        let timer =
+            new System.Threading.Timer(
+                (fun _ -> if interrupted () then (try cts.Cancel() with _ -> ())),
+                null, 100, 100)
+        cts, (timer :> IDisposable)
+
     /// Accumulates Messages API stream events (wire JSON) into the final
     /// message, emitting text deltas as they arrive. Pure JSON-to-JSON, so
     /// it is unit-testable without the SDK or the network.
@@ -162,15 +182,16 @@ module AnthropicBridge =
         let empty = Dictionary<string, JsonElement>()
         MessageCreateParams.FromRawUnchecked(empty, empty, body)
 
-    let private complete (parameters: MessageCreateParams) =
-        (client ()).Messages.Create(parameters)
+    let private complete (parameters: MessageCreateParams) (ct: System.Threading.CancellationToken) =
+        (client ()).Messages.Create(parameters, ct)
         |> Async.AwaitTask
         |> Async.RunSynchronously
         |> fun message -> JsonNode.Parse(JsonSerializer.Serialize(message))
 
-    let private streamCompletion (parameters: MessageCreateParams) (onText: string -> unit) =
+    let private streamCompletion (parameters: MessageCreateParams)
+                                 (ct: System.Threading.CancellationToken) (onText: string -> unit) =
         let accumulator = StreamAccumulator(onText)
-        let events = (client ()).Messages.CreateStreaming(parameters)
+        let events = (client ()).Messages.CreateStreaming(parameters, ct)
         let consume =
             task {
                 let enumerator = events.GetAsyncEnumerator()
@@ -190,24 +211,32 @@ module AnthropicBridge =
         | Ok message -> message :> JsonNode
         | Error e -> failwith e
 
-    /// The bridge, parameterized by provider routing (`model` override) and
-    /// an optional live-text callback. With a callback the response streams;
-    /// if streaming fails, we fall back to a plain call and deliver the full
-    /// text through the callback once.
-    let callWith (model: string option) (onText: (string -> unit) option) : LlmBridge =
+    /// The bridge, parameterized by provider routing (`model` override), an
+    /// optional live-text callback, and an interrupt probe. With a callback
+    /// the response streams; if streaming fails, we fall back to a plain call
+    /// and deliver the full text through the callback once. `interrupted`
+    /// cancels the in-flight HTTP call, so Ctrl-C and /interrupt land even
+    /// on non-streaming turns and before the first token. Transient provider
+    /// failures are retried inside the SDK itself (AnthropicClient.MaxRetries).
+    let callWithInterrupt (model: string option) (onText: (string -> unit) option)
+                          (interrupted: unit -> bool) : LlmBridge =
         fun request ->
+            let cts, watcher = interruptTokenSource interrupted
+            use _cts = cts
+            use _watcher = watcher
             try
                 let parameters = toParams (prepareBody model request)
                 let responseNode =
                     match onText with
-                    | None -> complete parameters
+                    | None -> complete parameters cts.Token
                     | Some emit ->
                         try
-                            streamCompletion parameters emit
+                            streamCompletion parameters cts.Token emit
                         with
                         | e when isInterrupt e -> raise Interrupted
+                        | e when isCanceled e && interrupted () -> raise Interrupted
                         | _ ->
-                            let node = complete (toParams (prepareBody model request))
+                            let node = complete (toParams (prepareBody model request)) cts.Token
                             match node.["content"] with
                             | :? JsonArray as blocks ->
                                 for block in blocks do
@@ -223,10 +252,16 @@ module AnthropicBridge =
             with
             | e when isInterrupt e ->
                 Choice1Of2 (Default "llm-call interrupted by user")
+            | e when isCanceled e && interrupted () ->
+                Choice1Of2 (Default "llm-call interrupted by user")
             | :? AggregateException as ex when ex.InnerException <> null ->
                 Choice1Of2 (Default("llm-call failed: " + ex.InnerException.Message))
             | ex ->
                 Choice1Of2 (Default("llm-call failed: " + ex.Message))
+
+    /// Bridge without an interrupt probe (scripts, tests).
+    let callWith (model: string option) (onText: (string -> unit) option) : LlmBridge =
+        callWithInterrupt model onText (fun () -> false)
 
     /// Plain non-streaming bridge with the built-in default model.
     let call: LlmBridge = callWith None None

@@ -44,8 +44,9 @@ module Ui =
 
     type Config =
         { root: string
-          /// Given the model override and the streaming text sink, the bridge.
-          makeBridge: string option -> (string -> unit) -> AnthropicBridge.LlmBridge
+          /// Given the model override, the streaming text sink, and the
+          /// interrupt probe, the bridge.
+          makeBridge: string option -> (string -> unit) -> (unit -> bool) -> AnthropicBridge.LlmBridge
           /// Provider table for the settings panel and model validation.
           providers: Providers.Config
           /// Initial model override (CLI --model), switchable in the UI.
@@ -86,6 +87,23 @@ module Ui =
           headers: Map<string, string>
           body: string }
 
+    /// One parsed connection: a request, a request whose declared body is
+    /// too large to read (never allocated), or a dead/empty connection.
+    type private Incoming =
+        | Parsed of Request
+        | TooLarge
+        | Empty
+
+    /// The body-size cap: Content-Length is attacker-influenced input, so it
+    /// must never size an allocation unchecked. Brain files and messages are
+    /// far below this.
+    let private maxContentLength = 8_388_608 // 8 MB
+
+    /// How long a connection may sit idle while its request is being read.
+    /// Without this, a client that opens a socket and never finishes the
+    /// request pins a thread-pool task forever.
+    let private receiveTimeoutMs = 10_000
+
     /// Read one header line (bytes up to CRLF) without buffering past it.
     let private readLine (stream: Stream) =
         let builder = StringBuilder()
@@ -107,12 +125,12 @@ module Ui =
                         Uri.UnescapeDataString(pair.Substring(i + 1))))
         |> Map.ofArray
 
-    let private readRequest (stream: Stream) : Request option =
+    let private readRequest (stream: Stream) : Incoming =
         match readLine stream with
-        | "" -> None
+        | "" -> Empty
         | requestLine ->
             let parts = requestLine.Split(' ')
-            if parts.Length < 2 then None
+            if parts.Length < 2 then Empty
             else
                 let target = parts.[1]
                 let path, query =
@@ -131,25 +149,28 @@ module Ui =
                     match headers.TryGetValue "content-length" with
                     | true, v -> (match Int32.TryParse v with true, n -> n | _ -> 0)
                     | _ -> 0
-                let body =
-                    if contentLength <= 0 then ""
-                    else
-                        let buffer = Array.zeroCreate contentLength
-                        let mutable filled = 0
-                        let mutable more = true
-                        while more && filled < contentLength do
-                            let n = stream.Read(buffer, filled, contentLength - filled)
-                            if n = 0 then more <- false else filled <- filled + n
-                        Encoding.UTF8.GetString(buffer, 0, filled)
-                Some { verb = parts.[0]
-                       path = path
-                       query = query
-                       headers = headers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
-                       body = body }
+                if contentLength > maxContentLength then TooLarge
+                else
+                    let body =
+                        if contentLength <= 0 then ""
+                        else
+                            let buffer = Array.zeroCreate contentLength
+                            let mutable filled = 0
+                            let mutable more = true
+                            while more && filled < contentLength do
+                                let n = stream.Read(buffer, filled, contentLength - filled)
+                                if n = 0 then more <- false else filled <- filled + n
+                            Encoding.UTF8.GetString(buffer, 0, filled)
+                    Parsed { verb = parts.[0]
+                             path = path
+                             query = query
+                             headers = headers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+                             body = body }
 
     let private statusText = function
         | 200 -> "OK" | 202 -> "Accepted" | 400 -> "Bad Request" | 403 -> "Forbidden"
-        | 404 -> "Not Found" | 409 -> "Conflict" | code -> string code
+        | 404 -> "Not Found" | 409 -> "Conflict" | 413 -> "Content Too Large"
+        | code -> string code
 
     let private respond (stream: Stream) (status: int) (contentType: string) (body: string) =
         let bytes = Encoding.UTF8.GetBytes(body: string)
@@ -212,7 +233,11 @@ module Ui =
                 let tcs = TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)
                 pendingApprovals.[id] <- tcs
                 approvalDescriptions.[id] <- description
-                broadcast (jsonEvent [ "type", str "approval"; "id", str id; "description", str description ])
+                // :key is what an "always" answer whitelists — shown on the
+                // card so the user sees exactly what is remembered.
+                broadcast (jsonEvent [ "type", str "approval"; "id", str id
+                                       "description", str description
+                                       "key", str (Approvals.key description) ])
                 tcs.Task.Result
 
         let onText piece =
@@ -250,7 +275,8 @@ module Ui =
 
         let buildSession () =
             Session.createWith
-                { Session.configIn config.root (metered (config.makeBridge currentModel.Value onText)) with
+                { Session.configIn config.root
+                      (metered (config.makeBridge currentModel.Value onText (fun () -> interrupted.Value))) with
                     traceSink = Some traceSink
                     agentSources = config.agentSources
                     approver = Some approver
@@ -407,18 +433,34 @@ module Ui =
                 | Some t when t = token -> true
                 | _ -> false
 
+        /// DNS-rebinding hygiene: a browser lured to attacker.example that
+        /// resolves to 127.0.0.1 sends that name as Host. Only loopback
+        /// names for this server's own port get through.
+        let hostAllowed (request: Request) =
+            match Map.tryFind "host" request.headers with
+            | None -> true
+            | Some value ->
+                [ sprintf "127.0.0.1:%d" port; sprintf "localhost:%d" port
+                  sprintf "[::1]:%d" port; "127.0.0.1"; "localhost"; "[::1]" ]
+                |> List.exists (fun ok -> String.Equals(value.Trim(), ok, StringComparison.OrdinalIgnoreCase))
+
         /// Handles one connection: one request, one response — except
         /// /events, which keeps the socket for the event stream.
         let handleClient (client: TcpClient) =
+            client.ReceiveTimeout <- receiveTimeoutMs
             let stream = client.GetStream() :> Stream
             let mutable keepOpen = false
             try
                 match readRequest stream with
-                | None -> ()
-                | Some request when not (authorized request) ->
+                | Empty -> ()
+                | TooLarge ->
+                    respond stream 413 "text/plain" "request body too large"
+                | Parsed request when not (hostAllowed request) ->
+                    respond stream 403 "text/plain" "unexpected Host header"
+                | Parsed request when not (authorized request) ->
                     respond stream 403 "text/plain"
                         "missing or wrong token — open the exact URL jern printed at startup"
-                | Some request ->
+                | Parsed request ->
                     match request.verb, request.path with
                     | "GET", "/" ->
                         respond stream 200 "text/html; charset=utf-8" (File.ReadAllText indexPath)

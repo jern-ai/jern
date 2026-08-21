@@ -40,6 +40,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ironkernel-lang/IronKernel
+          ref: 62af4262d62ac4fcc91b3bfdb69527c3c2674613 # pinned; bump deliberately
           path: IronKernel
       - uses: actions/setup-dotnet@v4
         with:
@@ -57,18 +58,25 @@ jobs:
           - os: ubuntu-latest
             rid: linux-x64
             exe: jern
+            smoke: true
           - os: blacksmith-4vcpu-ubuntu-2404-arm
             rid: linux-arm64
             exe: jern
+            smoke: true
           - os: macos-latest
             rid: osx-arm64
             exe: jern
+            smoke: true
+          # osx-x64 is cross-compiled on arm64 runners; the binary can't be
+          # executed there without relying on Rosetta, so no smoke run.
           - os: blacksmith-6vcpu-macos-latest
             rid: osx-x64
             exe: jern
+            smoke: false
           - os: windows-latest
             rid: win-x64
             exe: jern.exe
+            smoke: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,6 +84,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ironkernel-lang/IronKernel
+          ref: 62af4262d62ac4fcc91b3bfdb69527c3c2674613 # pinned; bump deliberately
           path: IronKernel
       - uses: actions/setup-dotnet@v4
         with:
@@ -122,6 +131,31 @@ jobs:
           fi
           tar -C dist -czf "dist/jern-${{ matrix.rid }}.tar.gz" "jern-${{ matrix.rid }}"
 
+      # The staged tarball is exactly what users install — run it before
+      # shipping it, so a packaging slip (missing agents, kernel files, ui)
+      # fails the release instead of the first user.
+      - name: Smoke-test the staged tarball
+        if: matrix.smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          SMOKE="$(mktemp -d)"
+          tar -xzf "dist/jern-${{ matrix.rid }}.tar.gz" -C "$SMOKE"
+          BIN="$SMOKE/jern-${{ matrix.rid }}/${{ matrix.exe }}"
+          VERSION="$("$BIN" --version)"
+          if [[ "$VERSION" != "${{ needs.version.outputs.version }}" ]]; then
+            echo "::error::--version printed '$VERSION', expected '${{ needs.version.outputs.version }}'"
+            exit 1
+          fi
+          # The bundled default agent's replay suite is network-free. Its
+          # setup uses POSIX shell commands, so it stays off Windows.
+          if [[ "${{ runner.os }}" != "Windows" ]]; then
+            (cd "$SMOKE" && "$BIN" test)
+          fi
+          # eject must work offline from the bundle, on every platform.
+          (cd "$SMOKE" && "$BIN" eject)
+          test -f "$SMOKE/agents/default/src/main.ikr"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -139,6 +173,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ironkernel-lang/IronKernel
+          ref: 62af4262d62ac4fcc91b3bfdb69527c3c2674613 # pinned; bump deliberately
           path: IronKernel
       - uses: actions/setup-dotnet@v4
         with:
@@ -170,6 +205,13 @@ jobs:
           mkdir -p release-assets
           find artifacts -type f \( -name '*.tar.gz' -o -name '*.nupkg' \) -exec cp {} release-assets/ \;
           ls -la release-assets
+      # Checksums for the curl|sh install path: website/install.sh verifies
+      # the tarball it downloads against this file.
+      - name: Generate SHA256SUMS
+        run: |
+          set -euo pipefail
+          (cd release-assets && sha256sum * > SHA256SUMS)
+          cat release-assets/SHA256SUMS
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:

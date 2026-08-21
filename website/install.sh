@@ -16,6 +16,7 @@ esac
 rid="$os-$arch"
 
 url="https://github.com/jern-ai/jern/releases/latest/download/jern-$rid.tar.gz"
+sums_url="https://github.com/jern-ai/jern/releases/latest/download/SHA256SUMS"
 dir="${JERN_INSTALL:-$HOME/.jern}"
 bin="$dir/bin"
 
@@ -24,6 +25,27 @@ mkdir -p "$bin"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 curl -fsSL "$url" -o "$tmp/jern.tar.gz"
+
+# Verify the download against the release's published checksums. A missing
+# checksum file (releases before v0.11) only warns; a mismatch always aborts.
+if curl -fsSL "$sums_url" -o "$tmp/SHA256SUMS" 2>/dev/null; then
+  expected="$(grep " jern-$rid.tar.gz\$" "$tmp/SHA256SUMS" | cut -d' ' -f1)"
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$tmp/jern.tar.gz" | cut -d' ' -f1)"
+  else
+    actual="$(shasum -a 256 "$tmp/jern.tar.gz" | cut -d' ' -f1)"
+  fi
+  if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+    echo "checksum verification FAILED for jern-$rid.tar.gz" >&2
+    echo "  expected: ${expected:-<not in SHA256SUMS>}" >&2
+    echo "  actual:   $actual" >&2
+    exit 1
+  fi
+  echo "checksum verified"
+else
+  echo "warning: no SHA256SUMS published for this release; skipping verification" >&2
+fi
+
 tar -xzf "$tmp/jern.tar.gz" -C "$tmp"
 rm -rf "$bin/current"
 mv "$tmp/jern-$rid" "$bin/current"

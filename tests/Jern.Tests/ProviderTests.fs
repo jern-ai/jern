@@ -211,13 +211,20 @@ let ``the anthropic client is rebuilt when the key changes`` () =
 [<Fact>]
 let ``approval keys and memory behave`` () =
     Assert.Equal("edit_file", Approvals.key "edit_file: greeting.txt\n  - a\n  + b")
-    Assert.Equal("shell", Approvals.key "shell: pytest -q")
+    // Shell keys on the command word: "always" for one command must not
+    // whitelist every command the model invents later in the session.
+    Assert.Equal("shell: pytest", Approvals.key "shell: pytest -q")
+    Assert.Equal("shell: git", Approvals.key "shell: git status")
+    Assert.Equal("shell", Approvals.key "shell: ")
     Assert.Equal("read_file", Approvals.key "read_file")
     let memory = Approvals.Memory(false)
     Assert.False(memory.Covers "shell: rm -rf /tmp/x")
     memory.RememberAlways "shell: ls"
-    Assert.True(memory.Covers "shell: anything else")
+    Assert.True(memory.Covers "shell: ls -la src")
+    Assert.False(memory.Covers "shell: rm -rf /")
     Assert.False(memory.Covers "edit_file: f")
+    memory.RememberAlways "edit_file: a.txt\n  - x\n  + y"
+    Assert.True(memory.Covers "edit_file: b.txt\n  - p\n  + q")
     let auto = Approvals.Memory(true)
     Assert.True(auto.Covers "edit_file: whatever")
     auto.Auto <- false

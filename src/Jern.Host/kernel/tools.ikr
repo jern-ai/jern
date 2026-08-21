@@ -43,9 +43,17 @@
               :new_string (list :type "string" :description "Replacement text"))
         :required (vector "path" "old_string" "new_string")))
 
+(define-tool "write_file"
+  "Create a new workspace file (or replace an existing one) with the given full content. Parent directories are created as needed."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file path")
+              :content (list :type "string" :description "Complete file content"))
+        :required (vector "path" "content")))
+
 (define-tool "shell"
   "Run a shell command in the workspace and return its combined output."
   (list :type "object"
         :properties
-        (list :command (list :type "string" :description "Command line, run with sh -c"))
+        (list :command (list :type "string" :description "Command line, run with sh -c (cmd.exe /c on Windows)"))
         :required (vector "command")))

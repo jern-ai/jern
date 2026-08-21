@@ -62,7 +62,7 @@ module Git =
                 | Error _ -> None
 
     /// The subject of HEAD if jern authored it.
-    let headIronCommit (root: string) : string option =
+    let headJernCommit (root: string) : string option =
         match run root [ "log"; "-1"; "--format=%ae%n%s" ] with
         | Ok output ->
             match output.Split '\n' with
@@ -70,14 +70,28 @@ module Git =
             | _ -> None
         | Error _ -> None
 
+    /// Tracked, uncommitted changes anywhere in the tree? A hard reset would
+    /// silently discard them. Untracked files are safe — reset leaves them.
+    let private hasTrackedChanges (root: string) =
+        match run root [ "status"; "--porcelain" ] with
+        | Ok status ->
+            status.Split '\n'
+            |> Array.exists (fun line -> line <> "" && not (line.StartsWith "??"))
+        | Error _ -> false
+
     /// Undo the last jern-authored commit (hard reset by one). Refuses when
-    /// HEAD is not jern's, so it can never destroy the user's own work.
+    /// HEAD is not jern's, or when the working tree carries uncommitted
+    /// changes the reset would destroy — undo only ever removes jern's own
+    /// work, never the user's.
     let undoLast (root: string) : Result<string, string> =
         if not (isRepo root) then Error "not a git repository"
         else
-            match headIronCommit root with
+            match headJernCommit root with
             | None -> Error "HEAD is not a jern commit; nothing to undo"
             | Some subject ->
-                match run root [ "reset"; "--hard"; "HEAD~1" ] with
-                | Ok _ -> Ok subject
-                | Error e -> Error("undo failed: " + e)
+                if hasTrackedChanges root then
+                    Error "the working tree has uncommitted changes that a hard reset would discard; commit or stash them first"
+                else
+                    match run root [ "reset"; "--hard"; "HEAD~1" ] with
+                    | Ok _ -> Ok subject
+                    | Error e -> Error("undo failed: " + e)

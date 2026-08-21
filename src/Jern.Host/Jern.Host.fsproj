@@ -23,11 +23,19 @@
   <ItemGroup>
     <!-- Host-owned Kernel source: the agent prelude and the handler stack. -->
     <Content Include="kernel/*.ikr" CopyToOutputDirectory="PreserveNewest" />
-    <!-- The default agent ships as readable source alongside the binary
-         (loop, tests, and fixtures — jern eject copies all of it). -->
+    <!-- The bundled agents ship as readable source alongside the binary
+         (loop, tests, and fixtures — jern eject copies the default one). -->
     <Content Include="../../agents/default/**/*"
-             Exclude="../../agents/default/bin/**;../../agents/default/obj/**"
+             Exclude="../../agents/default/bin/**;../../agents/default/obj/**;../../agents/default/**/.DS_Store"
              Link="agents/default/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../agents/docs/**/*"
+             Exclude="../../agents/docs/bin/**;../../agents/docs/obj/**;../../agents/docs/**/.DS_Store"
+             Link="agents/docs/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../agents/tdd/**/*"
+             Exclude="../../agents/tdd/bin/**;../../agents/tdd/obj/**;../../agents/tdd/**/.DS_Store"
+             Link="agents/tdd/%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>

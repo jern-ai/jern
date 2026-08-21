@@ -18,10 +18,14 @@ jobs:
 
       # IronKernel is consumed as source from a sibling checkout until
       # IronKernel.Runtime (+ parser/compiler libraries) ship on NuGet.
+      # Pinned to a known-good commit so builds are reproducible and an
+      # upstream push cannot break CI (or a release) mid-tag; bump the ref
+      # deliberately when picking up upstream changes.
       - name: Checkout IronKernel
         uses: actions/checkout@v4
         with:
           repository: ironkernel-lang/IronKernel
+          ref: 62af4262d62ac4fcc91b3bfdb69527c3c2674613
           path: IronKernel
 
       - name: Setup .NET 10

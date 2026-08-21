@@ -106,6 +106,59 @@ let ``paths outside the workspace are refused`` () =
         Assert.True(isErrorOf result)
         Assert.Contains("outside the workspace", contentOf result))
 
+/// Path.GetFullPath normalizes `..` but not links: a symlink inside the
+/// workspace pointing outside must not smuggle reads or writes past the
+/// containment check — through the link itself or through a linked parent.
+[<Fact>]
+let ``symlinks cannot escape the workspace`` () =
+    if not (OperatingSystem.IsWindows()) then
+        withWorkspace (fun root ->
+            let outside = Path.Combine(Path.GetTempPath(), "jern-outside-" + Guid.NewGuid().ToString("N"))
+            Directory.CreateDirectory outside |> ignore
+            File.WriteAllText(Path.Combine(outside, "secret.txt"), "secret\n")
+            try
+                Directory.CreateSymbolicLink(Path.Combine(root, "esc"), outside) |> ignore
+                File.CreateSymbolicLink(Path.Combine(root, "esc.txt"), Path.Combine(outside, "secret.txt")) |> ignore
+                let session = newSession root
+                // Through a linked directory…
+                let viaDir = run session """(call-tool "read_file" (list :path "esc/secret.txt"))"""
+                Assert.True(isErrorOf viaDir)
+                Assert.Contains("outside the workspace", contentOf viaDir)
+                // …through a linked file…
+                let viaFile = run session """(call-tool "read_file" (list :path "esc.txt"))"""
+                Assert.True(isErrorOf viaFile)
+                // …and for writes.
+                let write =
+                    run session
+                        """(call-tool "edit_file" (list :path "esc/secret.txt" :old_string "secret" :new_string "gone"))"""
+                Assert.True(isErrorOf write)
+                Assert.Equal("secret\n", File.ReadAllText(Path.Combine(outside, "secret.txt")))
+                // A link to a place inside the workspace still works.
+                File.CreateSymbolicLink(Path.Combine(root, "inside.txt"), Path.Combine(root, "README.md")) |> ignore
+                let inside = run session """(call-tool "read_file" (list :path "inside.txt"))"""
+                Assert.False(isErrorOf inside)
+            finally
+                Directory.Delete(outside, true))
+
+[<Fact>]
+let ``write_file creates files and parent directories`` () =
+    withWorkspace (fun root ->
+        let session = newSession root
+        let result =
+            run session """(call-tool "write_file" (list :path "docs/new/note.md" :content "hello\n"))"""
+        Assert.False(isErrorOf result)
+        Assert.Equal("hello\n", File.ReadAllText(Path.Combine(root, "docs", "new", "note.md")))
+        // Replacing an existing file says so.
+        let replaced =
+            run session """(call-tool "write_file" (list :path "docs/new/note.md" :content "bye\n"))"""
+        Assert.False(isErrorOf replaced)
+        Assert.Contains("replaced", contentOf replaced)
+        Assert.Equal("bye\n", File.ReadAllText(Path.Combine(root, "docs", "new", "note.md")))
+        // Outside the workspace: refused.
+        let escape = run session """(call-tool "write_file" (list :path "../evil.txt" :content "x"))"""
+        Assert.True(isErrorOf escape)
+        Assert.Contains("outside the workspace", contentOf escape))
+
 [<Fact>]
 let ``unknown tools come back as tool errors`` () =
     withWorkspace (fun root ->

@@ -137,7 +137,7 @@ $ jern test agents/default               # deterministic replay against
 - **M3 — the loop**: ~80 lines of Kernel in
   [agents/default/src/main.ikr](agents/default/src/main.ikr); every effect
   traced to `.jern/*.jsonl`.
-- **M2 — tools**: `read_file`, `list_dir`, `grep`, `edit_file`, `shell`,
+- **M2 — tools**: `read_file`, `list_dir`, `grep`, `edit_file`, `write_file`, `shell`,
   defined in [tools.ikr](src/Jern.Host/kernel/tools.ikr) as data the LLM sees
   verbatim, dispatched through `jern/tool-call`.
 - **M1 — the bridge**: requests cross the boundary in the exact Messages API
@@ -148,7 +148,8 @@ $ jern test agents/default               # deterministic replay against
   environment.
 
 Every release ships per-RID binaries (see Releases) with the kernel source
-and both agents bundled; `jern eject` works offline from any of them.
+and all three agents (default, docs, tdd) bundled; `jern eject` works
+offline from any of them.
 
 ```
 $ jern repl

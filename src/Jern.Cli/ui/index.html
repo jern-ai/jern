@@ -298,7 +298,7 @@ function toolResult(result) {
   detail.appendChild(pre);
 }
 
-function approvalCard(id, description) {
+function approvalCard(id, description, key) {
   const card = el("div", "approval");
   const h = document.createElement("h4"); h.textContent = "approval required"; card.appendChild(h);
   const pre = document.createElement("pre");
@@ -317,8 +317,8 @@ function approvalCard(id, description) {
     h.textContent = approved ? (always ? "always allowed" : "approved") : "denied";
   };
   const yes = document.createElement("button"); yes.className = "yes"; yes.textContent = "approve";
-  const always = document.createElement("button"); always.className = "yes"; always.textContent = "always";
-  always.title = "Approve and stop asking about this tool for the session";
+  const always = document.createElement("button"); always.className = "yes"; always.textContent = key ? "always: " + key : "always";
+  always.title = "Approve and stop asking about '" + (key || "this tool") + "' for the session";
   const no = document.createElement("button"); no.className = "no"; no.textContent = "deny";
   yes.onclick = () => answer(true);
   always.onclick = () => answer(true, true);
@@ -499,7 +499,7 @@ events.onmessage = e => {
     block.scrollIntoView({ block: "end" });
   }
   else if (m.type === "state") onState(m);
-  else if (m.type === "approval") approvalCard(m.id, m.description);
+  else if (m.type === "approval") approvalCard(m.id, m.description, m.key);
   else if (m.type === "done") endTurn();
   else if (m.type === "error") { el("div", "error", m.message); endTurn(); }
   else if (m.type === "reloaded") el("div", "note", "brain reloaded: " + m.path);

@@ -1,6 +1,6 @@
 <Project>
   <!--
-    Product version for the iron binary and libraries. Bump the root version
+    Product version for the jern binary and libraries. Bump the root version
     file, commit, then tag vX.Y.Z matching that value (mirrors IronKernel).
   -->
   <PropertyGroup>

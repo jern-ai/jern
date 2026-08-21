@@ -148,11 +148,12 @@
         (sequence
           (define name (plist-get call :name))
           (define path (plist-get (plist-get call :input) :path))
-          (if (equal? name "edit_file")
+          (define file-write? (or? (equal? name "edit_file") (equal? name "write_file")))
+          (if file-write?
               (jern/host-git-save-dirty path)
               #inert)
           (define result (perform jern/tool-call call))
-          (if (and? (equal? name "edit_file")
+          (if (and? file-write?
                     (not? (eqv? (plist-get result :is_error) #t)))
               (sequence
                 (define hash (jern/host-git-commit path (git-commit-message path)))

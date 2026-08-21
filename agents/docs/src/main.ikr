@@ -5,7 +5,7 @@
 ; source. This agent drops `shell` entirely and keeps only reading, searching,
 ; and editing; run it with `jern run --agent agents/docs "task"`.
 
-(define allowed-tools (list "read_file" "list_dir" "grep" "edit_file"))
+(define allowed-tools (list "read_file" "list_dir" "grep" "edit_file" "write_file"))
 
 ; The model never sees the dropped tools…
 (vector-set! *tools-box* 0

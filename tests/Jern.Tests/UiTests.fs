@@ -92,7 +92,7 @@ let ``ui serves a full turn with an interactive approval`` () =
     let root = newRoot "jern-ui-"
     File.WriteAllText(Path.Combine(root, "greeting.txt"), "helo world\n")
     let mutable turn = 0
-    let makeBridge _ (onText: string -> unit) : AnthropicBridge.LlmBridge =
+    let makeBridge _ (onText: string -> unit) (_: unit -> bool) : AnthropicBridge.LlmBridge =
         fun _ ->
             turn <- turn + 1
             match turn with
@@ -129,7 +129,7 @@ let ``ui denies an approval and the agent sees the refusal`` () =
     let root = newRoot "jern-uideny-"
     File.WriteAllText(Path.Combine(root, "greeting.txt"), "helo world\n")
     let mutable sawDecline = false
-    let makeBridge _ (_: string -> unit) : AnthropicBridge.LlmBridge =
+    let makeBridge _ (_: string -> unit) (_: unit -> bool) : AnthropicBridge.LlmBridge =
         fun request ->
             let json = Json.serialize request
             if json.Contains "declined" then
@@ -159,7 +159,7 @@ let ``ui denies an approval and the agent sees the refusal`` () =
 [<Fact>]
 let ``requests without the startup token are refused`` () =
     let root = newRoot "jern-uiauth-"
-    let makeBridge _ _ : AnthropicBridge.LlmBridge =
+    let makeBridge _ _ (_: unit -> bool) : AnthropicBridge.LlmBridge =
         fun _ -> Choice1Of2 (IronKernel.Ast.Default "unused")
     let server = startServer root makeBridge [] None None
     try
@@ -171,6 +171,25 @@ let ``requests without the startup token are refused`` () =
         Assert.Equal(403, int wrongToken.StatusCode)
         let withToken = bare.GetAsync("/state?token=" + server.token).Result
         Assert.Equal(200, int withToken.StatusCode)
+        // DNS-rebinding hygiene: a non-loopback Host is refused even with
+        // the right token.
+        use rebind = new HttpRequestMessage(HttpMethod.Get, "/state?token=" + server.token)
+        rebind.Headers.Host <- "attacker.example"
+        let rebound = bare.SendAsync(rebind).Result
+        Assert.Equal(403, int rebound.StatusCode)
+        // An attacker-supplied Content-Length cannot size an allocation:
+        // oversized bodies are refused before reading (raw socket, since
+        // HttpClient refuses to lie about Content-Length).
+        let uri = Uri(server.url)
+        use raw = new Net.Sockets.TcpClient("127.0.0.1", uri.Port)
+        let stream = raw.GetStream()
+        let request =
+            sprintf "POST /message?token=%s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nContent-Length: 1000000000\r\n\r\n"
+                server.token uri.Port
+            |> Encoding.ASCII.GetBytes
+        stream.Write(request, 0, request.Length)
+        use reader = new StreamReader(stream)
+        Assert.Contains("413", reader.ReadLine())
     finally
         server.stop ()
         Directory.Delete(root, true)
@@ -199,7 +218,7 @@ let ``the brain editor saves, reloads the session, and runs tests`` () =
     File.WriteAllText(
         Path.Combine(agentDir, "test", "t.ikr"),
         """(deftest "the agent answers stably" (assert-equal (run-agent "x") (run-agent "x")))""" + "\n")
-    let makeBridge _ _ : AnthropicBridge.LlmBridge =
+    let makeBridge _ _ (_: unit -> bool) : AnthropicBridge.LlmBridge =
         fun _ -> Choice1Of2 (IronKernel.Ast.Default "this agent makes no llm calls")
     let server = startServer root makeBridge [ mainPath ] (Some agentDir) None
     try
@@ -240,7 +259,7 @@ let ``the brain editor saves, reloads the session, and runs tests`` () =
 [<Fact>]
 let ``settings report key status, accept keys, and switch models`` () =
     let root = newRoot "jern-uiset-"
-    let makeBridge _ _ : AnthropicBridge.LlmBridge =
+    let makeBridge _ _ (_: unit -> bool) : AnthropicBridge.LlmBridge =
         fun _ -> Choice1Of2 (IronKernel.Ast.Default "unused")
     let server = startServer root makeBridge [] None None
     try
@@ -272,7 +291,7 @@ let ``auto mode and always answers replace approval cards`` () =
     File.WriteAllText(Path.Combine(root, "a.txt"), "one\n")
     File.WriteAllText(Path.Combine(root, "b.txt"), "one\n")
     let mutable turn = 0
-    let makeBridge _ (_: string -> unit) : AnthropicBridge.LlmBridge =
+    let makeBridge _ (_: string -> unit) (_: unit -> bool) : AnthropicBridge.LlmBridge =
         fun _ ->
             turn <- turn + 1
             match turn with

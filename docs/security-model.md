@@ -98,14 +98,21 @@ The moment a `shell` command runs, language-level capabilities confine
 nothing that process does. jern's honest posture:
 
 - **Path scoping (host-enforced):** `read_file`, `list_dir`, `grep`,
-  `edit_file` resolve paths workspace-relative and refuse escapes
-  (`../…` and absolute paths outside the root).
+  `edit_file`, `write_file` resolve paths workspace-relative and refuse
+  escapes (`../…`, absolute paths outside the root, **and symlinks**: the
+  target and every parent directory are resolved to their real paths before
+  the containment check, so a link inside the workspace pointing outside —
+  pre-existing or created by an approved shell command — cannot smuggle a
+  read or write past the root).
 - **macOS:** shell commands run under `sandbox-exec` with a deny-by-default
   write profile — writes only inside the workspace, temp, and `/dev`. Reads
   and network are **not** restricted in v1; do not run jern in a workspace
   sitting next to secrets you wouldn't paste into a prompt.
 - **Linux:** no OS sandbox is wired up yet (bubblewrap/landlock is planned);
   jern warns once and relies on the approval gate alone.
+- **Windows:** shell commands run via `cmd.exe /c` with **no OS sandbox**,
+  same as Linux — jern warns once and the approval gate is the only
+  confinement for what an approved command does.
 - **Approval is the last gate everywhere**: by default every shell command is
   shown to the user before it runs.
 

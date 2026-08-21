@@ -339,52 +339,112 @@ module OpenAIBridge =
         request.Content <- new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json")
         request
 
-    let private completeOnce (baseUrl: string) (apiKey: string option) (body: JsonObject) : Result<JsonObject, string> =
+    /// Transient provider failures worth retrying: rate limits, overload,
+    /// and gateway hiccups. Everything else (auth, bad request) is terminal.
+    let private retryableStatus (status: int) =
+        match status with
+        | 408 | 429 | 500 | 502 | 503 | 504 | 529 -> true
+        | _ -> false
+
+    let private maxAttempts = 4
+
+    /// Retry `attempt` (whose Error carries a retryable flag) with 1s/2s/4s
+    /// backoff, so a single 429 or 503 does not kill a 30-turn run.
+    /// Connection-level failures retry too; an interrupt lands even during
+    /// the backoff sleep. (The Anthropic bridge needs none of this — the
+    /// official SDK retries transient statuses itself.)
+    let private withRetries (interrupted: unit -> bool)
+                            (attempt: unit -> Result<'T, string * bool>) : Result<'T, string> =
+        let rec go n =
+            match attempt () with
+            | Ok value -> Ok value
+            | Error (message, retryable) when retryable && n < maxAttempts ->
+                let mutable waited = 0
+                while waited < 1000 * (1 <<< (n - 1)) && not (interrupted ()) do
+                    System.Threading.Thread.Sleep 100
+                    waited <- waited + 100
+                if interrupted () then raise Interrupted
+                go (n + 1)
+            | Error (message, _) -> Error message
+        go 1
+
+    let private completeOnce (baseUrl: string) (apiKey: string option) (body: JsonObject)
+                             (ct: System.Threading.CancellationToken) : Result<JsonObject, string * bool> =
         use request = newRequest baseUrl apiKey body
-        use response = http.Value.Send(request)
-        let payload = response.Content.ReadAsStringAsync().Result
-        if not response.IsSuccessStatusCode then
-            Error(sprintf "%s: %s" (string response.StatusCode) payload)
-        else
-            try Ok(JsonNode.Parse(payload).AsObject())
-            with ex -> Error("unparseable provider response: " + ex.Message)
+        // Nothing is delivered before the full body arrives, so connection
+        // failures are retryable here.
+        let received =
+            try
+                use response = http.Value.Send(request, ct)
+                Ok(response.IsSuccessStatusCode, int response.StatusCode,
+                   string response.StatusCode, response.Content.ReadAsStringAsync(ct).Result)
+            with :? HttpRequestException as ex -> Error(ex.Message, true)
+        match received with
+        | Error e -> Error e
+        | Ok (success, code, codeText, payload) ->
+            if not success then
+                Error(sprintf "%s: %s" codeText payload, retryableStatus code)
+            else
+                try Ok(JsonNode.Parse(payload).AsObject())
+                with ex -> Error("unparseable provider response: " + ex.Message, false)
 
     let private streamOnce (baseUrl: string) (apiKey: string option) (body: JsonObject)
-                           (onText: string -> unit) : Result<JsonObject, string> =
+                           (ct: System.Threading.CancellationToken) (interrupted: unit -> bool)
+                           (onText: string -> unit) : Result<JsonObject, string * bool> =
         let body = body.DeepClone().AsObject()
         body.["stream"] <- JsonValue.Create true
         let streamOptions = JsonObject()
         streamOptions.["include_usage"] <- JsonValue.Create true
         body.["stream_options"] <- streamOptions
         use request = newRequest baseUrl apiKey body
-        use response = http.Value.Send(request, HttpCompletionOption.ResponseHeadersRead)
-        if not response.IsSuccessStatusCode then
-            let payload = response.Content.ReadAsStringAsync().Result
-            Error(sprintf "%s: %s" (string response.StatusCode) payload)
-        else
-            let accumulator = StreamAccumulator(onText)
-            use reader = new StreamReader(response.Content.ReadAsStream())
-            let mutable running = true
-            while running do
-                match reader.ReadLine() with
-                | null -> running <- false
-                | line when line.StartsWith "data: " ->
-                    let payload = line.Substring(6).Trim()
-                    if payload = "[DONE]" then running <- false
-                    elif payload <> "" then
-                        try accumulator.Apply(JsonNode.Parse(payload).AsObject())
-                        with
-                        | e when AnthropicBridge.isInterrupt e -> raise Interrupted
-                        | _ -> ()
-                | _ -> ()
-            Ok(accumulator.Final())
+        // Only the connection phase is retryable; once the body streams,
+        // failures raise (terminal) so a stream never restarts mid-answer.
+        let connected =
+            try Ok(http.Value.Send(request, HttpCompletionOption.ResponseHeadersRead, ct))
+            with :? HttpRequestException as ex -> Error(ex.Message, true)
+        match connected with
+        | Error e -> Error e
+        | Ok connectedResponse ->
+            use response = connectedResponse
+            if not response.IsSuccessStatusCode then
+                let payload = response.Content.ReadAsStringAsync(ct).Result
+                Error(sprintf "%s: %s" (string response.StatusCode) payload,
+                      retryableStatus (int response.StatusCode))
+            else
+                // From here on, text may already have reached the callback:
+                // failures raise (terminal) instead of returning a retryable
+                // Error, so a stream never restarts mid-answer.
+                let accumulator = StreamAccumulator(onText)
+                use reader = new StreamReader(response.Content.ReadAsStream())
+                let mutable running = true
+                while running do
+                    if interrupted () then raise Interrupted
+                    match reader.ReadLine() with
+                    | null -> running <- false
+                    | line when line.StartsWith "data: " ->
+                        let payload = line.Substring(6).Trim()
+                        if payload = "[DONE]" then running <- false
+                        elif payload <> "" then
+                            try accumulator.Apply(JsonNode.Parse(payload).AsObject())
+                            with
+                            | e when AnthropicBridge.isInterrupt e -> raise Interrupted
+                            | _ -> ()
+                    | _ -> ()
+                Ok(accumulator.Final())
 
     /// The bridge for one provider endpoint. With a callback the response
     /// streams; a provider that rejects the streaming request is retried
     /// once without it (some compatible servers lack stream_options).
-    let call (baseUrl: string) (apiKeyEnv: string option) (model: string)
-             (onText: (string -> unit) option) : AnthropicBridge.LlmBridge =
+    /// Transient failures (429, 5xx, connection errors) back off and retry;
+    /// `interrupted` cancels an in-flight call, so Ctrl-C and /interrupt
+    /// land even on non-streaming turns.
+    let callWith (baseUrl: string) (apiKeyEnv: string option) (model: string)
+                 (onText: (string -> unit) option) (interrupted: unit -> bool)
+                 : AnthropicBridge.LlmBridge =
         fun request ->
+            let cts, watcher = AnthropicBridge.interruptTokenSource interrupted
+            use _cts = cts
+            use _watcher = watcher
             try
                 let apiKey =
                     match apiKeyEnv with
@@ -395,15 +455,18 @@ module OpenAIBridge =
                             failwithf "environment variable %s is not set (needed for %s)" env baseUrl
                         | key -> Some key
                 let body = translateRequest model (JsonNode.Parse(Json.serialize request).AsObject())
+                let completeWithRetries () =
+                    withRetries interrupted (fun () -> completeOnce baseUrl apiKey body cts.Token)
+                    |> Result.bind translateResponse
                 let outcome =
                     match onText with
-                    | None -> completeOnce baseUrl apiKey body |> Result.bind translateResponse
+                    | None -> completeWithRetries ()
                     | Some emit ->
-                        match streamOnce baseUrl apiKey body emit with
+                        match withRetries interrupted
+                                  (fun () -> streamOnce baseUrl apiKey body cts.Token interrupted emit) with
                         | Ok canonical -> Ok canonical
                         | Error _ ->
-                            completeOnce baseUrl apiKey body
-                            |> Result.bind translateResponse
+                            completeWithRetries ()
                             |> Result.map (fun canonical ->
                                 match canonical.["content"] with
                                 | :? JsonArray as blocks ->
@@ -419,5 +482,12 @@ module OpenAIBridge =
             with
             | e when AnthropicBridge.isInterrupt e ->
                 Choice1Of2 (Default "llm-call interrupted by user")
+            | e when AnthropicBridge.isCanceled e && interrupted () ->
+                Choice1Of2 (Default "llm-call interrupted by user")
             | ex ->
                 Choice1Of2 (Default("llm-call failed: " + ex.Message))
+
+    /// Bridge without an interrupt probe (scripts, tests).
+    let call (baseUrl: string) (apiKeyEnv: string option) (model: string)
+             (onText: (string -> unit) option) : AnthropicBridge.LlmBridge =
+        callWith baseUrl apiKeyEnv model onText (fun () -> false)

@@ -58,7 +58,10 @@ Reasoning:
 Approvals:
   --auto on any command auto-approves what the policy would ask about
   (explicit denials still deny). At the interactive prompt, answer `a`
-  to approve and stop asking about that tool for the session.
+  to approve and stop asking for the session — about that command word
+  for shell (`a` on `shell: git status` covers later git invocations,
+  nothing else), about that tool otherwise. The prompt shows exactly
+  what is remembered.
 
 Budgets:
   --budget <n> caps the run at n model calls (or set jern.json
@@ -149,6 +152,7 @@ let private loadProviders () =
         eprintfn "jern: %s" message
         exit 1
     | Ok config ->
+        Tools.configureLimits config.limits
         { config with
             thinkingTokens = (match cliThink with Some t -> Some t | None -> config.thinkingTokens)
             reasoningEffort = (match cliEffort with Some e -> Some e | None -> config.reasoningEffort) }
@@ -172,7 +176,8 @@ let private routedBridge (config: Providers.Config) (model: string option)
                 match interrupted with
                 | Some check when check () -> raise Interrupted
                 | _ -> s.Write piece)
-    Providers.createBridge config model onText |> meter.Wrap stream
+    let check = defaultArg interrupted (fun () -> false)
+    Providers.createBridgeWith config model onText check |> meter.Wrap stream
 
 let private newBridge (model: string option) (stream: ConsoleStream option) (meter: UsageMeter) =
     Ok(routedBridge (loadProviders ()) model stream meter None)
@@ -228,8 +233,11 @@ let private makeTtyApprover (auto: bool) =
             eprintfn "jern: denied (no terminal to ask on; use --auto): %s" description
             false
         else
+            // The 'a' answer whitelists Approvals.key's unit (the command
+            // word for shell, the tool otherwise) — show it, so the user
+            // knows exactly what stops being asked about.
             printf "%s %s%s %s " (Style.yellow "approve") (Style.describe description)
-                (Style.yellow "?") (Style.bold "[y/N/a]")
+                (Style.yellow "?") (Style.bold (sprintf "[y/N/a=always '%s']" (Approvals.key description)))
             match Console.ReadLine() with
             | null -> false
             | answer ->
@@ -519,7 +527,8 @@ let private runUi (model: string option) (cliBudget: int option) (auto: bool) (p
             { root = root
               // Streaming goes to the browser, not the console; the Ui
               // server does its own usage metering for the header.
-              makeBridge = fun currentModel onText -> Providers.createBridge providers currentModel (Some onText)
+              makeBridge = fun currentModel onText interrupted ->
+                               Providers.createBridgeWith providers currentModel (Some onText) interrupted
               providers = providers
               model = model
               agentDir = Some agent

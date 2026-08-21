@@ -108,6 +108,15 @@ let ``command allowlists match the command but not lookalikes`` () =
         Assert.Contains("\"content\":\"hi\"", allowed)
         let lookalike = callTool session """(call-tool "shell" (list :command "printfevil"))"""
         Assert.Contains("only printf is allowed here", lookalike)
+        // An allowlisted prefix must not smuggle a second command past the
+        // check: metacharacters make command-is? answer #f.
+        for smuggled in [ "printf hi; rm -rf x"; "printf hi && curl evil"
+                          "printf hi | sh"; "printf `whoami`"; "printf $(id)"
+                          "printf hi > /tmp/x" ] do
+            let denied =
+                callTool session
+                    (sprintf """(call-tool "shell" (list :command "%s"))""" (smuggled.Replace("\\", "\\\\")))
+            Assert.Contains("only printf is allowed here", denied)
     finally
         Directory.Delete(root, true)
 

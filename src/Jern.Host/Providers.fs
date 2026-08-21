@@ -68,7 +68,10 @@ module Providers =
           /// or --think/--effort): Anthropic extended-thinking budget and
           /// OpenAI-style reasoning effort. Each bridge consumes its own.
           thinkingTokens: int option
-          reasoningEffort: string option }
+          reasoningEffort: string option
+          /// Tool limits (jern.json "limits": {"max_file_bytes", …,
+          /// "shell_timeout_seconds"}); applied via Tools.configureLimits.
+          limits: Tools.Limits }
 
     let defaultConfig =
         { defaultModel = "anthropic/" + AnthropicBridge.defaultModel
@@ -79,7 +82,8 @@ module Providers =
           budgetLlmCalls = None
           budgetTokens = None
           thinkingTokens = None
-          reasoningEffort = None }
+          reasoningEffort = None
+          limits = Tools.defaultLimits }
 
     let private applyFile (config: Config) (path: string) : Config =
         if not (File.Exists path) then config
@@ -169,6 +173,22 @@ module Providers =
                 match doc.["reasoning_effort"] with
                 | null -> config.reasoningEffort
                 | e -> Some(e.GetValue<string>())
+            let limits =
+                match doc.["limits"] with
+                | :? JsonObject as l ->
+                    let intField (key: string) fallback =
+                        match l.[key] with null -> fallback | v -> v.GetValue<int>()
+                    { Tools.maxFileBytes =
+                        (match l.["max_file_bytes"] with
+                         | null -> config.limits.maxFileBytes
+                         | v -> v.GetValue<int64>())
+                      Tools.maxGrepMatches = intField "max_grep_matches" config.limits.maxGrepMatches
+                      Tools.maxTreeEntries = intField "max_tree_entries" config.limits.maxTreeEntries
+                      Tools.shellTimeoutSeconds =
+                        (match l.["shell_timeout_seconds"] with
+                         | null -> config.limits.shellTimeoutSeconds
+                         | v -> v.GetValue<float>()) }
+                | _ -> config.limits
             { defaultModel = defaultModel
               aliases = aliases
               providers = providers
@@ -177,7 +197,8 @@ module Providers =
               budgetLlmCalls = budgetLlmCalls
               budgetTokens = budgetTokens
               thinkingTokens = thinkingTokens
-              reasoningEffort = reasoningEffort }
+              reasoningEffort = reasoningEffort
+              limits = limits }
 
     /// Optional persisted API keys: ~/.config/jern/credentials.json holds
     /// { "<ENV_NAME>": "<key>", … } with 0600 permissions. Environment
@@ -284,8 +305,11 @@ module Providers =
 
     /// Build the routing bridge. Precedence for the model of each request:
     /// the request's own :model, then the CLI --model, then the config.
-    let createBridge (config: Config) (cliModel: string option) (onText: (string -> unit) option)
-                     : AnthropicBridge.LlmBridge =
+    /// `interrupted` is polled while a call is in flight so Ctrl-C and
+    /// /interrupt land even on non-streaming turns.
+    let createBridgeWith (config: Config) (cliModel: string option)
+                         (onText: (string -> unit) option) (interrupted: unit -> bool)
+                         : AnthropicBridge.LlmBridge =
         fun request ->
             let spec =
                 match requestModel request, cliModel with
@@ -297,6 +321,13 @@ module Providers =
             | Ok (provider, bareModel) ->
                 let bridge =
                     match provider.kind with
-                    | Anthropic -> AnthropicBridge.callWith (Some bareModel) onText
-                    | OpenAICompat -> OpenAIBridge.call provider.baseUrl provider.apiKeyEnv bareModel onText
+                    | Anthropic ->
+                        AnthropicBridge.callWithInterrupt (Some bareModel) onText interrupted
+                    | OpenAICompat ->
+                        OpenAIBridge.callWith provider.baseUrl provider.apiKeyEnv bareModel onText interrupted
                 bridge request
+
+    /// Routing bridge without an interrupt probe.
+    let createBridge (config: Config) (cliModel: string option) (onText: (string -> unit) option)
+                     : AnthropicBridge.LlmBridge =
+        createBridgeWith config cliModel onText (fun () -> false)

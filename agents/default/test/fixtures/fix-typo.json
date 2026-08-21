@@ -2,7 +2,7 @@
   "exchanges": [
     {
       "request": {
-        "system": "You are jern, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
+        "system": "You are jern, a terminal coding agent operating in the user's workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
         "max_tokens": 8192,
         "tools": [
           {
@@ -23,7 +23,7 @@
           },
           {
             "name": "list_dir",
-            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
+            "description": "List the entries of a workspace directory. Directories are suffixed with '/'.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -51,7 +51,7 @@
           },
           {
             "name": "grep",
-            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
+            "description": "Search workspace files with a regular expression. Returns 'path:line: text' matches.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -96,6 +96,27 @@
             }
           },
           {
+            "name": "write_file",
+            "description": "Create a new workspace file (or replace an existing one) with the given full content. Parent directories are created as needed.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Complete file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
+          },
+          {
             "name": "shell",
             "description": "Run a shell command in the workspace and return its combined output.",
             "input_schema": {
@@ -103,7 +124,7 @@
               "properties": {
                 "command": {
                   "type": "string",
-                  "description": "Command line, run with sh -c"
+                  "description": "Command line, run with sh -c (cmd.exe /c on Windows)"
                 }
               },
               "required": [
@@ -139,7 +160,7 @@
     },
     {
       "request": {
-        "system": "You are jern, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
+        "system": "You are jern, a terminal coding agent operating in the user's workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
         "max_tokens": 8192,
         "tools": [
           {
@@ -160,7 +181,7 @@
           },
           {
             "name": "list_dir",
-            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
+            "description": "List the entries of a workspace directory. Directories are suffixed with '/'.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -188,7 +209,7 @@
           },
           {
             "name": "grep",
-            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
+            "description": "Search workspace files with a regular expression. Returns 'path:line: text' matches.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -233,6 +254,27 @@
             }
           },
           {
+            "name": "write_file",
+            "description": "Create a new workspace file (or replace an existing one) with the given full content. Parent directories are created as needed.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Complete file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
+          },
+          {
             "name": "shell",
             "description": "Run a shell command in the workspace and return its combined output.",
             "input_schema": {
@@ -240,7 +282,7 @@
               "properties": {
                 "command": {
                   "type": "string",
-                  "description": "Command line, run with sh -c"
+                  "description": "Command line, run with sh -c (cmd.exe /c on Windows)"
                 }
               },
               "required": [
@@ -302,7 +344,7 @@
     },
     {
       "request": {
-        "system": "You are jern, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
+        "system": "You are jern, a terminal coding agent operating in the user's workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
         "max_tokens": 8192,
         "tools": [
           {
@@ -323,7 +365,7 @@
           },
           {
             "name": "list_dir",
-            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
+            "description": "List the entries of a workspace directory. Directories are suffixed with '/'.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -351,7 +393,7 @@
           },
           {
             "name": "grep",
-            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
+            "description": "Search workspace files with a regular expression. Returns 'path:line: text' matches.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -396,6 +438,27 @@
             }
           },
           {
+            "name": "write_file",
+            "description": "Create a new workspace file (or replace an existing one) with the given full content. Parent directories are created as needed.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Complete file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
+          },
+          {
             "name": "shell",
             "description": "Run a shell command in the workspace and return its combined output.",
             "input_schema": {
@@ -403,7 +466,7 @@
               "properties": {
                 "command": {
                   "type": "string",
-                  "description": "Command line, run with sh -c"
+                  "description": "Command line, run with sh -c (cmd.exe /c on Windows)"
                 }
               },
               "required": [
@@ -465,7 +528,7 @@
               {
                 "type": "tool_result",
                 "tool_use_id": "t2",
-                "content": "edited \u0027greeting.txt\u0027",
+                "content": "edited 'greeting.txt'",
                 "is_error": false
               }
             ]

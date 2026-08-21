@@ -2,7 +2,7 @@
   "exchanges": [
     {
       "request": {
-        "system": "You are jern-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
+        "system": "You are jern-docs, a documentation agent. You improve Markdown and other\nprose files in the user's workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files — if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
         "max_tokens": 4096,
         "tools": [
           {
@@ -23,7 +23,7 @@
           },
           {
             "name": "list_dir",
-            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
+            "description": "List the entries of a workspace directory. Directories are suffixed with '/'.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -37,7 +37,7 @@
           },
           {
             "name": "grep",
-            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
+            "description": "Search workspace files with a regular expression. Returns 'path:line: text' matches.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -80,6 +80,27 @@
                 "new_string"
               ]
             }
+          },
+          {
+            "name": "write_file",
+            "description": "Create a new workspace file (or replace an existing one) with the given full content. Parent directories are created as needed.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Complete file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
           }
         ],
         "cache_control": {
@@ -88,7 +109,7 @@
         "messages": [
           {
             "role": "user",
-            "content": "Fix the typo in README.md\u0027s heading"
+            "content": "Fix the typo in README.md's heading"
           }
         ]
       },
@@ -109,7 +130,7 @@
     },
     {
       "request": {
-        "system": "You are jern-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
+        "system": "You are jern-docs, a documentation agent. You improve Markdown and other\nprose files in the user's workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files — if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
         "max_tokens": 4096,
         "tools": [
           {
@@ -130,7 +151,7 @@
           },
           {
             "name": "list_dir",
-            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
+            "description": "List the entries of a workspace directory. Directories are suffixed with '/'.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -144,7 +165,7 @@
           },
           {
             "name": "grep",
-            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
+            "description": "Search workspace files with a regular expression. Returns 'path:line: text' matches.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -187,6 +208,27 @@
                 "new_string"
               ]
             }
+          },
+          {
+            "name": "write_file",
+            "description": "Create a new workspace file (or replace an existing one) with the given full content. Parent directories are created as needed.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Complete file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
           }
         ],
         "cache_control": {
@@ -195,7 +237,7 @@
         "messages": [
           {
             "role": "user",
-            "content": "Fix the typo in README.md\u0027s heading"
+            "content": "Fix the typo in README.md's heading"
           },
           {
             "role": "assistant",
@@ -242,7 +284,7 @@
     },
     {
       "request": {
-        "system": "You are jern-docs, a documentation agent. You improve Markdown and other\nprose files in the user\u0027s workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files \u2014 if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
+        "system": "You are jern-docs, a documentation agent. You improve Markdown and other\nprose files in the user's workspace: fix typos, clarify wording, keep examples\nin sync with the code you can read. Never touch source code files — if a task\nneeds code changes, say so instead. Keep edits minimal and reply with a short\nsummary when done.",
         "max_tokens": 4096,
         "tools": [
           {
@@ -263,7 +305,7 @@
           },
           {
             "name": "list_dir",
-            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
+            "description": "List the entries of a workspace directory. Directories are suffixed with '/'.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -277,7 +319,7 @@
           },
           {
             "name": "grep",
-            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
+            "description": "Search workspace files with a regular expression. Returns 'path:line: text' matches.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -320,6 +362,27 @@
                 "new_string"
               ]
             }
+          },
+          {
+            "name": "write_file",
+            "description": "Create a new workspace file (or replace an existing one) with the given full content. Parent directories are created as needed.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "content": {
+                  "type": "string",
+                  "description": "Complete file content"
+                }
+              },
+              "required": [
+                "path",
+                "content"
+              ]
+            }
           }
         ],
         "cache_control": {
@@ -328,7 +391,7 @@
         "messages": [
           {
             "role": "user",
-            "content": "Fix the typo in README.md\u0027s heading"
+            "content": "Fix the typo in README.md's heading"
           },
           {
             "role": "assistant",
@@ -375,7 +438,7 @@
               {
                 "type": "tool_result",
                 "tool_use_id": "d2",
-                "content": "edited \u0027README.md\u0027",
+                "content": "edited 'README.md'",
                 "is_error": false
               }
             ]

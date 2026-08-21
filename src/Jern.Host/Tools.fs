@@ -18,9 +18,23 @@ open IronKernel.Errors
 /// approval handlers (M4) sit in front of every call.
 module Tools =
 
-    let private maxFileBytes = 262_144L
-    let private maxGrepMatches = 200
-    let private shellTimeout = TimeSpan.FromSeconds 120.0
+    /// Operational limits, overridable per workspace from jern.json
+    /// `"limits": {"max_file_bytes":…, "max_grep_matches":…,
+    /// "max_tree_entries":…, "shell_timeout_seconds":…}` (see Providers).
+    type Limits =
+        { maxFileBytes: int64
+          maxGrepMatches: int
+          maxTreeEntries: int
+          shellTimeoutSeconds: float }
+
+    let defaultLimits =
+        { maxFileBytes = 262_144L
+          maxGrepMatches = 200
+          maxTreeEntries = 200
+          shellTimeoutSeconds = 120.0 }
+
+    let mutable private limits = defaultLimits
+    let configureLimits (value: Limits) = limits <- value
 
     /// F#-side plist access for tool-call payloads.
     let rec plistTryGet (key: string) (plist: LispVal) : LispVal option =
@@ -47,12 +61,36 @@ module Tools =
     let private ok content = result false content
     let private toolError content = result true content
 
+    /// The symlink-free path of `path`'s deepest existing prefix, with any
+    /// non-existing remainder appended verbatim. Path.GetFullPath normalizes
+    /// `..` but never resolves links, so the confinement check below cannot
+    /// trust it alone: a link inside the workspace can point anywhere.
+    let rec private realPath (path: string) : string =
+        let parent = Path.GetDirectoryName path
+        if String.IsNullOrEmpty parent then path
+        else
+            let entryExists =
+                try File.GetAttributes path |> ignore; true
+                with _ -> false
+            if entryExists then
+                let info: FileSystemInfo =
+                    if Directory.Exists path then DirectoryInfo path :> _ else FileInfo path :> _
+                match info.ResolveLinkTarget true with
+                | null -> Path.Combine(realPath parent, Path.GetFileName path)
+                | target -> realPath target.FullName
+            else
+                Path.Combine(realPath parent, Path.GetFileName path)
+
     /// Resolve a workspace-relative path and refuse escapes from the root.
+    /// Symlinks are resolved — the target and every parent, for the path and
+    /// the root alike — before the containment test, so a link inside the
+    /// workspace cannot smuggle reads or writes outside it.
     let private resolve (root: string) (path: string) : Result<string, string> =
         let full = Path.GetFullPath(Path.Combine(root, path))
-        let rootFull = Path.GetFullPath(root)
-        if full = rootFull
-           || full.StartsWith(rootFull + string Path.DirectorySeparatorChar, StringComparison.Ordinal) then
+        let real = realPath full
+        let rootReal = realPath (Path.GetFullPath root)
+        if real = rootReal
+           || real.StartsWith(rootReal + string Path.DirectorySeparatorChar, StringComparison.Ordinal) then
             Ok full
         else
             Error(sprintf "path '%s' is outside the workspace" path)
@@ -68,8 +106,8 @@ module Tools =
                     toolError (sprintf "file '%s' does not exist" path)
                 else
                     let info = FileInfo full
-                    if info.Length > maxFileBytes then
-                        toolError (sprintf "file '%s' is %d bytes (limit %d); read a smaller file" path info.Length maxFileBytes)
+                    if info.Length > limits.maxFileBytes then
+                        toolError (sprintf "file '%s' is %d bytes (limit %d); read a smaller file" path info.Length limits.maxFileBytes)
                     else
                         ok (File.ReadAllText full)
 
@@ -94,8 +132,6 @@ module Tools =
 
     let private skippedDirs = set [ ".git"; "bin"; "obj"; "node_modules"; ".vs"; ".idea"; ".jern" ]
 
-    let private maxTreeEntries = 200
-
     /// An indented, depth-limited tree of the workspace (or a subdirectory),
     /// for cheap first-turn context and for the model to orient itself.
     let private fileTree root input =
@@ -117,7 +153,7 @@ module Tools =
                                 |> Seq.sortBy (fun e -> Path.GetFileName e)
                                 |> List.ofSeq
                             for entry in entries do
-                                if lines.Count >= maxTreeEntries then truncated <- true
+                                if lines.Count >= limits.maxTreeEntries then truncated <- true
                                 else
                                     let name = Path.GetFileName entry
                                     let indent = String.replicate depth "  "
@@ -129,7 +165,7 @@ module Tools =
                                         lines.Add(indent + name)
                     walk full 0
                     let listing = String.concat "\n" lines
-                    ok (if truncated then listing + sprintf "\n… truncated at %d entries" maxTreeEntries
+                    ok (if truncated then listing + sprintf "\n… truncated at %d entries" limits.maxTreeEntries
                         elif listing = "" then "(empty directory)"
                         else listing)
 
@@ -170,13 +206,13 @@ module Tools =
                                     |> Seq.map (fun (i, line) ->
                                         sprintf "%s:%d: %s" (Path.GetRelativePath(rootFull, file)) (i + 1) (line.TrimEnd()))
                                 with _ -> Seq.empty)
-                            |> Seq.truncate (maxGrepMatches + 1)
+                            |> Seq.truncate (limits.maxGrepMatches + 1)
                             |> List.ofSeq
                         match matches with
                         | [] -> ok "(no matches)"
-                        | m when m.Length > maxGrepMatches ->
-                            ok (String.concat "\n" (List.truncate maxGrepMatches m)
-                                + sprintf "\n… truncated at %d matches" maxGrepMatches)
+                        | m when m.Length > limits.maxGrepMatches ->
+                            ok (String.concat "\n" (List.truncate limits.maxGrepMatches m)
+                                + sprintf "\n… truncated at %d matches" limits.maxGrepMatches)
                         | m -> ok (String.concat "\n" m)
 
     let private editFile root input =
@@ -204,6 +240,27 @@ module Tools =
                         File.WriteAllText(full, text.Replace(oldString, newString))
                         ok (sprintf "edited '%s'" path)
                     | n -> toolError (sprintf "old_string occurs %d times in '%s'; provide more context to make it unique" n path)
+
+    /// Create (or replace) a file with the given full content. The approval
+    /// prompt shows the whole content as a diff, which is easier to review
+    /// than an equivalent `cat > file` shell command — and it works in agents
+    /// that drop `shell` entirely.
+    let private writeFile root input =
+        match stringArg "path" input, stringArg "content" input with
+        | Error e, _ | _, Error e -> toolError e
+        | Ok path, Ok content ->
+            match resolve root path with
+            | Error e -> toolError e
+            | Ok full ->
+                if Directory.Exists full then
+                    toolError (sprintf "'%s' is a directory" path)
+                else
+                    let existed = File.Exists full
+                    let parent = Path.GetDirectoryName full
+                    if not (String.IsNullOrEmpty parent) then
+                        Directory.CreateDirectory parent |> ignore
+                    File.WriteAllText(full, content)
+                    ok (sprintf "%s '%s' (%d bytes)" (if existed then "replaced" else "wrote") path content.Length)
 
     /// macOS: confine shell writes to the workspace (plus temp and /dev)
     /// with sandbox-exec. Reads and network stay open — stated plainly in
@@ -233,17 +290,29 @@ module Tools =
                 proc.StartInfo.ArgumentList.Add "-p"
                 proc.StartInfo.ArgumentList.Add(sandboxProfile root)
                 proc.StartInfo.ArgumentList.Add "/bin/sh"
+                proc.StartInfo.ArgumentList.Add "-c"
             else
                 if not warnedNoSandbox then
                     warnedNoSandbox <- true
                     eprintfn "jern: no OS sandbox available for shell commands; approval is the only gate"
-                proc.StartInfo.FileName <- "/bin/sh"
-            proc.StartInfo.ArgumentList.Add "-c"
+                if OperatingSystem.IsWindows() then
+                    // cmd.exe /d /s /c: same contract as sh -c (one command
+                    // string), /d skips AutoRun, /s keeps quote handling sane.
+                    // No sandbox on Windows — docs/security-model.md says so.
+                    let comspec = Environment.GetEnvironmentVariable "COMSPEC"
+                    proc.StartInfo.FileName <- (if String.IsNullOrEmpty comspec then "cmd.exe" else comspec)
+                    proc.StartInfo.ArgumentList.Add "/d"
+                    proc.StartInfo.ArgumentList.Add "/s"
+                    proc.StartInfo.ArgumentList.Add "/c"
+                else
+                    proc.StartInfo.FileName <- "/bin/sh"
+                    proc.StartInfo.ArgumentList.Add "-c"
             proc.StartInfo.ArgumentList.Add command
             proc.StartInfo.WorkingDirectory <- root
             proc.StartInfo.RedirectStandardOutput <- true
             proc.StartInfo.RedirectStandardError <- true
             proc.StartInfo.UseShellExecute <- false
+            let shellTimeout = TimeSpan.FromSeconds limits.shellTimeoutSeconds
             try
                 proc.Start() |> ignore
                 let stdout = proc.StandardOutput.ReadToEndAsync()
@@ -277,6 +346,7 @@ module Tools =
                 | "file_tree" -> Some fileTree
                 | "grep" -> Some grep
                 | "edit_file" -> Some editFile
+                | "write_file" -> Some writeFile
                 | "shell" -> Some shell
                 | _ -> None
             match run with
