@@ -6,6 +6,7 @@
     <Tailcalls>true</Tailcalls>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Args.fs" />
     <Compile Include="Ui.fs" />
     <Compile Include="Program.fs" />
     <!-- The web UI is a file beside the binary, editable like the agents. -->
