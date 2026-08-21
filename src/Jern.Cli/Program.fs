@@ -38,6 +38,10 @@ Usage:
                       rules for this repo — enforced, testable Kernel source
   jern --version      Print version
 
+Flag order is free: global flags (--model, --budget, --auto, --think,
+--effort) and each command's own flags may appear anywhere on the line
+(e.g. jern run "fix the tests" --agent agents/reviewer).
+
 Models & providers:
   --model provider/model on any command (e.g. --model openai/gpt-5.2,
   ollama/qwen3, anthropic/claude-opus-5). Default and aliases come from
@@ -148,44 +152,6 @@ let private loadProviders () =
         { config with
             thinkingTokens = (match cliThink with Some t -> Some t | None -> config.thinkingTokens)
             reasoningEffort = (match cliEffort with Some e -> Some e | None -> config.reasoningEffort) }
-
-/// Pull a global `--budget <n>` (model-call cap) out of the argument list.
-let private extractBudget (args: string list) =
-    let rec go acc budget = function
-        | "--budget" :: n :: rest ->
-            (match Int32.TryParse(n: string) with
-             | true, calls when calls > 0 -> go acc (Some calls) rest
-             | _ ->
-                 eprintfn "jern: --budget needs a positive integer, got '%s'" n
-                 exit 2)
-        | arg :: rest -> go (arg :: acc) budget rest
-        | [] -> List.rev acc, budget
-    go [] None args
-
-/// Pull a global `--auto` out of the argument list: auto-approve every
-/// action the policy would ask about. Explicit policy denials still deny —
-/// they never reach an approver at all.
-let private extractAuto (args: string list) =
-    let rec go acc auto = function
-        | "--auto" :: rest -> go acc true rest
-        | arg :: rest -> go (arg :: acc) auto rest
-        | [] -> List.rev acc, auto
-    go [] false args
-
-/// Pull global `--think <tokens>` (Anthropic extended-thinking budget) and
-/// `--effort <low|medium|high>` (OpenAI-style reasoning effort) flags.
-let private extractReasoning (args: string list) =
-    let rec go acc think effort = function
-        | "--think" :: n :: rest ->
-            (match Int32.TryParse(n: string) with
-             | true, tokens when tokens > 0 -> go acc (Some tokens) effort rest
-             | _ ->
-                 eprintfn "jern: --think needs a positive token budget, got '%s'" n
-                 exit 2)
-        | "--effort" :: level :: rest -> go acc think (Some level) rest
-        | arg :: rest -> go (arg :: acc) think effort rest
-        | [] -> List.rev acc, think, effort
-    go [] None None args
 
 /// The session budget plist: the CLI --budget (model calls) wins over
 /// jern.json's "budget" object.
@@ -591,94 +557,62 @@ let private runScript (path: string) (model: string option) =
             1
         | Choice2Of2 _ -> 0
 
-/// Pull a global `--model <spec>` out of the argument list.
-let private extractModel (args: string list) =
-    let rec go acc model = function
-        | "--model" :: spec :: rest -> go acc (Some spec) rest
-        | arg :: rest -> go (arg :: acc) model rest
-        | [] -> List.rev acc, model
-    go [] None args
-
+/// Copy the installed default agent into the workspace for editing.
+let private runEject () =
+    let source = Session.defaultAgentDir ()
+    let target = IO.Path.Combine(Environment.CurrentDirectory, "agents", "default")
+    if IO.Directory.Exists target then
+        eprintfn "jern eject: '%s' already exists" target
+        1
+    elif not (IO.Directory.Exists source) then
+        eprintfn "jern eject: no installed default agent at '%s'" source
+        1
+    else
+        for file in IO.Directory.EnumerateFiles(source, "*", IO.SearchOption.AllDirectories) do
+            let destination = IO.Path.Combine(target, IO.Path.GetRelativePath(source, file))
+            IO.Directory.CreateDirectory(IO.Path.GetDirectoryName destination) |> ignore
+            IO.File.Copy(file, destination)
+        printfn "ejected the default agent to %s" target
+        printfn "run it with: jern run --agent %s \"task\"" (IO.Path.GetRelativePath(Environment.CurrentDirectory, target))
+        0
 
 [<EntryPoint>]
 let main argv =
     Providers.applyCredentials ()
-    let args, model = extractModel (Array.toList argv)
-    let args, cliBudget = extractBudget args
-    let args, auto = extractAuto args
-    let args, think, effort = extractReasoning args
-    cliThink <- think
-    cliEffort <- effort
-    match args with
-    | ["--version"] | ["version"] ->
-        printfn "%s" AgentEnv.version
-        0
-    | [] when not Console.IsInputRedirected ->
-        runChat None model cliBudget auto
-    | ["--resume"] -> runChat (Some "") model cliBudget auto
-    | ["--resume"; id] -> runChat (Some id) model cliBudget auto
-    | ["repl"] ->
-        runRepl model
-    | "run" :: rest ->
-        // jern run [--yes] [--agent <dir>] "task"
-        let rec parse yes agent = function
-            | "--yes" :: more -> parse true agent more
-            | "--agent" :: dir :: more -> parse yes (Some dir) more
-            | [task] -> Some(yes, agent, task)
-            | _ -> None
-        match parse false None rest with
-        | Some(yes, agent, task) -> runTask (yes || auto) agent model cliBudget task
-        | None ->
-            eprintfn "usage: jern run [--yes] [--agent <dir>] [--model <spec>] [--budget <n>] \"task\""
-            2
-    | ["undo"] -> runUndo ()
-    | "ui" :: rest ->
-        // jern ui [--port n] [--agent <dir>]
-        let rec parse port agent = function
-            | "--port" :: p :: more ->
-                (match Int32.TryParse(p: string) with
-                 | true, n -> parse n agent more
-                 | _ -> None)
-            | "--agent" :: dir :: more -> parse port (Some dir) more
-            | [] -> Some(port, agent)
-            | _ -> None
-        (match parse 0 None rest with
-         | Some(port, agent) -> runUi model cliBudget auto port agent
-         | None ->
-             eprintfn "usage: jern ui [--port <n>] [--agent <dir>] [--model <spec>] [--budget <n>]"
-             2)
-    | ["mcp"] -> runMcp ()
-    | ["policy"] -> runPolicy false
-    | ["policy"; "init"] -> runPolicy true
-    | ["eject"] ->
-        // Copy the installed default agent into the workspace for editing.
-        let source = Session.defaultAgentDir ()
-        let target = IO.Path.Combine(Environment.CurrentDirectory, "agents", "default")
-        if IO.Directory.Exists target then
-            eprintfn "jern eject: '%s' already exists" target
-            1
-        elif not (IO.Directory.Exists source) then
-            eprintfn "jern eject: no installed default agent at '%s'" source
-            1
-        else
-            for file in IO.Directory.EnumerateFiles(source, "*", IO.SearchOption.AllDirectories) do
-                let destination = IO.Path.Combine(target, IO.Path.GetRelativePath(source, file))
-                IO.Directory.CreateDirectory(IO.Path.GetDirectoryName destination) |> ignore
-                IO.File.Copy(file, destination)
-            printfn "ejected the default agent to %s" target
-            printfn "run it with: jern run --agent %s \"task\"" (IO.Path.GetRelativePath(Environment.CurrentDirectory, target))
-            0
-    | ["test"] -> runTests None false model
-    | ["test"; "--record"] -> runTests None true model
-    | ["test"; dir] -> runTests (Some dir) false model
-    | ["test"; dir; "--record"] | ["test"; "--record"; dir] -> runTests (Some dir) true model
-    | ["script"; path] ->
-        runScript path model
-    | [] ->
-        printf "%s" usage
-        0
-    | other ->
+    match Args.parse (Array.toList argv) with
+    | Error(Args.BadValue message) ->
+        eprintfn "jern: %s" message
+        2
+    | Error(Args.SubUsage line) ->
+        eprintfn "%s" line
+        2
+    | Error(Args.UnknownArgs other) ->
         eprintfn "Unknown arguments: %s" (String.Join(" ", other))
         eprintfn ""
         eprintf "%s" usage
         2
+    | Ok(globals, command) ->
+        cliThink <- globals.think
+        cliEffort <- globals.effort
+        let model = globals.model
+        let cliBudget = globals.budget
+        let auto = globals.auto
+        match command with
+        | Args.Version ->
+            printfn "%s" AgentEnv.version
+            0
+        | Args.NoArgs when not Console.IsInputRedirected ->
+            runChat None model cliBudget auto
+        | Args.NoArgs ->
+            printf "%s" usage
+            0
+        | Args.Resume id -> runChat (Some(defaultArg id "")) model cliBudget auto
+        | Args.Repl -> runRepl model
+        | Args.Run(yes, agent, task) -> runTask (yes || auto) agent model cliBudget task
+        | Args.Undo -> runUndo ()
+        | Args.Ui(port, agent) -> runUi model cliBudget auto port agent
+        | Args.Mcp -> runMcp ()
+        | Args.Policy init -> runPolicy init
+        | Args.Eject -> runEject ()
+        | Args.Test(dir, record) -> runTests dir record model
+        | Args.Script path -> runScript path model
