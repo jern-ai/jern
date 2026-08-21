@@ -59,7 +59,16 @@ module Ui =
           /// Start with auto-approve on (the --auto flag); toggleable live.
           auto: bool
           /// 0 picks a free port.
-          port: int }
+          port: int
+          /// Consulted on every session build for <root>/.jern/policy.ikr
+          /// (Session.Config.policyTrust). The CLI passes a trust-store
+          /// check: first-use questions are asked on the terminal before
+          /// the server starts, never in the browser.
+          policyTrust: string -> string -> bool
+          /// Called when the user saves the workspace policy in the brain
+          /// editor — an edit through the authenticated UI is the user
+          /// authoring the file, so its content is trusted without a prompt.
+          rememberPolicy: string -> string -> unit }
 
     type Server =
         { url: string
@@ -230,6 +239,15 @@ module Ui =
         let traceSink (line: string) =
             broadcast (sprintf """{"type":"trace","event":%s}""" line)
 
+        let policyTrust path content =
+            if config.policyTrust path content then true
+            else
+                broadcast
+                    (jsonEvent
+                        [ "type", str "error"
+                          "message", str (sprintf "workspace policy %s is not trusted — using the built-in policy (save it in the brain editor to trust it)" path) ])
+                false
+
         let buildSession () =
             Session.createWith
                 { Session.configIn config.root (metered (config.makeBridge currentModel.Value onText)) with
@@ -239,7 +257,8 @@ module Ui =
                     agentConfig = config.agentConfig
                     mcpServers = config.mcpServers
                     budget = config.budget
-                    interrupted = fun () -> interrupted.Value }
+                    interrupted = (fun () -> interrupted.Value)
+                    policyTrust = policyTrust }
 
         let session =
             match buildSession () with
@@ -440,6 +459,8 @@ module Ui =
                              else
                                  Directory.CreateDirectory(Path.GetDirectoryName path) |> ignore
                                  File.WriteAllText(path, content)
+                                 if Path.GetFullPath path = policyPath then
+                                     config.rememberPolicy policyPath content
                                  match reload () with
                                  | Ok () ->
                                      broadcast (jsonEvent [ "type", str "reloaded"; "path", str (Path.GetFileName path) ])

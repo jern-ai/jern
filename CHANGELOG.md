@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **First-use trust for workspace policies.** `.jern/policy.ikr` runs in
+  the privileged handler environment, so `git clone && jern` in a repo you
+  did not author is no longer enough to execute its policy: the first time
+  a session sees one (and again whenever its content changes), jern shows
+  the file on the terminal and asks before loading it. Yes answers persist
+  in `~/.config/jern/trusted.json` (0600, `JERN_CONFIG_DIR` overrides the
+  directory), keyed by absolute path + SHA-256 of the content, and the
+  session evaluates exactly the content that was approved. Declining — or
+  having no terminal to ask on — falls back to the built-in policy with a
+  warning; the session still runs. `jern policy init` and saves from the
+  UI's brain editor trust the file the user just authored; `jern ui` asks
+  any first-use question on the terminal before the server starts.
+  Embedders decide via the new `Session.Config.policyTrust` hook.
+
 ## 0.10.0 — 2026-08-19
 
 - **`--auto`** on any command auto-approves everything the policy would

@@ -24,7 +24,11 @@ let private startServer root makeBridge agentSources agentDir model : Ui.Server 
               mcpServers = []
               budget = Nil
               auto = false
-              port = 0 }
+              port = 0
+              // Tests trust every workspace policy and never touch the
+              // real ~/.config/jern/trusted.json.
+              policyTrust = (fun _ _ -> true)
+              rememberPolicy = fun _ _ -> () }
     Task.Run(server.run) |> ignore
     server
 

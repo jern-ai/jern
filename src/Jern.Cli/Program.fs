@@ -274,6 +274,35 @@ let private makeTtyApprover (auto: bool) =
                     true
                 | _ -> false
 
+/// First-use trust for the workspace policy (.jern/policy.ikr). It runs
+/// privileged, so an unseen (or changed) policy is shown and confirmed on
+/// the terminal before a session loads it. A yes persists in
+/// ~/.config/jern/trusted.json keyed by absolute path + content hash;
+/// declining — or having no terminal to ask on — skips the workspace policy
+/// for this session and the built-in rules stand.
+let private ttyPolicyTrust (path: string) (content: string) =
+    let store = Trust.defaultStorePath ()
+    if Trust.isTrusted store path content then true
+    elif Console.IsInputRedirected then
+        eprintfn "jern: workspace policy %s is not trusted yet — run jern interactively once to review it" path
+        false
+    else
+        let rule = Style.dim (String.replicate 60 "─")
+        printfn ""
+        printfn "%s" (Style.yellow (sprintf "This workspace provides its own tool policy: %s" path))
+        printfn "%s" (Style.dim "It runs with jern's full authority and can loosen approval rules.")
+        printfn "%s" rule
+        printf "%s" content
+        if not (content.EndsWith "\n") then printfn ""
+        printfn "%s" rule
+        printf "%s %s " (Style.yellow "trust this workspace policy?") (Style.bold "[y/N]")
+        match Console.ReadLine() with
+        | null -> false
+        | answer when answer.Trim().ToLowerInvariant() = "y" ->
+            Trust.remember store path content
+            true
+        | _ -> false
+
 /// Interactive chat: one agent turn per user message, history persisted
 /// after every turn so a session survives interruption and `--resume`.
 let private runChat (resumeId: string option) (model: string option) (cliBudget: int option) (auto: bool) =
@@ -316,7 +345,8 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
                 agentConfig = Providers.agentConfig providers
                 mcpServers = providers.mcpServers
                 budget = sessionBudget providers cliBudget
-                interrupted = fun () -> interrupted.Value }
+                interrupted = (fun () -> interrupted.Value)
+                policyTrust = ttyPolicyTrust }
 
     let effectiveModel () =
         match currentModel with
@@ -414,7 +444,8 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
             approver = Some(if autoApprove then (fun _ -> true) else makeTtyApprover false)
             agentConfig = Providers.agentConfig providers
             mcpServers = providers.mcpServers
-            budget = sessionBudget providers cliBudget }
+            budget = sessionBudget providers cliBudget
+            policyTrust = ttyPolicyTrust }
     match Session.createWith config with
     | Choice1Of2 error ->
         eprintfn "Startup error: %s" (showError error)
@@ -485,6 +516,9 @@ let private runPolicy (init: bool) =
         else
             IO.Directory.CreateDirectory(IO.Path.GetDirectoryName workspacePath) |> ignore
             IO.File.WriteAllText(workspacePath, Session.policyTemplate)
+            // The user just authored this file, so it needs no first-use
+            // prompt; edits to it will ask again.
+            Trust.remember (Trust.defaultStorePath ()) workspacePath Session.policyTemplate
             printfn "wrote %s" workspacePath
             printfn "it now governs every jern session in this workspace; edit and re-run"
             0
@@ -508,6 +542,12 @@ let private runUi (model: string option) (cliBudget: int option) (auto: bool) (p
         match agentDir with
         | Some dir -> dir
         | None -> Session.defaultAgentDir ()
+    // First-use trust happens on this terminal before the server starts;
+    // the running UI only consults the store (and trusts the brain
+    // editor's own saves of the policy, which are the user authoring it).
+    let policyPath = IO.Path.GetFullPath(IO.Path.Combine(root, ".jern", "policy.ikr"))
+    if IO.File.Exists policyPath then
+        ttyPolicyTrust policyPath (IO.File.ReadAllText policyPath) |> ignore
     let server =
         Ui.start
             { root = root
@@ -522,7 +562,9 @@ let private runUi (model: string option) (cliBudget: int option) (auto: bool) (p
               mcpServers = providers.mcpServers
               budget = sessionBudget providers cliBudget
               auto = auto
-              port = port }
+              port = port
+              policyTrust = fun path content -> Trust.isTrusted (Trust.defaultStorePath ()) path content
+              rememberPolicy = fun path content -> Trust.remember (Trust.defaultStorePath ()) path content }
     printfn " %s %s — ui at %s" (Style.rust "jern") (Style.steel ("v" + AgentEnv.version)) (Style.bold server.url)
     printfn " %s" (Style.dim (root + " · ctrl-c to stop"))
     try
@@ -556,7 +598,9 @@ let private runRepl (model: string option) =
             eprintfn "jern: %s" message
             exit 1
         | Ok bridge -> bridge
-    match Session.create bridge with
+    match Session.createWith
+              { Session.configIn Environment.CurrentDirectory bridge with
+                  policyTrust = ttyPolicyTrust } with
     | Choice1Of2 error ->
         eprintfn "Startup error: %s" (showError error)
         1
@@ -580,7 +624,9 @@ let private runScript (path: string) (model: string option) =
             eprintfn "jern: %s" message
             exit 1
         | Ok bridge -> bridge
-    match Session.create bridge with
+    match Session.createWith
+              { Session.configIn Environment.CurrentDirectory bridge with
+                  policyTrust = ttyPolicyTrust } with
     | Choice1Of2 error ->
         eprintfn "Startup error: %s" (showError error)
         1

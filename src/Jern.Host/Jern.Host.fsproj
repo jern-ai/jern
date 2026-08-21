@@ -13,6 +13,7 @@
     <Compile Include="Approvals.fs" />
     <Compile Include="Mcp.fs" />
     <Compile Include="Providers.fs" />
+    <Compile Include="Trust.fs" />
     <Compile Include="Fixtures.fs" />
     <Compile Include="Git.fs" />
     <Compile Include="Session.fs" />

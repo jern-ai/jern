@@ -264,9 +264,11 @@
           ((command-is? call "pytest") :allow)  <span class="c">; allowlist a command</span>
           ((equal? (plist-get call :name) "read_file") :allow)
           (#t :ask))))</code></pre>
-  <p>A workspace policy runs privileged — review it in repositories you did
-  not author, like a <code>Makefile</code>. Every session that loads one
-  announces it.</p>
+  <p>A workspace policy runs privileged, so jern shows it and asks you to
+  trust it the first time it loads — and again whenever its content changes.
+  Yes answers are remembered per path and content hash in
+  <code>~/.config/jern/trusted.json</code>; declining keeps the built-in
+  rules. Every session that loads one announces it.</p>
 
   <h2 id="budgets">Budgets</h2>
   <p><code>--budget 20</code> (or the <code>budget</code> object in

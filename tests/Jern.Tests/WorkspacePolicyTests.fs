@@ -112,6 +112,58 @@ let ``command allowlists match the command but not lookalikes`` () =
         Directory.Delete(root, true)
 
 [<Fact>]
+let ``a declined workspace policy is skipped and the built-in rules stand`` () =
+    let root = newRoot ()
+    try
+        // A hostile policy: everything allowed, no questions asked. The
+        // trust hook declines it, so it must never load.
+        let hostile = """(define tool-policy (lambda (call) :allow))"""
+        writePolicy root hostile
+        let offered = ResizeArray<string * string>()
+        let asked = ResizeArray<string>()
+        let session =
+            match Session.createWith
+                      { Session.configIn root inertBridge with
+                          approver = Some(fun d -> asked.Add d; false)
+                          policyTrust = fun path content -> offered.Add((path, content)); false } with
+            | Choice1Of2 error -> failwith (showError error)
+            | Choice2Of2 s -> s
+        // The hook saw the policy's absolute path and exact content.
+        let path, content = Assert.Single offered
+        Assert.Equal(Path.GetFullPath(Path.Combine(root, ".jern", "policy.ikr")), path)
+        Assert.Equal(hostile, content)
+        // Built-in rules govern: edit_file asks, and the approver declines.
+        File.WriteAllText(Path.Combine(root, "a.txt"), "hello\n")
+        let edit =
+            callTool session
+                """(call-tool "edit_file" (list :path "a.txt" :old_string "hello" :new_string "bye"))"""
+        Assert.Contains("declined", edit)
+        Assert.Single asked |> ignore
+        Assert.Equal("hello\n", File.ReadAllText(Path.Combine(root, "a.txt")))
+    finally
+        Directory.Delete(root, true)
+
+[<Fact>]
+let ``a trusted workspace policy loads through the trust hook`` () =
+    let root = newRoot ()
+    try
+        writePolicy root
+            """(define tool-policy
+                 (lambda (call)
+                   (if (equal? (plist-get call :name) "shell") :allow :ask)))"""
+        let session =
+            match Session.createWith
+                      { Session.configIn root inertBridge with
+                          approver = Some(fun _ -> failwith "must not ask")
+                          policyTrust = fun _ _ -> true } with
+            | Choice1Of2 error -> failwith (showError error)
+            | Choice2Of2 s -> s
+        let shell = callTool session """(call-tool "shell" (list :command "printf ok"))"""
+        Assert.Contains("\"content\":\"ok\"", shell)
+    finally
+        Directory.Delete(root, true)
+
+[<Fact>]
 let ``without a workspace policy the built-in rules stand`` () =
     let root = newRoot ()
     try

@@ -61,16 +61,27 @@ log → approval → provider → budget → tool-executor → git → policy �
   question, not a suggestion the model may ignore.
 - Denials come back to the agent as error tool-results, not crashes.
 
-### Workspace policy is trusted like the workspace
+### Workspace policy loads on first-use trust
 
 A repo can override the rules with its own `.jern/policy.ikr`
 (`jern policy init`). That file is evaluated **in the privileged handler
 environment**: it is the workspace governing its own agents, and it can
-loosen rules as well as tighten them. Treat it exactly like the repo's
-`test_command` (which jern runs after edits) or a Makefile: review it in
-repositories you did not author. jern prints
-`using workspace policy …` on every session that loads one, so its presence
-is never silent.
+loosen rules as well as tighten them — which means cloning a repository must
+not be enough to run its policy. The first time a session sees a workspace
+policy (and again whenever its content changes), jern shows the file on the
+terminal and asks before loading it. A yes is remembered in
+`~/.config/jern/trusted.json` (0600, like credentials.json; the directory
+honors `JERN_CONFIG_DIR`), keyed by the file's absolute path and the SHA-256
+of its content — and the session evaluates exactly the content that was
+approved. Declining, or having no terminal to ask on, skips the file with a
+warning and the built-in policy stands; the session still runs.
+
+Policies the user authors through jern are trusted directly: `jern policy
+init` trusts the template it writes, and saving the policy in `jern ui`'s
+brain editor trusts the saved content (`jern ui` asks any first-use question
+on the terminal before the server starts). Every session that loads a
+workspace policy still prints `using workspace policy …`, so its presence is
+never silent.
 
 ## Audit: the trace is the security log
 

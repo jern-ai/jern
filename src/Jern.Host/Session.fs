@@ -47,7 +47,13 @@ module Session =
           budget: LispVal
           /// Polled before every llm/tool dispatch; true aborts the turn
           /// with a Kernel error (Ctrl-C).
-          interrupted: unit -> bool }
+          interrupted: unit -> bool
+          /// Consulted before <root>/.jern/policy.ikr is evaluated (it runs
+          /// privileged): receives the file's absolute path and content;
+          /// false skips it and the built-in policy stands. The default
+          /// trusts everything — the CLI front-ends install a first-use
+          /// prompt backed by Trust (docs/security-model.md).
+          policyTrust: string -> string -> bool }
 
     type Session =
         { agentEnv: LispVal
@@ -63,8 +69,8 @@ module Session =
 ; (path-within? call "src/"), (command-is? call "pytest"),
 ; string-prefix?/string-suffix?/string-contains?.
 ;
-; This file runs privileged. Review it in repositories you did not author,
-; the same way you review a repo's test_command.
+; This file runs privileged, so jern asks you to trust it the first time it
+; loads — and again whenever its content changes.
 
 (define tool-policy
   (lambda (call)
@@ -87,10 +93,10 @@ module Session =
         let installed = Path.Combine(AppContext.BaseDirectory, "kernel", name)
         if File.Exists local then local else installed
 
-    /// Parse and evaluate every form of a Kernel source file in `env`.
-    let private loadFile (env: LispVal) (path: string) : ThrowsError<unit> =
+    /// Parse and evaluate every form of Kernel source in `env`; `path` is
+    /// for error reporting only — the given source is what runs.
+    let private loadSource (env: LispVal) (path: string) (source: string) : ThrowsError<unit> =
         try
-            let source = File.ReadAllText path
             match Parser.readExprListFromSource path source with
             | Choice1Of2 error -> Choice1Of2 error
             | Choice2Of2 forms ->
@@ -101,6 +107,13 @@ module Session =
                         | Choice1Of2 error -> Choice1Of2 error
                         | Choice2Of2 _ -> run rest
                 run forms
+        with ex ->
+            Choice1Of2 (Default(sprintf "failed to load '%s': %s" path ex.Message))
+
+    /// Parse and evaluate every form of a Kernel source file in `env`.
+    let private loadFile (env: LispVal) (path: string) : ThrowsError<unit> =
+        try
+            loadSource env path (File.ReadAllText path)
         with ex ->
             Choice1Of2 (Default(sprintf "failed to load '%s': %s" path ex.Message))
 
@@ -224,32 +237,41 @@ module Session =
 
             // A workspace may carry its own policy: <root>/.jern/policy.ikr
             // loads after the built-in one and rebinds what it redefines
-            // (usually tool-policy). It runs privileged — trust it like you
-            // trust the repo's test_command (docs/security-model.md).
+            // (usually tool-policy). It runs privileged, so policyTrust
+            // decides whether it loads at all, and what runs is pinned to
+            // the exact content that decision saw (docs/security-model.md).
             let workspacePolicy =
-                let path = Path.Combine(config.workspaceRoot, ".jern", "policy.ikr")
+                let path = Path.GetFullPath(Path.Combine(config.workspaceRoot, ".jern", "policy.ikr"))
                 if File.Exists path then
-                    eprintfn "jern: using workspace policy %s" path
-                    [ handlerEnv, path ]
+                    let content = File.ReadAllText path
+                    if config.policyTrust path content then
+                        eprintfn "jern: using workspace policy %s" path
+                        [ handlerEnv, path, Some content ]
+                    else
+                        eprintfn "jern: workspace policy %s is not trusted — using the built-in policy" path
+                        []
                 else []
 
             let files =
-                [ agentEnv, kernelFile "prelude.ikr"
-                  agentEnv, kernelFile "tools.ikr"
+                [ agentEnv, kernelFile "prelude.ikr", None
+                  agentEnv, kernelFile "tools.ikr", None
                   // The prelude's helpers (plist-get & co.) serve both sides.
-                  handlerEnv, kernelFile "prelude.ikr"
-                  handlerEnv, kernelFile "policy.ikr" ]
+                  handlerEnv, kernelFile "prelude.ikr", None
+                  handlerEnv, kernelFile "policy.ikr", None ]
                 @ workspacePolicy
-                @ [ handlerEnv, kernelFile "handlers.ikr" ]
-                @ (config.agentSources |> List.map (fun path -> agentEnv, path))
+                @ [ handlerEnv, kernelFile "handlers.ikr", None ]
+                @ (config.agentSources |> List.map (fun path -> agentEnv, path, None))
 
             let loaded =
                 files
                 |> List.fold
-                    (fun acc (env, file) ->
+                    (fun acc (env, file, pinned) ->
                         match acc with
                         | Choice1Of2 _ -> acc
-                        | Choice2Of2 () -> loadFile env file)
+                        | Choice2Of2 () ->
+                            match pinned with
+                            | Some source -> loadSource env file source
+                            | None -> loadFile env file)
                     (Choice2Of2 ())
 
             // Register each connected server's tools in the agent's registry
@@ -315,7 +337,8 @@ module Session =
           agentConfig = Nil
           mcpServers = []
           budget = Nil
-          interrupted = fun () -> false }
+          interrupted = fun () -> false
+          policyTrust = fun _ _ -> true }
 
     /// Build a session around an LLM bridge with tools scoped to `root`.
     let createIn (root: string) (bridge: AnthropicBridge.LlmBridge) : ThrowsError<Session> =
