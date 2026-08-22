@@ -53,7 +53,12 @@ module Session =
           /// false skips it and the built-in policy stands. The default
           /// trusts everything — the CLI front-ends install a first-use
           /// prompt backed by Trust (docs/security-model.md).
-          policyTrust: string -> string -> bool }
+          policyTrust: string -> string -> bool
+          /// Replaces the executor for every jern/tool-call that reaches the
+          /// host (built-in and MCP tools alike). None = the real tools.
+          /// `jern replay` substitutes a bridge that answers from a recorded
+          /// trace, making a whole run side-effect-free.
+          toolDispatch: (LispVal -> ThrowsError<LispVal>) option }
 
     type Session =
         { agentEnv: LispVal
@@ -164,10 +169,13 @@ module Session =
                         signal cont (Default "interrupted by user")
                     else
                         let dispatch =
-                            match Tools.plistTryGet "name" call with
-                            | Some (Obj (:? string as name)) when name.StartsWith "mcp__" ->
-                                Mcp.dispatch mcpByName
-                            | _ -> Tools.dispatch config.workspaceRoot
+                            match config.toolDispatch with
+                            | Some substitute -> substitute
+                            | None ->
+                                match Tools.plistTryGet "name" call with
+                                | Some (Obj (:? string as name)) when name.StartsWith "mcp__" ->
+                                    Mcp.dispatch mcpByName
+                                | _ -> Tools.dispatch config.workspaceRoot
                         match dispatch call with
                         | Choice1Of2 error -> signal cont error
                         | Choice2Of2 reply -> bounceContinue env cont reply
@@ -364,7 +372,8 @@ module Session =
           mcpServers = []
           budget = Nil
           interrupted = fun () -> false
-          policyTrust = fun _ _ -> true }
+          policyTrust = fun _ _ -> true
+          toolDispatch = None }
 
     /// Build a session around an LLM bridge with tools scoped to `root`.
     let createIn (root: string) (bridge: AnthropicBridge.LlmBridge) : ThrowsError<Session> =

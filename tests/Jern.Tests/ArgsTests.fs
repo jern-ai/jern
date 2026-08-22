@@ -163,3 +163,12 @@ let ``the simple commands parse`` () =
 let ``unknown arguments are reported as such`` () =
     Assert.Equal(UnknownArgs ["frobnicate"], failure ["frobnicate"])
     Assert.Equal(UnknownArgs ["policy"; "reset"], failure ["policy"; "reset"])
+
+[<Fact>]
+let ``replay parses its trace and optional swaps in any order`` () =
+    Assert.Equal(Replay("t.jsonl", None, None), command ["replay"; "t.jsonl"])
+    Assert.Equal(Replay("t.jsonl", Some "p.ikr", None), command ["replay"; "--policy"; "p.ikr"; "t.jsonl"])
+    Assert.Equal(Replay("t.jsonl", Some "p.ikr", Some "a"), command ["replay"; "t.jsonl"; "--agent"; "a"; "--policy"; "p.ikr"])
+    Assert.Equal(SubUsage Args.replayUsage, failure ["replay"])
+    Assert.Equal(SubUsage Args.replayUsage, failure ["replay"; "a"; "b"])
+    Assert.Equal(SubUsage Args.replayUsage, failure ["replay"; "t.jsonl"; "--policy"])

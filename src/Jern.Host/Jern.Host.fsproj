@@ -20,6 +20,7 @@
     <Compile Include="Session.fs" />
     <Compile Include="SessionStore.fs" />
     <Compile Include="TestRunner.fs" />
+    <Compile Include="Replay.fs" />
   </ItemGroup>
   <ItemGroup>
     <!-- Host-owned Kernel source: the agent prelude and the handler stack. -->

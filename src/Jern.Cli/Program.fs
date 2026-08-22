@@ -32,6 +32,12 @@ Usage:
                       Run an agent package's test suite. Replay is
                       deterministic and network-free; --record captures new
                       fixtures from the live provider
+  jern replay <trace.jsonl> [--policy <file>] [--agent <dir>]
+                      Re-run a recorded session offline — model and tool
+                      effects answer from the trace, nothing touches the
+                      network or the workspace. Swap in a policy file or an
+                      edited agent to see exactly where and how the run
+                      would have diverged
   jern mcp            Connect the configured MCP servers and list their tools
   jern policy [init]  Show the active tool policy; `init` writes a workspace
                       policy (.jern/policy.ikr) that overrides the built-in
@@ -438,6 +444,42 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
             printfn "%s" (Style.dim ("Trace: " + tracePath))
             0
 
+/// `jern replay` — re-run a recorded trace offline, optionally with a
+/// swapped policy or agent, and report the first divergence.
+let private runReplay (tracePath: string) (policyFile: string option) (agentDir: string option) =
+    if not (IO.File.Exists tracePath) then
+        eprintfn "jern replay: trace '%s' does not exist" tracePath
+        2
+    else
+        let providers = loadProviders ()
+        let agent =
+            match agentDir with
+            | Some dir -> dir
+            | None -> Session.defaultAgentDir ()
+        printfn "%s %s" (Style.dim "replaying") tracePath
+        match policyFile with
+        | Some file -> printfn "%s %s" (Style.dim "with policy") file
+        | None -> ()
+        match agentDir with
+        | Some dir -> printfn "%s %s" (Style.dim "with agent ") dir
+        | None -> ()
+        match Replay.run
+                  { tracePath = tracePath
+                    agentDir = agent
+                    policyFile = policyFile
+                    agentConfig = Providers.agentConfig providers
+                    mcpServers = providers.mcpServers } with
+        | Error message ->
+            eprintfn "jern replay: %s" message
+            2
+        | Ok (Replay.Completed (llmCalls, toolCalls)) ->
+            printfn "%s — %d model calls and %d tool calls re-ran exactly as recorded"
+                (Style.green "no divergence") llmCalls toolCalls
+            0
+        | Ok (Replay.Diverged report) ->
+            printfn "%s %s" (Style.red "✗") (Style.describe report)
+            1
+
 /// Connect every configured MCP server and print its tools — the setup
 /// debugging loop for jern.json "mcp_servers".
 let private runMcp () =
@@ -670,4 +712,5 @@ let main argv =
         | Args.Policy init -> runPolicy init
         | Args.Eject -> runEject ()
         | Args.Test(dir, record) -> runTests dir record model
+        | Args.Replay(trace, policy, agent) -> runReplay trace policy agent
         | Args.Script path -> runScript path model

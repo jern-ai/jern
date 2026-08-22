@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **`jern replay` — time-travel debugging on recorded sessions.** The
+  JSONL trace already captures every effect byte-exact; `jern replay
+  <trace.jsonl>` re-runs the whole session offline — the agent source
+  executes for real, but model and tool effects answer from the
+  recording, so nothing touches the network or the workspace. The fork
+  is the point: `--policy <file>` swaps in a different (say stricter)
+  policy, `--agent <dir>` an edited agent, and the first effect that no
+  longer matches its recording is reported with the exact
+  recorded-vs-actual difference — what that change *would have done* to
+  a run that already happened. Built on a new `Session.Config.toolDispatch`
+  seam that substitutes the tool executor.
+
 - **`symbols` tool.** Definition-aware code search: `symbols` returns
   `path:line: kind name` for definition sites only (functions, types,
   classes, methods — F#, C#, Python, JS/TS, Go, Rust, Ruby, Java/Kotlin,

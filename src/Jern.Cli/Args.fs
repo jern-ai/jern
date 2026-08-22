@@ -29,6 +29,7 @@ type Command =
     | Repl
     | Script of path: string
     | Test of dir: string option * record: bool
+    | Replay of trace: string * policy: string option * agent: string option
     | Mcp
     | Policy of init: bool
 
@@ -43,6 +44,7 @@ type ParseError =
 let runUsage = "usage: jern run [--yes] [--agent <dir>] [--model <spec>] [--budget <n>] \"task\""
 let uiUsage = "usage: jern ui [--port <n>] [--agent <dir>] [--model <spec>] [--budget <n>]"
 let testUsage = "usage: jern test [<agent-dir>] [--record]"
+let replayUsage = "usage: jern replay <trace.jsonl> [--policy <file>] [--agent <dir>]"
 
 let private positiveInt (flag: string) (what: string) (raw: string) =
     match Int32.TryParse raw with
@@ -104,6 +106,20 @@ let private parseTest rest =
         | _ -> Error(SubUsage testUsage)
     go None false rest
 
+/// jern replay <trace> [--policy <file>] [--agent <dir>] — any order.
+let private parseReplay rest =
+    let rec go policy agent positionals = function
+        | "--policy" :: file :: more -> go (Some file) agent positionals more
+        | ["--policy"] -> Error(SubUsage replayUsage)
+        | "--agent" :: dir :: more -> go policy (Some dir) positionals more
+        | ["--agent"] -> Error(SubUsage replayUsage)
+        | arg :: more -> go policy agent (arg :: positionals) more
+        | [] ->
+            match List.rev positionals with
+            | [trace] -> Ok(Replay(trace, policy, agent))
+            | _ -> Error(SubUsage replayUsage)
+    go None None [] rest
+
 let parse (argv: string list) : Result<Globals * Command, ParseError> =
     match extractGlobals argv with
     | Error e -> Error e
@@ -121,6 +137,7 @@ let parse (argv: string list) : Result<Globals * Command, ParseError> =
             | ["repl"] -> Ok Repl
             | ["script"; path] -> Ok(Script path)
             | "test" :: more -> parseTest more
+            | "replay" :: more -> parseReplay more
             | ["mcp"] -> Ok Mcp
             | ["policy"] -> Ok(Policy false)
             | ["policy"; "init"] -> Ok(Policy true)
