@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Persistent memory as effects.** `(remember "key" "value")` and
+  `(recall "key")` in agent source perform the new `jern/remember` /
+  `jern/recall` effects, answered by a host-backed store at
+  `.jern/memory.json` that survives across sessions. Because they are
+  effects, every access crosses the same choke point as tool calls: it
+  lands in the JSONL trace (`memory-remember` / `memory-recall` events)
+  and is decided by the new `memory-policy` hook in policy.ikr —
+  `:allow` by default, and a workspace policy can rebind it to `:ask`
+  (an approval question) or deny with a reason.
+
 - **Richer trajectory vocabulary.** Agent tests can now assert token
   budgets (`(assert-tokens-within n)`, `(total-tokens-used)` — summed
   from each recorded response's `:usage`), blast radius

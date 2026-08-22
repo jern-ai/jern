@@ -214,6 +214,26 @@ module Session =
                     bounceContinue env cont result
                 | bad -> signal cont (NumArgs(2, bad))
 
+            // Persistent memory (.jern/memory.json), reached only via the
+            // jern/recall and jern/remember effects — see kernel/handlers.ikr.
+            let memoryPath = Memory.storePath config.workspaceRoot
+
+            let hostMemoryGet env cont = function
+                | [Obj (:? string as key)] ->
+                    let result =
+                        match Memory.get memoryPath key with
+                        | Some value -> Obj(value :> obj)
+                        | None -> Keyword "null"
+                    bounceContinue env cont result
+                | [bad] -> signal cont (TypeMismatch("string", bad))
+                | bad -> signal cont (NumArgs(1, bad))
+
+            let hostMemorySet env cont = function
+                | [Obj (:? string as key); Obj (:? string as value)] ->
+                    Memory.set memoryPath key value
+                    bounceContinue env cont Inert
+                | bad -> signal cont (NumArgs(2, bad))
+
             let hostApprove env cont = function
                 | [Obj (:? string as description)] ->
                     match config.approver with
@@ -232,6 +252,8 @@ module Session =
                      :: ("jern/host-approve", AgentEnv.applicative hostApprove)
                      :: ("jern/host-git-save-dirty", AgentEnv.applicative hostGitSaveDirty)
                      :: ("jern/host-git-commit", AgentEnv.applicative hostGitCommit)
+                     :: ("jern/host-memory-get", AgentEnv.applicative hostMemoryGet)
+                     :: ("jern/host-memory-set", AgentEnv.applicative hostMemorySet)
                      :: ("jern/show", AgentEnv.applicative AgentEnv.show)
                      :: ("jern/budget", config.budget)
                      :: ("agent-env", agentEnv)

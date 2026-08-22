@@ -50,21 +50,30 @@ module AgentEnv =
           toolCall: LispVal
           askUser: LispVal
           approve: LispVal
-          log: LispVal }
+          log: LispVal
+          recall: LispVal
+          remember: LispVal
+          spawn: LispVal }
 
     let newEffectTags () =
         { llmCall = PromptTag(Guid.NewGuid())
           toolCall = PromptTag(Guid.NewGuid())
           askUser = PromptTag(Guid.NewGuid())
           approve = PromptTag(Guid.NewGuid())
-          log = PromptTag(Guid.NewGuid()) }
+          log = PromptTag(Guid.NewGuid())
+          recall = PromptTag(Guid.NewGuid())
+          remember = PromptTag(Guid.NewGuid())
+          spawn = PromptTag(Guid.NewGuid()) }
 
     let effectBindings tags =
         [ "jern/llm-call", tags.llmCall
           "jern/tool-call", tags.toolCall
           "jern/ask-user", tags.askUser
           "jern/approve", tags.approve
-          "jern/log", tags.log ]
+          "jern/log", tags.log
+          "jern/recall", tags.recall
+          "jern/remember", tags.remember
+          "jern/spawn", tags.spawn ]
 
     /// jern/show : value -> string (the printer, for messages and tests).
     let show env cont = function

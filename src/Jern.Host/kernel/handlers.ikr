@@ -123,6 +123,47 @@
           (resume resume-log #inert)))
       (eval body env))))
 
+; Persistent memory: jern/recall and jern/remember cross the stack like any
+; other effect — traced, and gated by memory-policy (policy.ikr; a workspace
+; policy may rebind it). The store is <workspace>/.jern/memory.json, written
+; only by the host primitives bound here. recall answers the stored string,
+; or :null when the key is absent or the policy denies; remember answers #t
+; when the value was stored, #f otherwise. An :ask decision becomes a
+; jern/approve question, so this handler sits inside the approval handler.
+(define with-memory-handler
+  (vau (body) env
+    (prompt jern/remember
+      (lambda (entry resume-remember)
+        (sequence
+          (define key (plist-get entry :key))
+          (define value (plist-get entry :value))
+          (define decision (memory-policy "remember" key))
+          (jern/host-trace
+            (list :event "memory-remember" :key key :decision decision))
+          (define allowed
+            (cond ((eqv? decision :allow) #t)
+                  ((eqv? decision :ask)
+                   (perform jern/approve (String.concat "remember: " key)))
+                  (#t #f)))
+          (if allowed (jern/host-memory-set key value) #inert)
+          (resume resume-remember allowed)))
+      (prompt jern/recall
+        (lambda (key resume-recall)
+          (sequence
+            (define decision (memory-policy "recall" key))
+            (define value
+              (cond ((eqv? decision :allow) (jern/host-memory-get key))
+                    ((eqv? decision :ask)
+                     (if (perform jern/approve (String.concat "recall: " key))
+                         (jern/host-memory-get key)
+                         :null))
+                    (#t :null)))
+            (jern/host-trace
+              (list :event "memory-recall" :key key :decision decision
+                    :found (not? (eqv? value :null))))
+            (resume resume-recall value)))
+        (eval body env)))))
+
 ; Git safety, aider-style, as replaceable Kernel source. Around every
 ; edit_file that policy lets through:
 ;   - if the target has uncommitted user changes, commit them first on their
@@ -178,9 +219,10 @@
   (vau (form) #ignore
     (with-log-handler
       (with-approval-handler
-        (with-provider-handler
-          (with-budget-handler
-            (with-tool-handler
-              (with-git-handler
-                (with-policy-handler
-                  (eval form agent-env))))))))))
+        (with-memory-handler
+          (with-provider-handler
+            (with-budget-handler
+              (with-tool-handler
+                (with-git-handler
+                  (with-policy-handler
+                    (eval form agent-env)))))))))))

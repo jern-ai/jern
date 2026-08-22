@@ -98,6 +98,16 @@
             ((equal? name "grep") :allow)
             (#t :ask)))))
 
+; Memory access (jern/recall and jern/remember) crosses the same choke
+; point, decided here per key: :allow, :ask (a jern/approve question), or
+; anything else to deny. The default allows both — the store lives in the
+; workspace's own .jern/memory.json — but a workspace policy can rebind
+; this, e.g. to make remembering ask first:
+;   (define memory-policy
+;     (lambda (op key) (if (equal? op "remember") :ask :allow)))
+(define memory-policy
+  (lambda (op key) :allow))
+
 ; Intercepts jern/tool-call closest to the agent. Allowed (or approved) calls
 ; are re-performed, which reaches the executor handler installed outside this
 ; one; everything else becomes an error tool-result the agent can react to.

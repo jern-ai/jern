@@ -65,6 +65,19 @@
             env))))
 
 ; ---------------------------------------------------------------------------
+; Persistent memory. (remember "key" "value") stores a string across
+; sessions; (recall "key") answers it back, or :null. Both are effects, so
+; they cross the handler stack like every tool call — traced in the session
+; JSONL, and gated by memory-policy (policy.ikr / a workspace policy).
+; remember answers #t when stored, #f when the policy said no.
+
+(define recall
+  (lambda (key) (perform jern/recall key)))
+
+(define remember
+  (lambda (key value) (perform jern/remember (list :key key :value value))))
+
+; ---------------------------------------------------------------------------
 ; Response helpers.
 
 ; The :content blocks of a response with the given :type, as a list.

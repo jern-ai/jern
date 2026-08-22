@@ -16,6 +16,7 @@
     <Compile Include="Trust.fs" />
     <Compile Include="Fixtures.fs" />
     <Compile Include="Git.fs" />
+    <Compile Include="Memory.fs" />
     <Compile Include="Session.fs" />
     <Compile Include="SessionStore.fs" />
     <Compile Include="TestRunner.fs" />
