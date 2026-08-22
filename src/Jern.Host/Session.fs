@@ -88,6 +88,7 @@ module Session =
             ((equal? name "list_dir") :allow)
             ((equal? name "file_tree") :allow)
             ((equal? name "grep") :allow)
+            ((equal? name "symbols") :allow)
             (#t :ask)))))
 """
 

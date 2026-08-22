@@ -70,6 +70,24 @@
             }
           },
           {
+            "name": "symbols",
+            "description": "Find symbol definitions (functions, types, classes, methods) across the workspace. Returns 'path:line: kind name' for definition sites only — use this to locate where something is defined instead of grepping every mention.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "description": "Case-insensitive substring of the symbol name; omit to outline everything"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": []
+            }
+          },
+          {
             "name": "edit_file",
             "description": "Edit a workspace file by exact string replacement. old_string must occur exactly once.",
             "input_schema": {
@@ -225,6 +243,24 @@
               "required": [
                 "pattern"
               ]
+            }
+          },
+          {
+            "name": "symbols",
+            "description": "Find symbol definitions (functions, types, classes, methods) across the workspace. Returns 'path:line: kind name' for definition sites only — use this to locate where something is defined instead of grepping every mention.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "description": "Case-insensitive substring of the symbol name; omit to outline everything"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": []
             }
           },
           {
@@ -409,6 +445,24 @@
               "required": [
                 "pattern"
               ]
+            }
+          },
+          {
+            "name": "symbols",
+            "description": "Find symbol definitions (functions, types, classes, methods) across the workspace. Returns 'path:line: kind name' for definition sites only — use this to locate where something is defined instead of grepping every mention.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "query": {
+                  "type": "string",
+                  "description": "Case-insensitive substring of the symbol name; omit to outline everything"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": []
             }
           },
           {

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **`symbols` tool.** Definition-aware code search: `symbols` returns
+  `path:line: kind name` for definition sites only (functions, types,
+  classes, methods — F#, C#, Python, JS/TS, Go, Rust, Ruby, Java/Kotlin,
+  shell, and Kernel source), optionally filtered by a case-insensitive
+  name substring. The model orients itself with an outline instead of
+  grepping every mention. An ordinary host tool on the jern/tool-call
+  path: policy allows it like the other read-only tools, every call is
+  traced, and agents that narrow their toolsets don't see it.
+
 - **Persistent memory as effects.** `(remember "key" "value")` and
   `(recall "key")` in agent source perform the new `jern/remember` /
   `jern/recall` effects, answered by a host-backed store at

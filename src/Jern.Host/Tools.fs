@@ -215,6 +215,103 @@ module Tools =
                                 + sprintf "\n… truncated at %d matches" limits.maxGrepMatches)
                         | m -> ok (String.concat "\n" m)
 
+    /// Definition-site patterns per file extension, with the symbol name in
+    /// group "n". Deliberately heuristic — line-anchored regexes, not a real
+    /// parser — but they match *definitions* rather than mentions, which is
+    /// what grep cannot distinguish. Noise is bounded by the match cap.
+    let private symbolPatterns =
+        let p kind pattern = Regex(pattern, RegexOptions.Compiled), (kind: string)
+        [ [".fs"; ".fsx"],
+          [ p "let" @"^\s{0,4}let\s+(?:rec\s+)?(?:inline\s+)?(?:private\s+|internal\s+)?(?<n>[A-Za-z_][\w']*)"
+            p "type" @"^\s*type\s+(?:private\s+|internal\s+)?(?<n>[A-Za-z_][\w']*)"
+            p "module" @"^\s*module\s+(?:rec\s+)?(?:private\s+|internal\s+)?(?<n>[A-Za-z_][\w'.]*)"
+            p "member" @"^\s*(?:static\s+)?member\s+(?:private\s+)?(?:_|this|[a-z]\w*)\.(?<n>[A-Za-z_][\w']*)" ]
+          [".cs"],
+          [ p "type" @"^\s*(?:public\s+|internal\s+|private\s+|protected\s+|static\s+|sealed\s+|abstract\s+|partial\s+)*(?:class|interface|struct|enum|record)\s+(?<n>[A-Za-z_]\w*)"
+            p "method" @"^\s*(?:public\s+|internal\s+|private\s+|protected\s+|static\s+|async\s+|virtual\s+|override\s+|sealed\s+)+[\w<>\[\],\.\?]+\s+(?<n>[A-Za-z_]\w*)\s*\(" ]
+          [".py"],
+          [ p "def" @"^\s*(?:async\s+)?def\s+(?<n>[A-Za-z_]\w*)"
+            p "class" @"^\s*class\s+(?<n>[A-Za-z_]\w*)" ]
+          [".js"; ".jsx"; ".ts"; ".tsx"; ".mjs"],
+          [ p "function" @"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*(?<n>[A-Za-z_$][\w$]*)"
+            p "class" @"^\s*(?:export\s+)?(?:default\s+)?class\s+(?<n>[A-Za-z_$][\w$]*)"
+            p "const" @"^\s*(?:export\s+)?(?:const|let|var)\s+(?<n>[A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?(?:\(|function|[\w$,\s()]*=>)"
+            p "type" @"^\s*(?:export\s+)?(?:type|interface|enum)\s+(?<n>[A-Za-z_$][\w$]*)" ]
+          [".go"],
+          [ p "func" @"^func\s+(?:\([^)]*\)\s+)?(?<n>[A-Za-z_]\w*)"
+            p "type" @"^type\s+(?<n>[A-Za-z_]\w*)" ]
+          [".rs"],
+          [ p "fn" @"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?fn\s+(?<n>[A-Za-z_]\w*)"
+            p "type" @"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait|union)\s+(?<n>[A-Za-z_]\w*)"
+            p "impl" @"^\s*impl(?:<[^>]*>)?\s+(?<n>[A-Za-z_]\w*)" ]
+          [".rb"],
+          [ p "def" @"^\s*def\s+(?:self\.)?(?<n>[A-Za-z_]\w*[?!]?)"
+            p "class" @"^\s*(?:class|module)\s+(?<n>[A-Z]\w*)" ]
+          [".java"; ".kt"; ".kts"; ".scala"],
+          [ p "type" @"^\s*(?:public\s+|private\s+|protected\s+|internal\s+|abstract\s+|final\s+|open\s+|sealed\s+|data\s+|case\s+|static\s+)*(?:class|interface|enum|object|trait|record)\s+(?<n>[A-Za-z_]\w*)"
+            p "fun" @"^\s*(?:public\s+|private\s+|protected\s+|internal\s+|override\s+|suspend\s+|static\s+|final\s+)*(?:fun|def)\s+(?<n>[A-Za-z_]\w*)" ]
+          [".ikr"; ".lisp"; ".scm"; ".clj"; ".cljs"; ".el"],
+          [ p "define" @"^\s*\((?:define|defun|defn|defmacro|defvar)[-a-z!?]*\s+\(?(?<n>[^\s()""]+)"
+            p "define" @"^\s*\((?:define-tool|deftest)\s+""(?<n>[^""]+)""" ]
+          [".sh"; ".bash"; ".zsh"],
+          [ p "function" @"^\s*(?:function\s+)?(?<n>[A-Za-z_]\w*)\s*\(\)\s*\{" ] ]
+        |> List.collect (fun (extensions, patterns) ->
+            extensions |> List.map (fun ext -> ext, patterns))
+        |> dict
+
+    /// Semantic-ish code search: definition sites only, across the workspace
+    /// (or one file/directory), optionally filtered by a name substring. The
+    /// model orients itself with this instead of grepping every mention.
+    let private symbols root input =
+        match optionalStringArg "query" "" input, optionalStringArg "path" "." input with
+        | Error e, _ | _, Error e -> toolError e
+        | Ok query, Ok path ->
+            match resolve root path with
+            | Error e -> toolError e
+            | Ok full ->
+                let files =
+                    if File.Exists full then Seq.singleton full
+                    elif Directory.Exists full then
+                        let rec walk dir = seq {
+                            for entry in Directory.EnumerateFiles dir do yield entry
+                            for sub in Directory.EnumerateDirectories dir do
+                                if not (skippedDirs.Contains(Path.GetFileName sub)) then
+                                    yield! walk sub }
+                        walk full
+                    else Seq.empty
+                if not (File.Exists full) && not (Directory.Exists full) then
+                    toolError (sprintf "path '%s' does not exist" path)
+                else
+                    let rootFull = Path.GetFullPath root
+                    let matches =
+                        files
+                        |> Seq.collect (fun file ->
+                            match symbolPatterns.TryGetValue(Path.GetExtension(file).ToLowerInvariant()) with
+                            | false, _ -> Seq.empty
+                            | true, patterns ->
+                                try
+                                    File.ReadLines file
+                                    |> Seq.indexed
+                                    |> Seq.choose (fun (i, line) ->
+                                        patterns
+                                        |> List.tryPick (fun (regex, kind) ->
+                                            let m = regex.Match line
+                                            if m.Success then Some(m.Groups.["n"].Value, kind) else None)
+                                        |> Option.bind (fun (name, kind) ->
+                                            if query = "" || name.Contains(query, StringComparison.OrdinalIgnoreCase) then
+                                                Some(sprintf "%s:%d: %s %s"
+                                                         (Path.GetRelativePath(rootFull, file)) (i + 1) kind name)
+                                            else None))
+                                with _ -> Seq.empty)
+                        |> Seq.truncate (limits.maxGrepMatches + 1)
+                        |> List.ofSeq
+                    match matches with
+                    | [] -> ok "(no symbols found)"
+                    | m when m.Length > limits.maxGrepMatches ->
+                        ok (String.concat "\n" (List.truncate limits.maxGrepMatches m)
+                            + sprintf "\n… truncated at %d matches; narrow with query or path" limits.maxGrepMatches)
+                    | m -> ok (String.concat "\n" m)
+
     let private editFile root input =
         match stringArg "path" input, stringArg "old_string" input, stringArg "new_string" input with
         | Error e, _, _ | _, Error e, _ | _, _, Error e -> toolError e
@@ -345,6 +442,7 @@ module Tools =
                 | "list_dir" -> Some listDir
                 | "file_tree" -> Some fileTree
                 | "grep" -> Some grep
+                | "symbols" -> Some symbols
                 | "edit_file" -> Some editFile
                 | "write_file" -> Some writeFile
                 | "shell" -> Some shell

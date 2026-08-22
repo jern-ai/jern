@@ -67,6 +67,33 @@ let ``grep finds matches with file and line`` () =
         Assert.Contains("main.txt:2: beta", contentOf result))
 
 [<Fact>]
+let ``symbols finds definition sites, not mentions`` () =
+    withWorkspace (fun root ->
+        File.WriteAllText(
+            Path.Combine(root, "src", "app.py"),
+            "import greet_user\n\nclass Greeter:\n    def greet_user(self):\n        pass\n\ngreet_user()\n")
+        File.WriteAllText(
+            Path.Combine(root, "src", "util.fs"),
+            "module Util\n\nlet greetUser name = name\ntype Greeting = { text: string }\n")
+        let session = newSession root
+        // Unfiltered: an outline of every definition, no mention lines.
+        let outline = run session """(call-tool "symbols" (list))"""
+        let content = contentOf outline
+        Assert.Contains("app.py:3: class Greeter", content)
+        Assert.Contains("app.py:4: def greet_user", content)
+        Assert.Contains("util.fs:3: let greetUser", content)
+        Assert.Contains("util.fs:4: type Greeting", content)
+        Assert.DoesNotContain("app.py:1:", content)   // the import is a mention
+        Assert.DoesNotContain("app.py:7:", content)   // the call is a mention
+        // Filtered by name substring, case-insensitive.
+        let filtered = run session """(call-tool "symbols" (list :query "greetuser"))"""
+        Assert.Contains("util.fs:3: let greetUser", contentOf filtered)
+        Assert.DoesNotContain("Greeting", contentOf filtered)
+        // Unknown paths are tool errors, like grep.
+        let missing = run session """(call-tool "symbols" (list :path "nope/"))"""
+        Assert.True(isErrorOf missing))
+
+[<Fact>]
 let ``edit_file replaces a unique occurrence`` () =
     withWorkspace (fun root ->
         let session = newSession root

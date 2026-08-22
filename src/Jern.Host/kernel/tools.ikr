@@ -34,6 +34,14 @@
               :path (list :type "string" :description "File or directory to search; defaults to the workspace root"))
         :required (vector "pattern")))
 
+(define-tool "symbols"
+  "Find symbol definitions (functions, types, classes, methods) across the workspace. Returns 'path:line: kind name' for definition sites only — use this to locate where something is defined instead of grepping every mention."
+  (list :type "object"
+        :properties
+        (list :query (list :type "string" :description "Case-insensitive substring of the symbol name; omit to outline everything")
+              :path (list :type "string" :description "File or directory to search; defaults to the workspace root"))
+        :required (vector)))
+
 (define-tool "edit_file"
   "Edit a workspace file by exact string replacement. old_string must occur exactly once."
   (list :type "object"
