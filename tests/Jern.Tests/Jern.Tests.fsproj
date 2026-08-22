@@ -23,6 +23,7 @@
     <Compile Include="BudgetTests.fs" />
     <Compile Include="MemoryTests.fs" />
     <Compile Include="ReplayTests.fs" />
+    <Compile Include="SpawnTests.fs" />
     <Compile Include="TrustTests.fs" />
     <Compile Include="WorkspacePolicyTests.fs" />
     <Compile Include="UiTests.fs" />

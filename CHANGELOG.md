@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Subagents via `jern/spawn`.** `(spawn-agent "task")` forks a child
+  session running the parent's own brain; `(spawn-agent-named "docs"
+  "task")` runs a different agent (installed, or a workspace-relative
+  package directory). The whole handler stack — policy, approvals,
+  budgets, memory, trace — composes recursively onto the child: it
+  shares the parent's model bridge, approver, and workspace, its tool
+  calls cross its own policy handler, and its trace lines land in the
+  same JSONL tagged `{"spawn":N,…}`. Spawn depth is capped host-side
+  (2), a failed child is an ordinary `:is_error` result the parent can
+  react to, and because the child shares the session's LLM bridge,
+  spawning agents replay under `jern test` fixtures like everything
+  else.
+
 - **`jern replay` — time-travel debugging on recorded sessions.** The
   JSONL trace already captures every effect byte-exact; `jern replay
   <trace.jsonl>` re-runs the whole session offline — the agent source

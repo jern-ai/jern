@@ -58,7 +58,11 @@ module Session =
           /// host (built-in and MCP tools alike). None = the real tools.
           /// `jern replay` substitutes a bridge that answers from a recorded
           /// trace, making a whole run side-effect-free.
-          toolDispatch: (LispVal -> ThrowsError<LispVal>) option }
+          toolDispatch: (LispVal -> ThrowsError<LispVal>) option
+          /// How many jern/spawn ancestors this session has: 0 for a session
+          /// the user started, incremented for each child. Capped host-side
+          /// so agents cannot fork without bound.
+          spawnDepth: int }
 
     type Session =
         { agentEnv: LispVal
@@ -126,8 +130,34 @@ module Session =
         with ex ->
             Choice1Of2 (Default(sprintf "failed to load '%s': %s" path ex.Message))
 
-    /// Build a session from a full configuration.
-    let createWith (config: Config) : ThrowsError<Session> =
+    /// The sources of an agent package directory: its src/*.ikr in path order
+    /// (or the directory's own *.ikr when there is no src/).
+    let agentPackageSources (dir: string) : string list =
+        let sourceDir =
+            let src = Path.Combine(dir, "src")
+            if Directory.Exists src then src else dir
+        if Directory.Exists sourceDir then
+            Directory.EnumerateFiles(sourceDir, "*.ikr") |> Seq.sort |> List.ofSeq
+        else
+            []
+
+    /// The default agent installed alongside the binary.
+    let defaultAgentDir () =
+        Path.Combine(AppContext.BaseDirectory, "agents", "default")
+
+    /// Evaluate parsed forms as agent code under the installed handler stack.
+    let runForms (session: Session) (forms: LispVal list) : ThrowsError<LispVal> =
+        let program =
+            ofList [ Atom "run-in-session"; ofList (Atom "sequence" :: forms) ]
+        eval session.handlerEnv (newContinuation session.handlerEnv) program
+
+    /// Invoke the loaded agent's entry point: (run-agent "task").
+    let runAgent (session: Session) (task: string) : ThrowsError<LispVal> =
+        runForms session [ ofList [ Atom "run-agent"; Obj(task :> obj) ] ]
+
+    /// Build a session from a full configuration. Recursive because the
+    /// jern/host-spawn primitive builds a child session with `createWith`.
+    let rec createWith (config: Config) : ThrowsError<Session> =
         match Emit.bootstrapEnvForProfile Safe with
         | Choice1Of2 error -> Choice1Of2 error
         | Choice2Of2 std ->
@@ -243,6 +273,77 @@ module Session =
                     bounceContinue env cont Inert
                 | bad -> signal cont (NumArgs(2, bad))
 
+            // jern/spawn — fork a child agent session. The same handler
+            // stack (policy, approval, budget, memory, trace) composes
+            // recursively onto the child via createWith; the child shares
+            // this session's bridge, approver, and workspace, and its trace
+            // lines are tagged {"spawn":N,…} so the log shows the nesting.
+            // Depth is capped so children cannot fork without bound.
+            let spawnCounter = ref 0
+
+            let hostSpawn env cont = function
+                | [spec] ->
+                    let answer (isError: bool) (content: string) =
+                        bounceContinue env cont
+                            (ofList [ Keyword "content"; Obj(content :> obj)
+                                      Keyword "is_error"; Bool isError ])
+                    if config.interrupted () then
+                        signal cont (Default "interrupted by user")
+                    elif config.spawnDepth >= 2 then
+                        answer true "spawn depth limit (2) reached — this agent may not fork further"
+                    else
+                        match Tools.plistTryGet "task" spec with
+                        | Some (Obj (:? string as task)) ->
+                            let sources =
+                                match Tools.plistTryGet "agent" spec with
+                                | Some (Obj (:? string as name)) ->
+                                    // A workspace-relative package directory
+                                    // (confined to the workspace), or the
+                                    // name of an installed agent.
+                                    let rootFull = Path.GetFullPath config.workspaceRoot
+                                    let workspaceCandidate = Path.GetFullPath(Path.Combine(rootFull, name))
+                                    let installedCandidate = Path.Combine(AppContext.BaseDirectory, "agents", name)
+                                    let confined =
+                                        workspaceCandidate.StartsWith(rootFull + string Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                                    if confined && Directory.Exists workspaceCandidate then
+                                        Ok(agentPackageSources workspaceCandidate)
+                                    elif Directory.Exists installedCandidate then
+                                        Ok(agentPackageSources installedCandidate)
+                                    else
+                                        Error(sprintf "agent '%s' is neither a workspace directory nor an installed agent" name)
+                                | Some other -> Error(sprintf ":agent must be a string, got %s" (showVal other))
+                                | None -> Ok config.agentSources
+                            match sources with
+                            | Error reason -> answer true reason
+                            | Ok agentSources ->
+                                spawnCounter.Value <- spawnCounter.Value + 1
+                                let spawnId = spawnCounter.Value
+                                let childSink =
+                                    config.traceSink
+                                    |> Option.map (fun sink ->
+                                        fun (line: string) ->
+                                            if line.StartsWith "{" then
+                                                sink (sprintf "{\"spawn\":%d,%s" spawnId (line.Substring 1))
+                                            else sink line)
+                                let childConfig =
+                                    { config with
+                                        agentSources = agentSources
+                                        traceSink = childSink
+                                        // Each spawn would reconnect stdio
+                                        // servers, so children run without
+                                        // MCP tools for now.
+                                        mcpServers = []
+                                        spawnDepth = config.spawnDepth + 1 }
+                                match createWith childConfig with
+                                | Choice1Of2 error -> answer true (sprintf "spawn failed: %s" (showError error))
+                                | Choice2Of2 child ->
+                                    match runAgent child task with
+                                    | Choice1Of2 error -> answer true (sprintf "subagent error: %s" (showError error))
+                                    | Choice2Of2 (Obj (:? string as text)) -> answer false text
+                                    | Choice2Of2 _ -> answer false ""
+                        | _ -> answer true "jern/spawn needs a :task string"
+                | bad -> signal cont (NumArgs(1, bad))
+
             let hostApprove env cont = function
                 | [Obj (:? string as description)] ->
                     match config.approver with
@@ -263,6 +364,7 @@ module Session =
                      :: ("jern/host-git-commit", AgentEnv.applicative hostGitCommit)
                      :: ("jern/host-memory-get", AgentEnv.applicative hostMemoryGet)
                      :: ("jern/host-memory-set", AgentEnv.applicative hostMemorySet)
+                     :: ("jern/host-spawn", AgentEnv.applicative hostSpawn)
                      :: ("jern/show", AgentEnv.applicative AgentEnv.show)
                      :: ("jern/budget", config.budget)
                      :: ("agent-env", agentEnv)
@@ -373,7 +475,8 @@ module Session =
           budget = Nil
           interrupted = fun () -> false
           policyTrust = fun _ _ -> true
-          toolDispatch = None }
+          toolDispatch = None
+          spawnDepth = 0 }
 
     /// Build a session around an LLM bridge with tools scoped to `root`.
     let createIn (root: string) (bridge: AnthropicBridge.LlmBridge) : ThrowsError<Session> =
@@ -381,12 +484,6 @@ module Session =
 
     /// Session rooted in the current directory.
     let create bridge = createIn (System.Environment.CurrentDirectory) bridge
-
-    /// Evaluate parsed forms as agent code under the installed handler stack.
-    let runForms (session: Session) (forms: LispVal list) : ThrowsError<LispVal> =
-        let program =
-            ofList [ Atom "run-in-session"; ofList (Atom "sequence" :: forms) ]
-        eval session.handlerEnv (newContinuation session.handlerEnv) program
 
     /// Evaluate a single source string as agent code under the handler stack.
     let runSource (session: Session) (name: string) (source: string) : ThrowsError<LispVal> =
@@ -400,25 +497,6 @@ module Session =
             runSource session path (File.ReadAllText path)
         with ex ->
             Choice1Of2 (Default(sprintf "failed to read '%s': %s" path ex.Message))
-
-    /// The sources of an agent package directory: its src/*.ikr in path order
-    /// (or the directory's own *.ikr when there is no src/).
-    let agentPackageSources (dir: string) : string list =
-        let sourceDir =
-            let src = Path.Combine(dir, "src")
-            if Directory.Exists src then src else dir
-        if Directory.Exists sourceDir then
-            Directory.EnumerateFiles(sourceDir, "*.ikr") |> Seq.sort |> List.ofSeq
-        else
-            []
-
-    /// The default agent installed alongside the binary.
-    let defaultAgentDir () =
-        Path.Combine(AppContext.BaseDirectory, "agents", "default")
-
-    /// Invoke the loaded agent's entry point: (run-agent "task").
-    let runAgent (session: Session) (task: string) : ThrowsError<LispVal> =
-        runForms session [ ofList [ Atom "run-agent"; Obj(task :> obj) ] ]
 
     /// One chat turn: (chat-turn '<messages> "text"). The conversation is
     /// passed and returned as a Kernel list, newest-first.

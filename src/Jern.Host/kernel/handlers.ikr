@@ -164,6 +164,28 @@
             (resume resume-recall value)))
         (eval body env)))))
 
+; Subagents: jern/spawn forks a child agent with its own session. The whole
+; stack — policy, approval, budget, memory, trace — composes recursively
+; onto the child (host-side, in jern/host-spawn): the child shares this
+; session's model bridge, approver, and workspace, its tool calls cross its
+; own policy handler, and its trace lines land in the same JSONL tagged
+; with a spawn id. The payload is a plist:
+;   (perform jern/spawn (list :task "…"))            the parent's own brain
+;   (perform jern/spawn (list :task "…" :agent "docs"))  a different agent
+; :agent names an installed agent or a workspace-relative package
+; directory. Answers a tool-result-shaped plist (:content <final text>
+; :is_error #t/#f). Depth-capped host-side, so children cannot fork bombs.
+(define with-spawn-handler
+  (vau (body) env
+    (prompt jern/spawn
+      (lambda (spec resume-spawn)
+        (sequence
+          (jern/host-trace (list :event "spawn" :spec spec))
+          (define result (jern/host-spawn spec))
+          (jern/host-trace (list :event "spawn-result" :result result))
+          (resume resume-spawn result)))
+      (eval body env))))
+
 ; Git safety, aider-style, as replaceable Kernel source. Around every
 ; edit_file that policy lets through:
 ;   - if the target has uncommitted user changes, commit them first on their
@@ -220,9 +242,10 @@
     (with-log-handler
       (with-approval-handler
         (with-memory-handler
-          (with-provider-handler
-            (with-budget-handler
-              (with-tool-handler
-                (with-git-handler
-                  (with-policy-handler
-                    (eval form agent-env)))))))))))
+          (with-spawn-handler
+            (with-provider-handler
+              (with-budget-handler
+                (with-tool-handler
+                  (with-git-handler
+                    (with-policy-handler
+                      (eval form agent-env))))))))))))

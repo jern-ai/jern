@@ -65,6 +65,20 @@
             env))))
 
 ; ---------------------------------------------------------------------------
+; Subagents. (spawn-agent "task") forks a child session that runs this
+; agent's own brain on the task; (spawn-agent-named "docs" "task") runs a
+; different agent (an installed one, or a workspace-relative package
+; directory). The child gets the full handler stack — policy, approvals,
+; budget, trace — composed recursively by the host. Both answer a
+; tool-result-shaped plist: (:content <the child's final text> :is_error).
+
+(define spawn-agent
+  (lambda (task) (perform jern/spawn (list :task task))))
+
+(define spawn-agent-named
+  (lambda (agent task) (perform jern/spawn (list :task task :agent agent))))
+
+; ---------------------------------------------------------------------------
 ; Persistent memory. (remember "key" "value") stores a string across
 ; sessions; (recall "key") answers it back, or :null. Both are effects, so
 ; they cross the handler stack like every tool call — traced in the session
