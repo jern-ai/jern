@@ -28,6 +28,11 @@ jobs:
           ref: 62af4262d62ac4fcc91b3bfdb69527c3c2674613
           path: IronKernel
 
+      # So the bubblewrap shell-confinement path (and its test) actually
+      # exercises on CI instead of degrading to approval-only.
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4
         with:
