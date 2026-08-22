@@ -132,8 +132,8 @@ $ jern test agents/default               # deterministic replay against
   changed system prompt, different tool wiring — fails the test.
 - **M4 — policy & approval**: [policy.ikr](src/Jern.Host/kernel/policy.ikr)
   decides allow/ask/deny per tool call; approvals show a diff preview; shell
-  runs write-confined under `sandbox-exec` on macOS. Honest claims in
-  [docs/security-model.md](docs/security-model.md).
+  runs write-confined under `sandbox-exec` on macOS and `bubblewrap` on
+  Linux. Honest claims in [docs/security-model.md](docs/security-model.md).
 - **M3 — the loop**: ~80 lines of Kernel in
   [agents/default/src/main.ikr](agents/default/src/main.ikr); every effect
   traced to `.jern/*.jsonl`.

@@ -125,6 +125,20 @@ let ``shell runs in the workspace and reports exit status`` () =
         Assert.True(isErrorOf failed)
         Assert.Contains("exit code 3", contentOf failed))
 
+/// Only runs where bubblewrap is active (Linux with working user
+/// namespaces — CI); elsewhere it passes vacuously.
+[<Fact>]
+let ``bubblewrap confines shell writes on linux`` () =
+    if Tools.linuxSandboxActive () then
+        withWorkspace (fun root ->
+            let session = newSession root
+            let inside = run session """(call-tool "shell" (list :command "echo hi > inside.txt && cat inside.txt"))"""
+            Assert.False(isErrorOf inside)
+            Assert.True(File.Exists(Path.Combine(root, "inside.txt")))
+            let outside = run session """(call-tool "shell" (list :command "touch /jern-sandbox-escape"))"""
+            Assert.True(isErrorOf outside)
+            Assert.False(File.Exists "/jern-sandbox-escape"))
+
 [<Fact>]
 let ``paths outside the workspace are refused`` () =
     withWorkspace (fun root ->

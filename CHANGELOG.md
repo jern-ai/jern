@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Linux shell sandboxing with bubblewrap.** Where a working `bwrap`
+  exists, shell commands run with the filesystem mounted read-only and
+  the workspace and `/tmp` bound back writable — the same posture as
+  macOS `sandbox-exec` (reads and network stay open). jern probes bwrap
+  once with a no-op, so kernels and containers that deny user
+  namespaces degrade to the existing warn-once, approval-only gate
+  instead of breaking every command.
+
 - **Subagents via `jern/spawn`.** `(spawn-agent "task")` forks a child
   session running the parent's own brain; `(spawn-agent-named "docs"
   "task")` runs a different agent (installed, or a workspace-relative

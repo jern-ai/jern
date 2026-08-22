@@ -108,8 +108,12 @@ nothing that process does. jern's honest posture:
   write profile — writes only inside the workspace, temp, and `/dev`. Reads
   and network are **not** restricted in v1; do not run jern in a workspace
   sitting next to secrets you wouldn't paste into a prompt.
-- **Linux:** no OS sandbox is wired up yet (bubblewrap/landlock is planned);
-  jern warns once and relies on the approval gate alone.
+- **Linux:** shell commands run under `bubblewrap` when a working `bwrap` is
+  found — the filesystem mounts read-only with the workspace and `/tmp` bound
+  back writable, matching the macOS posture (reads and network are **not**
+  restricted). bwrap needs user namespaces, which some kernels and containers
+  deny, so jern probes once with a no-op; where bwrap is missing or unusable
+  it warns once and relies on the approval gate alone.
 - **Windows:** shell commands run via `cmd.exe /c` with **no OS sandbox**,
   same as Linux — jern warns once and the approval gate is the only
   confinement for what an approved command does.

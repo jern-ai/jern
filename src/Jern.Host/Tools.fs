@@ -360,10 +360,44 @@ module Tools =
                     ok (sprintf "%s '%s' (%d bytes)" (if existed then "replaced" else "wrote") path content.Length)
 
     /// macOS: confine shell writes to the workspace (plus temp and /dev)
-    /// with sandbox-exec. Reads and network stay open — stated plainly in
-    /// docs/security-model.md. Elsewhere (or if sandbox-exec is missing) the
-    /// command runs unconfined and we warn once: approval is then the only gate.
+    /// with sandbox-exec. Linux: the same posture with bubblewrap — the
+    /// filesystem mounts read-only, with the workspace and /tmp bound back
+    /// writable. Reads and network stay open on both — stated plainly in
+    /// docs/security-model.md. Elsewhere (or if the sandbox tool is missing
+    /// or unusable) the command runs unconfined and we warn once: approval
+    /// is then the only gate.
     let mutable private warnedNoSandbox = false
+
+    /// bwrap needs user namespaces, which some kernels and containers deny;
+    /// probe once with a no-op so a broken bwrap degrades to the warning
+    /// instead of failing every command.
+    let private bwrapPath =
+        lazy (
+            if not (OperatingSystem.IsLinux()) then None
+            else
+                [ "/usr/bin/bwrap"; "/usr/local/bin/bwrap"; "/bin/bwrap" ]
+                |> List.tryFind File.Exists
+                |> Option.bind (fun path ->
+                    try
+                        use probe = new Process()
+                        probe.StartInfo.FileName <- path
+                        for arg in [ "--die-with-parent"; "--ro-bind"; "/"; "/"
+                                     "--dev"; "/dev"; "--proc"; "/proc"; "/bin/true" ] do
+                            probe.StartInfo.ArgumentList.Add arg
+                        probe.StartInfo.RedirectStandardOutput <- true
+                        probe.StartInfo.RedirectStandardError <- true
+                        probe.StartInfo.UseShellExecute <- false
+                        probe.Start() |> ignore
+                        if probe.WaitForExit 5000 && probe.ExitCode = 0 then Some path
+                        else
+                            (try probe.Kill true with _ -> ())
+                            None
+                    with _ -> None))
+
+    /// Whether shell commands on this machine run under bubblewrap.
+    /// Internal for tests and diagnostics.
+    let internal linuxSandboxActive () =
+        OperatingSystem.IsLinux() && (bwrapPath.Value |> Option.isSome)
 
     let private sandboxProfile (root: string) =
         let quote (p: string) = "\"" + p.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\""
@@ -388,10 +422,25 @@ module Tools =
                 proc.StartInfo.ArgumentList.Add(sandboxProfile root)
                 proc.StartInfo.ArgumentList.Add "/bin/sh"
                 proc.StartInfo.ArgumentList.Add "-c"
+            elif OperatingSystem.IsLinux() && (bwrapPath.Value |> Option.isSome) then
+                // Everything mounts read-only, then the workspace and /tmp
+                // bind back writable — the sandbox-exec posture: writes
+                // confined, reads and network open (docs/security-model.md).
+                proc.StartInfo.FileName <- bwrapPath.Value.Value
+                let rootFull = Path.GetFullPath root
+                for arg in [ "--die-with-parent"
+                             "--ro-bind"; "/"; "/"
+                             "--bind"; rootFull; rootFull
+                             "--bind"; "/tmp"; "/tmp"
+                             "--dev"; "/dev"
+                             "--proc"; "/proc"
+                             "/bin/sh"; "-c" ] do
+                    proc.StartInfo.ArgumentList.Add arg
             else
                 if not warnedNoSandbox then
                     warnedNoSandbox <- true
-                    eprintfn "jern: no OS sandbox available for shell commands; approval is the only gate"
+                    let hint = if OperatingSystem.IsLinux() then " (install bubblewrap to confine writes)" else ""
+                    eprintfn "jern: no OS sandbox available for shell commands%s; approval is the only gate" hint
                 if OperatingSystem.IsWindows() then
                     // cmd.exe /d /s /c: same contract as sh -c (one command
                     // string), /d skips AutoRun, /s keeps quote handling sane.
