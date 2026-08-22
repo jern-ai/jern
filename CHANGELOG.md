@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 — 2026-08-22
 
 - **Linux shell sandboxing with bubblewrap.** Where a working `bwrap`
   exists, shell commands run with the filesystem mounted read-only and

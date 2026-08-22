@@ -35,7 +35,7 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
-- **M19 — the effect architecture pays out** (unreleased): four features
+- **M19 — the effect architecture pays out** (v0.11): four features
   that fall out of "everything is an effect through one choke point".
   **Subagents**: `(spawn-agent "task")` / `(spawn-agent-named "docs" "task")`
   fork a child session — the same policy/approval/budget/trace stack
