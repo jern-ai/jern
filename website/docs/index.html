@@ -143,6 +143,15 @@
   network-free; <code>--record</code> captures new fixtures from the live
   provider. See <a href="#testing">testing agents</a>.</p>
 
+  <h3>jern replay</h3>
+  <pre><code><span class="p">$</span> jern replay &lt;trace.jsonl&gt; [--policy &lt;file&gt;] [--agent &lt;dir&gt;]</code></pre>
+  <p>Re-runs a recorded session offline: the agent source executes for real,
+  but model <em>and</em> tool effects answer from the trace — nothing touches
+  the network or the workspace. A faithful replay completes silently; swap in
+  a stricter policy with <code>--policy</code> (or an edited agent with
+  <code>--agent</code>) to fork the recorded past and see the first effect
+  where behavior would have diverged, recorded-vs-actual.</p>
+
   <h3>jern policy</h3>
   <pre><code><span class="p">$</span> jern policy        <span class="c"># show the active tool policy</span>
 <span class="p">$</span> jern policy init   <span class="c"># write .jern/policy.ikr for this workspace</span></code></pre>

@@ -35,6 +35,24 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M19 — the effect architecture pays out** (unreleased): four features
+  that fall out of "everything is an effect through one choke point".
+  **Subagents**: `(spawn-agent "task")` / `(spawn-agent-named "docs" "task")`
+  fork a child session — the same policy/approval/budget/trace stack
+  composes recursively onto it, its trace lines are tagged with a spawn
+  id, and depth is capped host-side. **Persistent memory**:
+  `(remember "key" "value")` / `(recall "key")` are effects answered by a
+  host store in `.jern/memory.json` that survives across sessions —
+  traced, and policed by a `memory-policy` hook workspace policies can
+  rebind. **Time-travel replay**: `jern replay <trace.jsonl>` re-runs a
+  recorded session offline (model *and* tool effects answer from the
+  trace); add `--policy strict.ikr` or `--agent edited/` to fork the
+  past and see exactly where behavior would have diverged. **Richer
+  assertions**: `(assert-tokens-within n)`, `(assert-max-files-edited n)`,
+  `(assert-trajectory pred msg)` — budgets, blast radius, and cross-turn
+  invariants over the captured trajectory. Plus a `symbols` tool
+  (definition-aware code search) and bubblewrap shell sandboxing on
+  Linux.
 - **M18 — approvals, reasoning, docs** (v0.10): `--auto` approves
   whatever policy would ask (denials still deny); `y/n/a` prompts and an
   "always" card button remember per-tool answers for the session.
