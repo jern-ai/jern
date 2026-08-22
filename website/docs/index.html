@@ -82,6 +82,7 @@
     <a href="#approvals">Approvals &amp; policy</a>
     <a href="#budgets">Budgets</a>
     <a href="#mcp">MCP</a>
+    <a href="#subagents">Subagents &amp; memory</a>
     <a href="#testing">Testing agents</a>
     <a href="#ui">The web UI</a>
   </div>
@@ -278,6 +279,13 @@
   Yes answers are remembered per path and content hash in
   <code>~/.config/jern/trusted.json</code>; declining keeps the built-in
   rules. Every session that loads one announces it.</p>
+  <p>Approved shell commands also run write-confined by the OS where
+  possible: <code>sandbox-exec</code> on macOS and <code>bubblewrap</code>
+  on Linux mount the filesystem read-only with the workspace and temp bound
+  back writable (reads and network stay open — see the
+  <a href="https://github.com/jern-ai/jern/blob/main/docs/security-model.md">security
+  model</a>). Where neither is available, jern warns once and approval is
+  the only gate.</p>
 
   <h2 id="budgets">Budgets</h2>
   <p><code>--budget 20</code> (or the <code>budget</code> object in
@@ -295,6 +303,29 @@
   <code>jern mcp</code> connects the configured servers and lists what they
   offer.</p>
 
+  <h2 id="subagents">Subagents &amp; memory</h2>
+  <p>Both are effects, so both cross the same traced, policed choke point
+  as every tool call.</p>
+  <p><b>Subagents.</b> <code>(spawn-agent "task")</code> forks a child
+  session running the agent's own brain;
+  <code>(spawn-agent-named "docs" "task")</code> runs a different agent (an
+  installed one, or a workspace-relative package directory). The whole
+  handler stack — policy, approvals, budgets, memory, trace — composes
+  recursively onto the child: it shares the parent's model bridge,
+  approver, and workspace, its trace lines land in the same JSONL tagged
+  <code>{"spawn":N,…}</code>, and depth is capped host-side. The child's
+  final text comes back as a tool-result-shaped plist
+  (<code>:content</code> / <code>:is_error</code>).</p>
+  <p><b>Memory.</b> <code>(remember "key" "value")</code> and
+  <code>(recall "key")</code> persist strings across sessions in
+  <code>.jern/memory.json</code>. Every access is traced
+  (<code>memory-remember</code> / <code>memory-recall</code> events) and
+  decided by the <code>memory-policy</code> hook — <code>:allow</code> by
+  default; a workspace policy can rebind it to <code>:ask</code> or deny
+  with a reason:</p>
+  <pre><code>(define memory-policy
+  (lambda (op key) (if (equal? op "remember") :ask :allow)))</code></pre>
+
   <h2 id="testing">Testing agents</h2>
   <p>An agent package's <code>test/*.ikr</code> holds
   <code>(deftest …)</code> forms; each runs in a fresh session and temp
@@ -307,12 +338,17 @@
     <span class="c">; …and properties of the whole run:</span>
     (assert-no-tool-call "shell")
     (assert-edits-within "greeting.txt")
-    (assert-max-llm-calls 3)))</code></pre>
+    (assert-max-llm-calls 3)
+    (assert-tokens-within 50000)      <span class="c">; input+output, from :usage</span>
+    (assert-max-files-edited 1)))     <span class="c">; blast radius</span></code></pre>
   <p>Replay compares each request byte-for-byte with the recording and fails
   on the first divergence — a changed system prompt, reordered message, or
   different tool wiring is a test failure, offline, with no API key. The
-  trajectory assertions add behavioral contracts on top. Re-record with
-  <code>jern test --record</code> to bless a deliberate change.</p>
+  trajectory assertions add behavioral contracts on top; beyond the
+  built-ins there's <code>(assert-trajectory pred message)</code> — any
+  cross-turn invariant as a predicate over every traced event, failing with
+  the first violation. Re-record with <code>jern test --record</code> to
+  bless a deliberate change.</p>
 
   <h2 id="ui">The web UI</h2>
   <p><code>jern ui</code> serves a single page from the binary on
