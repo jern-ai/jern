@@ -144,6 +144,65 @@ let ``a trajectory violation is caught`` () =
     finally
         if Directory.Exists dir then Directory.Delete(dir, true)
 
+/// Token budgets, blast radius, and generic invariants assert over the same
+/// captured trajectory — offline, deterministic, and with usage data straight
+/// from the recorded responses.
+[<Fact>]
+let ``token and blast-radius assertions read the trajectory`` () =
+    let dir = Path.Combine(Path.GetTempPath(), "jern-budget-" + System.Guid.NewGuid().ToString("N"))
+    try
+        Directory.CreateDirectory(Path.Combine(dir, "src")) |> ignore
+        Directory.CreateDirectory(Path.Combine(dir, "test", "fixtures")) |> ignore
+        // One model call (with usage), then edits touching two distinct files.
+        File.WriteAllText(
+            Path.Combine(dir, "src", "main.ikr"),
+            String.concat "\n"
+                [ "(define run-agent"
+                  "  (lambda (task)"
+                  "    (sequence"
+                  "      (perform jern/llm-call (list :messages (vector (list :role \"user\" :content task))))"
+                  "      (call-tool \"write_file\" (list :path \"a.txt\" :content \"1\"))"
+                  "      (call-tool \"write_file\" (list :path \"b.txt\" :content \"2\"))"
+                  "      (call-tool \"edit_file\" (list :path \"a.txt\" :old_string \"1\" :new_string \"3\"))"
+                  "      \"done\")))"
+                  "" ])
+        File.WriteAllText(
+            Path.Combine(dir, "test", "fixtures", "one.json"),
+            """{"exchanges":[{"request":{"messages":[{"role":"user","content":"x"}]},"response":{"role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":100,"output_tokens":20}}}]}""")
+        File.WriteAllText(
+            Path.Combine(dir, "test", "t.ikr"),
+            String.concat "\n"
+                [ """(deftest "stays within budgets and blast radius" """
+                  """  (with-fixtures "fixtures/one.json" """
+                  """    (run-agent "x") """
+                  """    (assert-tokens-within 120) """
+                  """    (assert-equal 120 (total-tokens-used)) """
+                  """    (assert-max-files-edited 2) """
+                  """    (assert-equal (list "a.txt" "b.txt") (edited-files)) """
+                  """    (assert-trajectory """
+                  """      (lambda (event) (not? (equal? (plist-get event :event) "approval-denied"))) """
+                  """      "no approval was denied"))) """
+                  """(deftest "a too-tight token budget fails" """
+                  """  (with-fixtures "fixtures/one.json" """
+                  """    (run-agent "x") """
+                  """    (assert-tokens-within 100))) """
+                  """(deftest "a too-tight blast radius fails" """
+                  """  (with-fixtures "fixtures/one.json" """
+                  """    (run-agent "x") """
+                  """    (assert-max-files-edited 1))) """
+                  "" ])
+        match TestRunner.run dir Fixtures.Replay with
+        | Error message -> failwith message
+        | Ok summary ->
+            Assert.Equal(1, summary.Passed.Length)
+            Assert.Equal(2, summary.Failed.Length)
+            let errorOf name =
+                (summary.Failed |> List.find (fun o -> o.name = name)).error.Value
+            Assert.Contains("token budget of 100", errorOf "a too-tight token budget fails")
+            Assert.Contains("more than 1 distinct files", errorOf "a too-tight blast radius fails")
+    finally
+        if Directory.Exists dir then Directory.Delete(dir, true)
+
 let private tddAgentDir () =
     Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "agents", "tdd"))
 

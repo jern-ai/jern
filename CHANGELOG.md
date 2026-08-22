@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Richer trajectory vocabulary.** Agent tests can now assert token
+  budgets (`(assert-tokens-within n)`, `(total-tokens-used)` — summed
+  from each recorded response's `:usage`), blast radius
+  (`(assert-max-files-edited n)`, `(edited-files)` — distinct paths
+  touched by `edit_file`/`write_file`), and arbitrary cross-turn
+  invariants (`(assert-trajectory pred message)` — a predicate that must
+  hold for every traced event, failing with the first violating event).
+  All offline and deterministic, like the rest of `jern test`.
+
 - **First-use trust for workspace policies.** `.jern/policy.ikr` runs in
   the privileged handler environment, so `git clone && jern` in a repo you
   did not author is no longer enough to execute its policy: the first time

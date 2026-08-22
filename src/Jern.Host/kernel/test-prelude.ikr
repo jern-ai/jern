@@ -24,6 +24,12 @@
 ;   (assert-max-llm-calls n)     the run stayed within a model-call budget
 ;   (assert-no-tool-call "name") the tool was never invoked
 ;   (assert-edits-within "src/") every edit_file path starts with the prefix
+;   (total-tokens-used)          input+output tokens summed from :usage
+;   (assert-tokens-within n)     the run stayed within a token budget
+;   (edited-files)               distinct paths touched by edit_file/write_file
+;   (assert-max-files-edited n)  blast radius: at most n distinct files changed
+;   (assert-trajectory pred msg) a cross-turn invariant: pred holds for every
+;                                event; the first violating event is reported
 
 (define setup-file
   (lambda (path content) (jern/setup-file path content)))
@@ -104,3 +110,79 @@
                 (tool-calls-named "edit_file")))
       (assert-true (null? escaped)
                    (String.concat "an edit_file escaped " prefix)))))
+
+; ---------------------------------------------------------------------------
+; Budget and blast-radius assertions.
+
+; The run's total token spend, summed from every llm-response's :usage
+; (input + output). Recordings made without usage data count as 0 —
+; re-record against a live provider to assert real budgets.
+(define total-tokens-used
+  (lambda ()
+    (sequence
+      (define usage-tokens
+        (lambda (response)
+          (sequence
+            (define usage (plist-get response :usage))
+            (define tokens-of
+              (lambda (key)
+                (sequence
+                  (define value (if (pair? usage) (plist-get usage key) :null))
+                  (if (eqv? value :null) 0 value))))
+            (+ (tokens-of :input_tokens) (tokens-of :output_tokens)))))
+      (define loop
+        (lambda (responses acc)
+          (if (null? responses)
+              acc
+              (loop (cdr responses) (+ acc (usage-tokens (car responses)))))))
+      (loop (map (lambda (event) (plist-get event :response))
+                 (trajectory-events "llm-response"))
+            0))))
+
+(define assert-tokens-within
+  (lambda (n)
+    (assert-true (<= (total-tokens-used) n)
+                 (String.concat "the run exceeded the token budget of "
+                                (jern/show n)))))
+
+; The distinct workspace paths the run changed, via edit_file or write_file.
+(define edited-files
+  (lambda ()
+    (sequence
+      (define paths
+        (map (lambda (call) (plist-get (plist-get call :input) :path))
+             (filter (lambda (call)
+                       (or? (equal? (plist-get call :name) "edit_file")
+                            (equal? (plist-get call :name) "write_file")))
+                     (tool-calls))))
+      (define loop
+        (lambda (rest seen)
+          (if (null? rest)
+              (reverse seen)
+              (loop (cdr rest)
+                    (if (member? (car rest) seen) seen (cons (car rest) seen))))))
+      (loop paths ()))))
+
+; Blast radius: however the task went, no more than n distinct files changed.
+(define assert-max-files-edited
+  (lambda (n)
+    (assert-true (<= (length (edited-files)) n)
+                 (String.concat "the run edited more than "
+                                (String.concat (jern/show n) " distinct files")))))
+
+; ---------------------------------------------------------------------------
+; Cross-turn invariants: a predicate that must hold for *every* traced event
+; of the run — e.g. "no shell after the first edit", "every denied approval
+; is followed by an adaptation, not a retry". The first violating event is
+; shown, so a failure points at the exact moment the invariant broke.
+(define assert-trajectory
+  (lambda (pred message)
+    (sequence
+      (define violations
+        (filter (lambda (event) (not? (pred event))) (trajectory)))
+      (if (null? violations)
+          #inert
+          (error (String.concat "trajectory invariant failed: "
+                   (String.concat message
+                     (String.concat "\n  first violation: "
+                                    (jern/show (car violations))))))))))
