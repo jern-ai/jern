@@ -98,6 +98,7 @@ module Session =
             ((equal? name "file_tree") :allow)
             ((equal? name "grep") :allow)
             ((equal? name "symbols") :allow)
+            ((equal? name "kernel_eval") :allow) ; inner calls are still policed
             (#t :ask)))))
 """
 
@@ -183,9 +184,25 @@ module Session =
                      @ [ "jern/workspace-config", config.agentConfig ]
                      @ config.agentBindings)
 
+            // Where kernel_eval programs run: a child of the agent
+            // environment, so model-authored code sees the same bindings as
+            // agent source (tools, prelude, skills) and nothing more — and
+            // one env for the whole session, so a program's definitions
+            // persist for later programs.
+            let programEnv = newEnv [agentEnv]
+
+            // A kernel_eval program that outlives its wall-clock cap is
+            // abandoned: its worker thread is marked here, and the host
+            // primitives below refuse it, so a runaway program can burn a
+            // core but can no longer act — no effects, no trace writes, no
+            // approval prompts — while the session moves on.
+            let abandonedThreads = System.Collections.Concurrent.ConcurrentDictionary<int, byte>()
+            let threadAbandoned () =
+                abandonedThreads.ContainsKey System.Threading.Thread.CurrentThread.ManagedThreadId
+
             let hostLlmCall env cont = function
                 | [request] ->
-                    if config.interrupted () then
+                    if config.interrupted () || threadAbandoned () then
                         signal cont (Default "interrupted by user")
                     else
                         match config.bridge request with
@@ -193,19 +210,29 @@ module Session =
                         | Choice2Of2 reply -> bounceContinue env cont reply
                 | bad -> signal cont (NumArgs(1, bad))
 
+            // kernel_eval is answered here, before the replay override:
+            // replay must *re-execute* programs (their inner effects are
+            // what the trace recorded), not answer them from the recording.
+            let evalProgramRef: (LispVal -> ThrowsError<LispVal>) ref =
+                ref (fun _ -> Choice1Of2 (Default "kernel_eval is not available yet"))
+
             let hostToolCall env cont = function
                 | [call] ->
-                    if config.interrupted () then
+                    if config.interrupted () || threadAbandoned () then
                         signal cont (Default "interrupted by user")
                     else
                         let dispatch =
-                            match config.toolDispatch with
-                            | Some substitute -> substitute
-                            | None ->
-                                match Tools.plistTryGet "name" call with
-                                | Some (Obj (:? string as name)) when name.StartsWith "mcp__" ->
-                                    Mcp.dispatch mcpByName
-                                | _ -> Tools.dispatch config.workspaceRoot
+                            match Tools.plistTryGet "name" call with
+                            | Some (Obj (:? string as name)) when name = "kernel_eval" ->
+                                evalProgramRef.Value
+                            | nameVal ->
+                                match config.toolDispatch with
+                                | Some substitute -> substitute
+                                | None ->
+                                    match nameVal with
+                                    | Some (Obj (:? string as name)) when name.StartsWith "mcp__" ->
+                                        Mcp.dispatch mcpByName
+                                    | _ -> Tools.dispatch config.workspaceRoot
                         match dispatch call with
                         | Choice1Of2 error -> signal cont error
                         | Choice2Of2 reply -> bounceContinue env cont reply
@@ -215,6 +242,7 @@ module Session =
                 | [event] ->
                     match config.traceSink with
                     | None -> bounceContinue env cont Inert
+                    | Some _ when threadAbandoned () -> bounceContinue env cont Inert
                     | Some sink ->
                         let ts = System.DateTime.UtcNow.ToString("o")
                         let payload = Json.serialize event
@@ -345,6 +373,8 @@ module Session =
                 | bad -> signal cont (NumArgs(1, bad))
 
             let hostApprove env cont = function
+                | [Obj (:? string as _)] when threadAbandoned () ->
+                    signal cont (Default "abandoned program may not ask for approval")
                 | [Obj (:? string as description)] ->
                     match config.approver with
                     | Some approve -> bounceContinue env cont (Bool(approve description))
@@ -368,6 +398,7 @@ module Session =
                      :: ("jern/show", AgentEnv.applicative AgentEnv.show)
                      :: ("jern/budget", config.budget)
                      :: ("agent-env", agentEnv)
+                     :: ("program-env", programEnv)
                      :: AgentEnv.stringBindings
                      @ AgentEnv.effectBindings tags)
 
@@ -388,15 +419,108 @@ module Session =
                         []
                 else []
 
+            // A workspace can carry a skills library: .jern/skills.ikr loads
+            // into the *agent* environment, so agent source and kernel_eval
+            // programs alike can call what it defines. Unprivileged — unlike
+            // the workspace policy it needs no trust prompt, because skills
+            // code can only reach the world through the same policed effects
+            // as any other agent code. A broken skills file fails the
+            // session loudly, like a broken agent source.
+            let workspaceSkills =
+                let path = Path.GetFullPath(Path.Combine(config.workspaceRoot, ".jern", "skills.ikr"))
+                if File.Exists path then
+                    eprintfn "jern: loading workspace skills %s (unprivileged)" path
+                    [ agentEnv, path, None ]
+                else []
+
             let files =
                 [ agentEnv, kernelFile "prelude.ikr", None
-                  agentEnv, kernelFile "tools.ikr", None
-                  // The prelude's helpers (plist-get & co.) serve both sides.
-                  handlerEnv, kernelFile "prelude.ikr", None
-                  handlerEnv, kernelFile "policy.ikr", None ]
+                  agentEnv, kernelFile "tools.ikr", None ]
+                @ workspaceSkills
+                @ [ // The prelude's helpers (plist-get & co.) serve both sides.
+                    handlerEnv, kernelFile "prelude.ikr", None
+                    handlerEnv, kernelFile "policy.ikr", None ]
                 @ workspacePolicy
                 @ [ handlerEnv, kernelFile "handlers.ikr", None ]
                 @ (config.agentSources |> List.map (fun path -> agentEnv, path, None))
+
+            // kernel_eval — programmatic tool calling. The model's program
+            // is parsed here and evaluated *in Kernel*, in program-env,
+            // wrapped in run-in-program-session (kernel/handlers.ikr) so a
+            // fresh copy of the whole handler stack is installed on the
+            // nested continuation: every effect the program performs crosses
+            // policy, approval, budget, git, memory, and trace exactly like
+            // a hand-made tool call — and the same budget counters apply.
+            // Program errors surface as this tool's error result, so the
+            // model can read them and try again; a program that exceeds the
+            // wall-clock cap is abandoned (see abandonedThreads above).
+            let evalNesting = ref 0
+            evalProgramRef.Value <-
+                fun call ->
+                    let toolResult (isError: bool) (content: string) =
+                        ofList [ Keyword "content"; Obj(content :> obj)
+                                 Keyword "is_error"; Bool isError ]
+                    let code =
+                        match Tools.plistTryGet "input" call with
+                        | Some input ->
+                            match Tools.plistTryGet "code" input with
+                            | Some (Obj (:? string as c)) -> Some c
+                            | _ -> None
+                        | None -> None
+                    match code with
+                    | None -> Choice2Of2 (toolResult true "kernel_eval needs a 'code' string argument")
+                    | Some code ->
+                        if evalNesting.Value >= 2 then
+                            Choice2Of2 (toolResult true "kernel_eval nesting limit (2) reached")
+                        else
+                            match Parser.readExprListFromSource "kernel_eval" code with
+                            | Choice1Of2 error ->
+                                Choice2Of2 (toolResult true ("syntax error: " + showError error))
+                            | Choice2Of2 [] -> Choice2Of2 (toolResult true "empty program")
+                            | Choice2Of2 forms ->
+                                let program =
+                                    ofList [ Atom "run-in-program-session"
+                                             ofList (Atom "sequence" :: forms) ]
+                                evalNesting.Value <- evalNesting.Value + 1
+                                try
+                                    try
+                                        let timeout = (Tools.currentLimits ()).evalTimeoutSeconds
+                                        let workerThread = ref -1
+                                        let worker =
+                                            System.Threading.Tasks.Task.Run(fun () ->
+                                                workerThread.Value <- System.Threading.Thread.CurrentThread.ManagedThreadId
+                                                eval handlerEnv (newContinuation handlerEnv) program)
+                                        let started = DateTime.UtcNow
+                                        let mutable outcome = None
+                                        let mutable waiting = true
+                                        while waiting do
+                                            if worker.Wait 100 then
+                                                outcome <- Some worker.Result
+                                                waiting <- false
+                                            elif config.interrupted ()
+                                                 || (DateTime.UtcNow - started).TotalSeconds > timeout then
+                                                waiting <- false
+                                        match outcome with
+                                        | Some (Choice2Of2 value) -> Choice2Of2 (toolResult false (showVal value))
+                                        | Some (Choice1Of2 error) -> Choice2Of2 (toolResult true (showError error))
+                                        | None ->
+                                            // Mark the worker's thread refused; if the
+                                            // program does eventually finish, unmark it —
+                                            // the pool will reuse the thread.
+                                            if workerThread.Value >= 0 then
+                                                abandonedThreads.TryAdd(workerThread.Value, 0uy) |> ignore
+                                                worker.ContinueWith(fun (_: System.Threading.Tasks.Task<_>) ->
+                                                    abandonedThreads.TryRemove workerThread.Value |> ignore)
+                                                |> ignore
+                                            let reason =
+                                                if config.interrupted () then "was interrupted"
+                                                else sprintf "timed out after %.0f seconds" timeout
+                                            Choice2Of2 (toolResult true
+                                                            (sprintf "program %s — any effects it completed are in the trace" reason))
+                                    with ex ->
+                                        Choice2Of2 (toolResult true (sprintf "program failed: %s" ex.Message))
+                                finally
+                                    evalNesting.Value <- evalNesting.Value - 1
 
             let loaded =
                 files

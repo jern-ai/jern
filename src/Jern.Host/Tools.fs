@@ -25,16 +25,21 @@ module Tools =
         { maxFileBytes: int64
           maxGrepMatches: int
           maxTreeEntries: int
-          shellTimeoutSeconds: float }
+          shellTimeoutSeconds: float
+          /// Wall-clock cap on one kernel_eval program (model-authored
+          /// Kernel code has no other stop for a pure loop).
+          evalTimeoutSeconds: float }
 
     let defaultLimits =
         { maxFileBytes = 262_144L
           maxGrepMatches = 200
           maxTreeEntries = 200
-          shellTimeoutSeconds = 120.0 }
+          shellTimeoutSeconds = 120.0
+          evalTimeoutSeconds = 30.0 }
 
     let mutable private limits = defaultLimits
     let configureLimits (value: Limits) = limits <- value
+    let currentLimits () = limits
 
     /// F#-side plist access for tool-call payloads.
     let rec plistTryGet (key: string) (plist: LispVal) : LispVal option =

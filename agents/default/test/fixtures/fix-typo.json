@@ -149,6 +149,22 @@
                 "command"
               ]
             }
+          },
+          {
+            "name": "kernel_eval",
+            "description": "Run a program in the agent's sandboxed IronKernel (a Kernel/Scheme dialect): compose several tool calls with real control flow in ONE step instead of one tool call per turn. Call tools as (call-tool \"name\" (list :arg value ...)); each returns a plist — read it with (plist-get result :content) / (plist-get result :is_error). Language: define, lambda, if, cond, sequence, map, filter, exact integers, (vector ...), plists via (list :key value), string-contains?/prefix?/suffix?, String.concat. Definitions persist across kernel_eval calls for the whole session. The value of the last form is returned as text. Every tool call inside the program is still policy-checked and approval-gated individually; program errors come back as this tool's error result for you to read and fix.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "IronKernel source: one or more forms, evaluated in order"
+                }
+              },
+              "required": [
+                "code"
+              ]
+            }
           }
         ],
         "cache_control": {
@@ -323,6 +339,22 @@
               },
               "required": [
                 "command"
+              ]
+            }
+          },
+          {
+            "name": "kernel_eval",
+            "description": "Run a program in the agent's sandboxed IronKernel (a Kernel/Scheme dialect): compose several tool calls with real control flow in ONE step instead of one tool call per turn. Call tools as (call-tool \"name\" (list :arg value ...)); each returns a plist — read it with (plist-get result :content) / (plist-get result :is_error). Language: define, lambda, if, cond, sequence, map, filter, exact integers, (vector ...), plists via (list :key value), string-contains?/prefix?/suffix?, String.concat. Definitions persist across kernel_eval calls for the whole session. The value of the last form is returned as text. Every tool call inside the program is still policy-checked and approval-gated individually; program errors come back as this tool's error result for you to read and fix.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "IronKernel source: one or more forms, evaluated in order"
+                }
+              },
+              "required": [
+                "code"
               ]
             }
           }
@@ -525,6 +557,22 @@
               },
               "required": [
                 "command"
+              ]
+            }
+          },
+          {
+            "name": "kernel_eval",
+            "description": "Run a program in the agent's sandboxed IronKernel (a Kernel/Scheme dialect): compose several tool calls with real control flow in ONE step instead of one tool call per turn. Call tools as (call-tool \"name\" (list :arg value ...)); each returns a plist — read it with (plist-get result :content) / (plist-get result :is_error). Language: define, lambda, if, cond, sequence, map, filter, exact integers, (vector ...), plists via (list :key value), string-contains?/prefix?/suffix?, String.concat. Definitions persist across kernel_eval calls for the whole session. The value of the last form is returned as text. Every tool call inside the program is still policy-checked and approval-gated individually; program errors come back as this tool's error result for you to read and fix.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "IronKernel source: one or more forms, evaluated in order"
+                }
+              },
+              "required": [
+                "code"
               ]
             }
           }

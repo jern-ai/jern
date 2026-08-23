@@ -227,6 +227,27 @@
           (resume resume-call result)))
       (eval body env))))
 
+; Programmatic tool calling: the model writes a whole Kernel program (the
+; kernel_eval tool) and the host evaluates it here, in program-env — a
+; persistent child of the agent environment — under a freshly installed
+; copy of the same handler stack. So a model-authored program composes
+; many tool calls with real control flow in one step, while every effect
+; it performs still crosses policy, approval, budget, git, memory, and
+; trace exactly like a hand-made tool call — and the budget counters are
+; shared with the surrounding turn.
+(define run-in-program-session
+  (vau (form) #ignore
+    (with-log-handler
+      (with-approval-handler
+        (with-memory-handler
+          (with-spawn-handler
+            (with-provider-handler
+              (with-budget-handler
+                (with-tool-handler
+                  (with-git-handler
+                    (with-policy-handler
+                      (eval form program-env))))))))))))
+
 ; Run a form in the agent environment under the full handler stack.
 ; `agent-env` is bound host-side in this environment.
 ;

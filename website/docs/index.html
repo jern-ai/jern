@@ -83,6 +83,7 @@
     <a href="#budgets">Budgets</a>
     <a href="#mcp">MCP</a>
     <a href="#subagents">Subagents &amp; memory</a>
+    <a href="#programs">Programs &amp; skills</a>
     <a href="#testing">Testing agents</a>
     <a href="#ui">The web UI</a>
   </div>
@@ -325,6 +326,35 @@
   with a reason:</p>
   <pre><code>(define memory-policy
   (lambda (op key) (if (equal? op "remember") :ask :allow)))</code></pre>
+
+  <h2 id="programs">Programs &amp; skills</h2>
+  <p><b>Programmatic tool calling.</b> Instead of one tool call per
+  round-trip, the model can submit a whole IronKernel program through the
+  <code>kernel_eval</code> tool — composing many tool calls with real
+  control flow in one step:</p>
+  <pre><code>(define content (plist-get (call-tool "read_file" (list :path "notes.md")) :content))
+(if (string-contains? content "TODO")
+    (call-tool "edit_file" (list :path "notes.md"
+                                 :old_string "TODO" :new_string "DONE"))
+    "nothing to do")</code></pre>
+  <p>Programs run in a persistent child of the agent environment — a REPL
+  with state, so definitions survive across calls — under a freshly
+  installed copy of the full handler stack. That's the point: every tool
+  call <em>inside</em> a program is still individually policy-checked,
+  approval-gated, budgeted, and traced. The policy allows
+  <code>kernel_eval</code> itself by default because authority lives at
+  the effects, not the code — a workspace policy can tighten that.
+  Program errors come back as an ordinary tool error for the model to
+  read and fix; a runaway program is cut off at a wall-clock cap
+  (<code>limits.eval_timeout_seconds</code>, default 30) and loses all
+  effect access. Recorded programs re-execute under
+  <code>jern replay</code>, their inner effects answered from the trace.</p>
+  <p><b>Workspace skills.</b> <code>.jern/skills.ikr</code> loads into the
+  agent environment at session start — helpers that agent source and model
+  programs can both call. Unlike the workspace policy it is
+  <em>unprivileged</em> and needs no trust prompt: skills code runs where
+  the model's code runs, and can only reach the world through the same
+  policed effects.</p>
 
   <h2 id="testing">Testing agents</h2>
   <p>An agent package's <code>test/*.ikr</code> holds

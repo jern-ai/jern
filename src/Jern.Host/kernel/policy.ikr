@@ -97,6 +97,11 @@
             ((equal? name "file_tree") :allow)
             ((equal? name "grep") :allow)
             ((equal? name "symbols") :allow)
+            ; kernel_eval runs model-authored code, but authority lives at
+            ; the effects, not the code: every tool call *inside* a program
+            ; is policed and approval-gated individually, so the program
+            ; itself is free — like the agent loop, which is also just code.
+            ((equal? name "kernel_eval") :allow)
             (#t :ask)))))
 
 ; Memory access (jern/recall and jern/remember) crosses the same choke

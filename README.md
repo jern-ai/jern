@@ -35,6 +35,19 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M20 — programmatic tool calling** (unreleased): the model writes a
+  whole IronKernel program instead of one tool call per round-trip — the
+  new `kernel_eval` tool evaluates it in a persistent sandbox child of
+  the agent environment, under a fresh copy of the entire handler stack.
+  Real control flow across many tool calls in one step, definitions
+  that persist across programs, program errors returned for the model
+  to fix — and every effect *inside* a program still individually
+  policed, approved, budgeted, and traced, because authority lives at
+  the effects, not the code. Runaway programs hit a wall-clock cap and
+  are abandoned (they lose all effect access); recorded programs
+  re-execute under `jern replay`. Companion: `.jern/skills.ikr`, an
+  unprivileged workspace library both agent source and model programs
+  can call.
 - **M19 — the effect architecture pays out** (v0.11): four features
   that fall out of "everything is an effect through one choke point".
   **Subagents**: `(spawn-agent "task")` / `(spawn-agent-named "docs" "task")`

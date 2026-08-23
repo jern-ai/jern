@@ -187,6 +187,10 @@ module Providers =
                       Tools.shellTimeoutSeconds =
                         (match l.["shell_timeout_seconds"] with
                          | null -> config.limits.shellTimeoutSeconds
+                         | v -> v.GetValue<float>())
+                      Tools.evalTimeoutSeconds =
+                        (match l.["eval_timeout_seconds"] with
+                         | null -> config.limits.evalTimeoutSeconds
                          | v -> v.GetValue<float>()) }
                 | _ -> config.limits
             { defaultModel = defaultModel

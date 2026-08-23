@@ -58,7 +58,19 @@ module Replay =
             let llm = Queue<JsonNode * JsonNode>()
             let tools = Queue<JsonNode * JsonNode>()
             let mutable pendingLlm: JsonNode option = None
-            let mutable pendingTool: JsonNode option = None
+            // Tool events can nest: a kernel_eval program's inner calls are
+            // traced between the outer call and its result, so pairing is a
+            // stack. The outer kernel_eval pair itself is *dropped* — replay
+            // re-executes programs, and it is their inner calls that must
+            // line up with the recording.
+            let pendingTools = Stack<JsonNode>()
+            let isKernelEval (call: JsonNode) =
+                match call with
+                | :? JsonObject as o ->
+                    match o.["name"] with
+                    | null -> false
+                    | n -> (try n.GetValue<string>() = "kernel_eval" with _ -> false)
+                | _ -> false
             for line in File.ReadLines path do
                 if line.Trim() <> "" then
                     let doc = JsonNode.Parse(line).AsObject()
@@ -94,12 +106,15 @@ module Replay =
                             llm.Enqueue(request, response)
                             pendingLlm <- None
                         | _ -> ()
-                    | "tool-call" -> pendingTool <- field "call"
+                    | "tool-call" ->
+                        match field "call" with
+                        | Some call -> pendingTools.Push call
+                        | None -> ()
                     | "tool-result" ->
-                        match pendingTool, field "result" with
-                        | Some call, Some result ->
+                        match (if pendingTools.Count > 0 then Some(pendingTools.Pop()) else None),
+                              field "result" with
+                        | Some call, Some result when not (isKernelEval call) ->
                             tools.Enqueue(call, result)
-                            pendingTool <- None
                         | _ -> ()
                     | _ -> ()
             match task with

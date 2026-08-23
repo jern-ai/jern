@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- **Programmatic tool calling: `kernel_eval`.** The model can now write
+  a whole IronKernel program that composes several tool calls with real
+  control flow — one step instead of one round-trip per call. Programs
+  run in a persistent child of the agent environment (definitions
+  survive across calls, a REPL with state), under a freshly installed
+  copy of the full handler stack: every tool call *inside* a program is
+  individually policy-checked, approval-gated, budgeted, and traced,
+  and program errors come back as an ordinary tool error the model can
+  read and fix. A wall-clock cap (`limits.eval_timeout_seconds`,
+  default 30) abandons runaway programs — an abandoned program can no
+  longer perform effects, write to the trace, or ask for approval.
+  `jern replay` re-executes recorded programs so their inner effects
+  line up with the trace. Policy allows `kernel_eval` by default:
+  authority lives at the effects, not the code.
+- **Workspace skills.** `.jern/skills.ikr` loads into the *agent*
+  environment at session start — a library of helpers that agent
+  source and model programs can call. Unprivileged by construction
+  (unlike the workspace policy, no trust prompt): skills code can only
+  reach the world through the same policed effects as any agent code.
+
 ## 0.11.0 — 2026-08-22
 
 - **Linux shell sandboxing with bubblewrap.** Where a working `bwrap`
