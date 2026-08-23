@@ -35,7 +35,7 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
-- **M20 — programmatic tool calling** (unreleased): the model writes a
+- **M20 — programmatic tool calling** (v0.12): the model writes a
   whole IronKernel program instead of one tool call per round-trip — the
   new `kernel_eval` tool evaluates it in a persistent sandbox child of
   the agent environment, under a fresh copy of the entire handler stack.

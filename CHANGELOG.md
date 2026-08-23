@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 — 2026-08-23
 
 - **Programmatic tool calling: `kernel_eval`.** The model can now write
   a whole IronKernel program that composes several tool calls with real
