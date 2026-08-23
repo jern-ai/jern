@@ -1,4 +1,4 @@
-# Announce — jern v0.11 (Show HN, ready to post)
+# Announce — jern v0.12 (Show HN, ready to post)
 
 Submission:
 
@@ -58,7 +58,21 @@ your files. The fork is the point: add "--policy strict.ikr" (or an
 edited agent) and jern shows you the first effect where the run you
 already paid for would have gone differently under the new rules.
 
-5. New capabilities aren't new subsystems. Subagents:
+5. The model can write programs, and it changes nothing about safety.
+The kernel_eval tool takes a whole program in the agent's own language —
+read a file, decide, edit, loop, all in one step instead of one tool
+call per round-trip, with definitions persisting across calls like a
+REPL. Executing model-written code is usually where an agent's security
+story ends; here it's where it shows off: programs run in the same
+capability sandbox as the agent itself, and every tool call INSIDE a
+program is individually policy-checked, approval-gated, budgeted, and
+traced. Authority lives at the effects, not the code. Runaway programs
+hit a wall-clock cap and lose all effect access; recorded programs
+re-execute under jern replay. And a workspace can ship a skills file —
+helpers both your agent and the model's programs can call, unprivileged
+by construction.
+
+6. New capabilities aren't new subsystems. Subagents:
 (spawn-agent "task") forks a child session and the same policy, budget,
 approval, and trace stack composes recursively onto it — children can't
 escape rules their parent runs under, and their effects land in the
@@ -107,6 +121,14 @@ trace's byte-exactness that makes the fork trustworthy; "replay caveats?"
 → it auto-approves and covers `jern run` traces (not chat yet), so a
 session with a denied approval diverges at the denial — which is the
 honest answer, not a bug; "subagent fork bombs?" → spawn depth is capped
-host-side at 2. Consider attaching a screenshot of the jern ui approval
-card and a screencast of `jern test agents/tdd` catching the weakened
-gate.)*
+host-side at 2; "kernel_eval is just letting the model run code — RCE
+by design?" → the interpreter IS the sandbox: a capability environment
+with no file, network, or CLR authority, where effects are the only
+exit and each one crosses the policy engine — unlike code-interpreter
+agents that run Python in a container where every granted authority is
+ambient to the whole program; "so it's CodeAct" → CodeAct showed
+code-as-action beats JSON calls on round-trips, but nothing there
+polices each inner call or replays the program deterministically —
+that's the part the effect architecture adds. Consider attaching a
+screenshot of the jern ui approval card and a screencast of
+`jern test agents/tdd` catching the weakened gate.)*
