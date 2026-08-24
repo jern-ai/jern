@@ -53,6 +53,15 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M23 — behavioral CI** (unreleased): `jern golden record "task"` keeps a
+  real run as a committed snapshot; `jern golden check` replays every
+  recording offline against the current agent and policy and fails with the
+  exact divergence when behavior changed — plus declarative assertions
+  (`edits_within`, `no_tools`, `max_files_edited`, …) that survive a
+  deliberate re-record, so blessing new bytes cannot quietly bless an agent
+  that now shells out. The bundled [GitHub Action](action/README.md) runs
+  both in CI and posts one PR comment; its policy baseline is read from the
+  **base commit**, so a pull request cannot weaken the rules that judge it.
 - **M22 — the run receipt** (v0.13): every run ends with its own
   evidence — calls and tokens against budget, tools, files written, policy
   decisions, and the trace path — and `jern receipt [--md|--json]`

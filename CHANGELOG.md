@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+- **Golden sessions.** `jern golden record "task"` runs a real task once
+  and keeps the trace as a committed snapshot; `jern golden check`
+  replays every recording offline against the *current* agent source and
+  *current* effective policy — no API key, no model calls — and fails
+  with the exact recorded-vs-actual difference when behavior changed.
+  `jern golden list` shows the inventory. This is `jern test` for people
+  who will never write a `deftest`.
+- **Declarative golden assertions.** Each recording's sidecar can carry
+  `edits_within`, `no_tools`, `max_files_edited`, `max_llm_calls`, and
+  `max_tokens`. They are evaluated against the recording itself, so they
+  keep their force across a deliberate re-record: blessing new bytes
+  cannot quietly bless an agent that now shells out. Unknown assertion
+  keys are an error, like unknown policy keys.
+- **A GitHub Action** (`jern-ai/jern/action`): installs a pinned,
+  checksum-verified release, prints the effective policy, runs the agent
+  tests and the golden check, uploads traces, and posts one pull-request
+  comment. Its policy baseline is read from the **base commit**, never
+  from the pull request's checkout, so a diff cannot weaken the rules
+  that judge it; a baseline that exists only in the pull request is
+  refused. Fork pull requests fall back to the job summary. Check-only:
+  live unattended runs wait for their threat model.
+- **The installer takes a version.** `JERN_VERSION=0.13.0 curl -fsSL
+  https://jern.ai/install.sh | sh` installs that exact release, and
+  `JERN_REQUIRE_SUMS=1` makes a missing `SHA256SUMS` fatal rather than a
+  warning — unattended installs should never skip verification.
+
 ## 0.13.0 — 2026-08-24
 
 - **The run receipt.** Every `jern run` now ends with the evidence for

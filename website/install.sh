@@ -1,6 +1,11 @@
 #!/bin/sh
 # jern installer — https://jern.ai
-# Detects OS/arch, downloads the latest release, installs to ~/.jern/bin.
+# Detects OS/arch, downloads a release, installs to ~/.jern/bin.
+#
+#   JERN_VERSION=0.13.0   pin an exact release (default: latest)
+#   JERN_INSTALL=~/.jern  install prefix
+#   JERN_REQUIRE_SUMS=1   fail (rather than warn) if SHA256SUMS is missing —
+#                         unattended installs should never skip verification
 set -eu
 
 case "$(uname -s)" in
@@ -15,12 +20,19 @@ case "$(uname -m)" in
 esac
 rid="$os-$arch"
 
-url="https://github.com/jern-ai/jern/releases/latest/download/jern-$rid.tar.gz"
-sums_url="https://github.com/jern-ai/jern/releases/latest/download/SHA256SUMS"
+version="${JERN_VERSION:-latest}"
+if [ "$version" = "latest" ]; then
+  base="https://github.com/jern-ai/jern/releases/latest/download"
+else
+  # Accept both "0.13.0" and "v0.13.0".
+  base="https://github.com/jern-ai/jern/releases/download/v${version#v}"
+fi
+url="$base/jern-$rid.tar.gz"
+sums_url="$base/SHA256SUMS"
 dir="${JERN_INSTALL:-$HOME/.jern}"
 bin="$dir/bin"
 
-echo "installing jern ($rid) to $bin"
+echo "installing jern $version ($rid) to $bin"
 mkdir -p "$bin"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -43,6 +55,10 @@ if curl -fsSL "$sums_url" -o "$tmp/SHA256SUMS" 2>/dev/null; then
   fi
   echo "checksum verified"
 else
+  if [ "${JERN_REQUIRE_SUMS:-0}" = "1" ]; then
+    echo "error: no SHA256SUMS published for this release and JERN_REQUIRE_SUMS=1" >&2
+    exit 1
+  fi
   echo "warning: no SHA256SUMS published for this release; skipping verification" >&2
 fi
 

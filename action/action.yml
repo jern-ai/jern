@@ -1,0 +1,289 @@
+name: "jern behavioral check"
+description: >-
+  Check agent behavior in CI: replay committed golden sessions against the
+  agent and policy in this checkout, run agent test suites, and report a
+  receipt. Offline and deterministic — no API key, no model calls.
+author: "jern-ai"
+branding:
+  icon: shield
+  color: orange
+
+inputs:
+  version:
+    description: >-
+      The jern release to install, e.g. "0.13.0". Required and exact: a
+      floating "latest" would let the tool under test change without a
+      commit, which is the opposite of what this action is for.
+    required: true
+  baseline-path:
+    description: >-
+      Repository-relative path to a policy baseline (a jern.json-shaped file,
+      or a bare policy object). It is read from the BASE ref, never from the
+      pull request's checkout, so a PR cannot weaken the rules that judge it.
+      Leave empty to check without a baseline.
+    required: false
+    default: ""
+  policy-trust:
+    description: >-
+      Whitespace-separated SHA-256 policy digests whose grants may apply.
+      Without a pin, unattended runs drop grants and keep restrictions.
+    required: false
+    default: ""
+  golden:
+    description: Replay the committed golden sessions (.jern/golden/).
+    required: false
+    default: "true"
+  golden-filter:
+    description: Only check golden sessions whose slug contains this.
+    required: false
+    default: ""
+  tests:
+    description: >-
+      Run `jern test` on the repository's agent packages. "auto" runs it only
+      when an ./agents directory exists.
+    required: false
+    default: "auto"
+  comment:
+    description: >-
+      Post (and update) a single pull-request comment with the results. Falls
+      back to the job summary when the token cannot comment, which is the
+      normal case for pull requests from forks.
+    required: false
+    default: "true"
+  working-directory:
+    description: Directory to run in.
+    required: false
+    default: "."
+  github-token:
+    description: Token used to post the pull-request comment.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  outcome:
+    description: '"pass" or "fail".'
+    value: ${{ steps.check.outputs.outcome }}
+  summary:
+    description: Path to the Markdown summary this action produced.
+    value: ${{ steps.check.outputs.summary }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install jern (pinned, checksum-verified)
+      shell: bash
+      env:
+        JERN_VERSION: ${{ inputs.version }}
+        JERN_INSTALL: ${{ runner.temp }}/jern
+        JERN_REQUIRE_SUMS: "1"
+      run: |
+        set -euo pipefail
+        curl -fsSL https://jern.ai/install.sh | sh
+        echo "$JERN_INSTALL/bin" >> "$GITHUB_PATH"
+
+    - name: Resolve the protected policy baseline
+      id: baseline
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        BASELINE_PATH: ${{ inputs.baseline-path }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        RUNNER_TEMP_DIR: ${{ runner.temp }}
+      run: |
+        set -euo pipefail
+        if [ -z "$BASELINE_PATH" ]; then
+          echo "file=" >> "$GITHUB_OUTPUT"
+          echo "note=no baseline configured" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        out="$RUNNER_TEMP_DIR/jern-baseline.json"
+        if [ -n "${BASE_SHA:-}" ]; then
+          # A pull request: take the baseline from the base ref. Reading it
+          # from the checkout would let the same diff that changes behavior
+          # also change the rules that judge it.
+          git fetch --no-tags --depth=1 origin "$BASE_SHA" >/dev/null 2>&1 || true
+          if ! git show "$BASE_SHA:$BASELINE_PATH" > "$out" 2>/dev/null; then
+            echo "::error::baseline '$BASELINE_PATH' does not exist on the base commit $BASE_SHA."
+            echo "::error::Add it to the base branch first; jern will not accept a baseline supplied by the pull request."
+            exit 1
+          fi
+          echo "note=from base commit ${BASE_SHA:0:12}" >> "$GITHUB_OUTPUT"
+        else
+          # Not a pull request: this ref is the protected one.
+          if [ ! -f "$BASELINE_PATH" ]; then
+            echo "::error::baseline '$BASELINE_PATH' does not exist"
+            exit 1
+          fi
+          cp "$BASELINE_PATH" "$out"
+          echo "note=from this ref" >> "$GITHUB_OUTPUT"
+        fi
+        echo "file=$out" >> "$GITHUB_OUTPUT"
+
+    - name: Check agent behavior
+      id: check
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        BASELINE_FILE: ${{ steps.baseline.outputs.file }}
+        BASELINE_NOTE: ${{ steps.baseline.outputs.note }}
+        POLICY_TRUST: ${{ inputs.policy-trust }}
+        RUN_GOLDEN: ${{ inputs.golden }}
+        GOLDEN_FILTER: ${{ inputs.golden-filter }}
+        RUN_TESTS: ${{ inputs.tests }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        SUMMARY_FILE: ${{ runner.temp }}/jern-summary.md
+      run: |
+        set -uo pipefail
+        # An empty array expanded under `set -u` is an error on bash 3.2,
+        # so every expansion below uses the ${a[@]+"${a[@]}"} guard.
+        flags=()
+        [ -n "$BASELINE_FILE" ] && flags+=(--policy-baseline "$BASELINE_FILE")
+        for digest in $POLICY_TRUST; do flags+=(--policy-trust "$digest"); done
+        jern_flags=(${flags[@]+"${flags[@]}"})
+
+        summary="$SUMMARY_FILE"
+        : > "$summary"
+        failed=0
+
+        {
+          echo "<!-- jern-action -->"
+          echo "## jern · agent behavior"
+          echo
+          echo "_jern ${{ inputs.version }} · ${BASELINE_NOTE}_"
+          echo
+        } >> "$summary"
+
+        # The rules in force, with provenance and digests — the same view a
+        # developer gets locally.
+        echo "::group::effective policy"
+        jern policy ${jern_flags[@]+"${jern_flags[@]}"} | tee "$RUNNER_TEMP/policy.txt"
+        echo "::endgroup::"
+        {
+          echo "<details><summary>effective policy</summary>"
+          echo
+          echo '```'
+          # Strip ANSI: jern colors only on a TTY, but be safe.
+          sed -e 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/policy.txt"
+          echo '```'
+          echo "</details>"
+          echo
+        } >> "$summary"
+
+        run_tests="$RUN_TESTS"
+        if [ "$run_tests" = "auto" ]; then
+          if [ -d agents ]; then run_tests=true; else run_tests=false; fi
+        fi
+        if [ "$run_tests" = "true" ]; then
+          echo "::group::jern test"
+          if jern test ${jern_flags[@]+"${jern_flags[@]}"} 2>&1 | tee "$RUNNER_TEMP/test.txt"; then
+            echo "- ✅ agent test suite passed" >> "$summary"
+          else
+            failed=1
+            {
+              echo "- ⚠️ agent test suite failed"
+              echo
+              echo '```'
+              sed -e 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/test.txt"
+              echo '```'
+            } >> "$summary"
+          fi
+          echo "::endgroup::"
+        fi
+
+        if [ "$RUN_GOLDEN" = "true" ]; then
+          golden_flags=(${flags[@]+"${flags[@]}"})
+          [ -n "$GOLDEN_FILTER" ] && golden_flags+=(--filter "$GOLDEN_FILTER")
+          echo "::group::jern golden check"
+          if jern golden check ${golden_flags[@]+"${golden_flags[@]}"} --md > "$RUNNER_TEMP/golden.md" 2> "$RUNNER_TEMP/golden.err"; then
+            cat "$RUNNER_TEMP/golden.md"
+          else
+            code=$?
+            cat "$RUNNER_TEMP/golden.md" "$RUNNER_TEMP/golden.err"
+            # Exit 2 means "nothing to check", which is not a behavior change.
+            if [ "$code" = "2" ]; then
+              echo "- ℹ️ no golden sessions recorded (\`jern golden record \"task\"\`)" >> "$summary"
+            else
+              failed=1
+            fi
+          fi
+          echo "::endgroup::"
+          if [ -s "$RUNNER_TEMP/golden.md" ]; then
+            { echo; cat "$RUNNER_TEMP/golden.md"; echo; } >> "$summary"
+          fi
+
+          # A changed recording is a request to bless new behavior. Say so
+          # separately: a self-updated golden is not independent approval.
+          if [ -n "${BASE_SHA:-}" ]; then
+            # actions/checkout is shallow by default, so the base commit may
+            # not be present; a missing base means we simply say nothing.
+            git fetch --no-tags --depth=1 origin "$BASE_SHA" >/dev/null 2>&1 || true
+            changes="$(git diff --name-status "$BASE_SHA" HEAD -- .jern/golden/ 2>/dev/null || true)"
+            if [ -n "$changes" ]; then
+              {
+                echo "### ⚠️ golden recordings changed in this pull request"
+                echo
+                echo "These recordings define what \"correct behavior\" means, so review them like policy:"
+                echo
+                echo '```'
+                echo "$changes"
+                echo '```'
+                echo
+                echo "_Protect \`.jern/golden/\` with CODEOWNERS if it should need a second pair of eyes._"
+                echo
+              } >> "$summary"
+            fi
+          fi
+        fi
+
+        if [ "$failed" = "0" ]; then
+          echo "outcome=pass" >> "$GITHUB_OUTPUT"
+        else
+          echo "outcome=fail" >> "$GITHUB_OUTPUT"
+        fi
+        echo "summary=$summary" >> "$GITHUB_OUTPUT"
+        cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Upload traces
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: jern-traces
+        path: |
+          ${{ inputs.working-directory }}/.jern/*.jsonl
+          ${{ inputs.working-directory }}/.jern/golden/*.jsonl
+        if-no-files-found: ignore
+        retention-days: 14
+
+    - name: Comment on the pull request
+      if: ${{ inputs.comment == 'true' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        SUMMARY_FILE: ${{ steps.check.outputs.summary }}
+        PR: ${{ github.event.pull_request.number }}
+        IS_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+      run: |
+        set -uo pipefail
+        if [ "$IS_FORK" = "true" ]; then
+          echo "::notice::pull request from a fork — results are in the job summary (the token cannot comment)."
+          exit 0
+        fi
+        # One comment per pull request, updated in place.
+        existing="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+                      --jq '.[] | select(.body | startswith("<!-- jern-action -->")) | .id' 2>/dev/null | head -1 || true)"
+        if [ -n "$existing" ]; then
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" \
+            -F body=@"$SUMMARY_FILE" >/dev/null \
+            || echo "::warning::could not update the pull-request comment; see the job summary"
+        else
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+            -F body=@"$SUMMARY_FILE" >/dev/null \
+            || echo "::warning::could not post a pull-request comment; see the job summary"
+        fi
+
+    - name: Fail if behavior changed
+      if: ${{ steps.check.outputs.outcome == 'fail' }}
+      shell: bash
+      run: |
+        echo "::error::agent behavior changed — see the job summary for the divergence"
+        exit 1

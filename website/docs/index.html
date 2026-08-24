@@ -86,13 +86,16 @@
     <a href="#subagents">Subagents &amp; memory</a>
     <a href="#programs">Programs &amp; skills</a>
     <a href="#receipts">Receipts</a>
+    <a href="#ci">Golden sessions &amp; CI</a>
     <a href="#testing">Testing agents</a>
     <a href="#ui">The web UI</a>
   </div>
 
   <h2 id="install">Install</h2>
   <pre><code><span class="p">$</span> curl -fsSL https://jern.ai/install.sh | sh</code></pre>
-  <p>macOS and Linux, arm64 and x64. The script installs to
+  <p>macOS and Linux, arm64 and x64. <code>JERN_VERSION=0.13.0</code> pins an
+  exact release (and <code>JERN_REQUIRE_SUMS=1</code> makes a missing
+  checksum file fatal — worth setting in CI). The script installs to
   <code>~/.jern/bin</code> (override with <code>JERN_INSTALL=…</code>) and
   tells you the <code>PATH</code> line to add. Windows and manual installs:
   download an archive from the
@@ -161,6 +164,13 @@
 <span class="p">$</span> jern receipt .jern/trace-*.jsonl --md   <span class="c"># ready for a pull request</span></code></pre>
   <p>What a run did, re-derived from its trace. See
   <a href="#receipts">receipts</a>.</p>
+
+  <h3>jern golden</h3>
+  <pre><code><span class="p">$</span> jern golden record "task" [--slug &lt;name&gt;]
+<span class="p">$</span> jern golden check [--filter &lt;slug&gt;] [--md]
+<span class="p">$</span> jern golden list</code></pre>
+  <p>Committed behavior snapshots, checked offline. See
+  <a href="#ci">golden sessions &amp; CI</a>.</p>
 
   <h3>jern policy</h3>
   <pre><code><span class="p">$</span> jern policy                  <span class="c"># every rule in force, and where it came from</span>
@@ -423,6 +433,50 @@
   explicitly partial rather than filled in with guesses. Events this build
   does not know are ignored; a trace from a future schema version is
   refused with guidance instead of misread.</p>
+
+  <h2 id="ci">Golden sessions &amp; CI</h2>
+  <p>Record a real task once, then check it forever — offline, with no API
+  key:</p>
+  <pre><code><span class="p">$</span> jern golden record "fix the failing test"   <span class="c"># runs it for real, keeps the trace</span>
+<span class="p">$</span> jern golden check                          <span class="c"># replays every recording; no model calls</span>
+<span class="p">$</span> jern golden list</code></pre>
+  <p>The recording is committed under <code>.jern/golden/</code>.
+  <code>check</code> replays it against the agent source and effective policy
+  <em>in force now</em>: change a prompt, a policy, or the loop, and the check
+  fails with the exact recorded-vs-actual difference. Re-recording blesses a
+  deliberate change.</p>
+  <p>Bytes are only half of it. Each recording's sidecar can assert what the
+  run <em>meant</em>, and those assertions are evaluated against the recording
+  itself — so they survive a re-record:</p>
+  <pre><code>{
+  <span class="s">"task"</span>: <span class="s">"fix the failing test"</span>,
+  <span class="s">"assert"</span>: {
+    <span class="s">"edits_within"</span>: [<span class="s">"src/"</span>],
+    <span class="s">"no_tools"</span>: [<span class="s">"shell"</span>],
+    <span class="s">"max_files_edited"</span>: 2,
+    <span class="s">"max_llm_calls"</span>: 6
+  }
+}</code></pre>
+  <p>Three related things, kept distinct on purpose:
+  <code>jern replay</code> is ad-hoc forensics over any past run;
+  <code>jern golden check</code> is a committed snapshot for CI; and
+  <a href="#testing"><code>jern test</code></a> is an authored suite with
+  semantic trajectory assertions in Kernel.</p>
+  <h3>In GitHub Actions</h3>
+  <pre><code>- uses: actions/checkout@v4
+- uses: jern-ai/jern/action@v0.13.0
+  with:
+    version: <span class="s">"0.13.0"</span>
+    baseline-path: .jern/baseline.json</code></pre>
+  <p>The action installs a pinned, checksum-verified release, prints the
+  effective policy, runs the agent tests and the golden check, uploads the
+  traces, and posts one pull-request comment. Its policy baseline is read
+  from the <b>base commit</b>, never from the pull request's own checkout, so
+  a diff cannot weaken the rules that judge it — and a baseline that exists
+  only in the pull request is refused. It is check-only: live unattended runs
+  wait for their threat model. Full notes, including what it does
+  <em>not</em> protect against, are in
+  <a href="https://github.com/jern-ai/jern/blob/main/action/README.md">action/README.md</a>.</p>
 
   <h2 id="testing">Testing agents</h2>
   <p>An agent package's <code>test/*.ikr</code> holds

@@ -1,0 +1,30 @@
+# Dogfood: run jern's own Action against this repository.
+#
+# Manual on purpose. The Action installs a *released* jern and checks the
+# agents in the working tree, so between a behavior change and the release
+# that carries it, a red result here would be expected rather than
+# informative. Run it after a release, or when changing the Action.
+name: agent behavior (dogfood)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "jern release to check with"
+        required: true
+        default: "0.13.0"
+
+permissions:
+  contents: read
+
+jobs:
+  jern:
+    name: golden + agent tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./action
+        with:
+          version: ${{ inputs.version }}
+          tests: "true"
+          comment: "false"
