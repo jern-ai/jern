@@ -158,7 +158,7 @@ let ``a truncated run is marked incomplete rather than guessed`` () =
             Assert.False s.finished
             Assert.Equal(1, s.unreadableLines)
             let text = Receipt.render Receipt.plain s
-            Assert.Contains("incomplete (no run-finished event)", text)
+            Assert.Contains("unfinished", text)
             Assert.Contains("truncated", text)
     finally
         File.Delete path
@@ -213,7 +213,7 @@ let ``an empty trace and a missing trace both fail gracefully`` () =
             Assert.False s.hasEnvelope
             Assert.Equal(0, s.llmCalls)
             // Renders without throwing, and says nothing it does not know.
-            Assert.Contains("incomplete", Receipt.render Receipt.plain s)
+            Assert.Contains("unfinished", Receipt.render Receipt.plain s)
     finally
         File.Delete path
     match Receipt.ofTrace (Path.Combine(Path.GetTempPath(), "jern-nope.jsonl")) with

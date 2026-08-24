@@ -331,3 +331,44 @@ let ``auto mode and always answers replace approval cards`` () =
     finally
         server.stop ()
         Directory.Delete(root, true)
+
+/// A UI session leaves the same audit file a terminal session does, and ends
+/// each turn with the receipt derived from it.
+[<Fact>]
+let ``ui writes a trace and sends a receipt when a turn ends`` () =
+    let root = newRoot "jern-ui-receipt-"
+    let makeBridge _ (onText: string -> unit) (_: unit -> bool) : AnthropicBridge.LlmBridge =
+        fun _ ->
+            onText "Nothing to do."
+            Choice2Of2(Json.deserialize """{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"Nothing to do."}],"usage":{"input_tokens":1500,"output_tokens":40}}""")
+    let server =
+        startServer root makeBridge (Session.agentPackageSources (repoAgentDir ())) None (Some "test/model")
+    try
+        use client = new UiClient(server)
+        client.AwaitEvent "\"model\":\"test/model\"" |> ignore
+        Assert.Equal(202, client.Post "/message" """{"text":"anything to do?"}""")
+        let receipt = client.AwaitEvent "\"type\":\"receipt\""
+        Assert.Contains("model calls", receipt)
+        Assert.Contains("1.5k in", receipt)
+        // The audit file is real, not just an SSE payload.
+        let traces = Directory.EnumerateFiles(Path.Combine(root, ".jern"), "trace-*.jsonl") |> List.ofSeq
+        let tracePath = Assert.Single traces
+        match Receipt.ofTrace tracePath with
+        | Error message -> failwith message
+        | Ok summary ->
+            Assert.True summary.hasEnvelope
+            Assert.Equal(Some "ui", summary.command)
+            Assert.Equal(1, summary.llmCalls)
+            Assert.Equal(1500L, summary.inputTokens)
+            // Mid-session the run is honestly open.
+            Assert.False summary.finished
+        // Stopping the server closes the run record, like ctrl-c does.
+        server.stop ()
+        match Receipt.ofTrace tracePath with
+        | Error message -> failwith message
+        | Ok closed ->
+            Assert.True closed.finished
+            Assert.Equal(Some "ok", closed.status)
+    finally
+        server.stop ()
+        Directory.Delete(root, true)

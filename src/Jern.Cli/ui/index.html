@@ -61,6 +61,9 @@
   .tool .minus { color: var(--red); }
   .tool .plus { color: var(--green); }
   .note { align-self: center; font-size: .78rem; color: var(--dim); }
+  .receipt { margin: .5rem 0; font-size: .82rem; color: var(--dim); }
+  .receipt summary { cursor: pointer; }
+  .receipt pre { margin: .35rem 0 0; white-space: pre-wrap; line-height: 1.5; }
   .error { align-self: stretch; color: var(--red); font-family: var(--mono);
            font-size: .82rem; white-space: pre-wrap; }
 
@@ -502,6 +505,19 @@ events.onmessage = e => {
   else if (m.type === "approval") approvalCard(m.id, m.description, m.key);
   else if (m.type === "done") endTurn();
   else if (m.type === "error") { el("div", "error", m.message); endTurn(); }
+  else if (m.type === "receipt") {
+    // The run's evidence, folded away until asked for.
+    const box = document.createElement("details");
+    box.className = "receipt";
+    const head = document.createElement("summary");
+    head.textContent = (m.text.split("\n")[0] || "receipt");
+    const body = document.createElement("pre");
+    body.textContent = m.text.split("\n").slice(1).join("\n").replace(/\s+$/, "");
+    box.appendChild(head);
+    box.appendChild(body);
+    feed.appendChild(box);
+    box.scrollIntoView({ block: "end" });
+  }
   else if (m.type === "reloaded") el("div", "note", "brain reloaded: " + m.path);
   else if (m.type === "auto-approved") el("div", "note", "auto-approved: " + m.description);
   else if (m.type === "test-result") {

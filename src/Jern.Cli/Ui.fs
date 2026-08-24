@@ -267,8 +267,36 @@ module Ui =
                 | Choice1Of2 _ -> ()
                 result
 
+        // The UI's trace goes to the browser *and* to disk: a session run
+        // from the web app leaves the same audit file as one run from the
+        // terminal, which is what `jern receipt` reads afterwards.
+        let traceDir = Path.Combine(config.root, ".jern")
+        Directory.CreateDirectory traceDir |> ignore
+        let runId = DateTime.Now.ToString("yyyyMMdd-HHmmss")
+        let tracePath = Path.Combine(traceDir, sprintf "trace-%s.jsonl" runId)
+        let traceFile = new StreamWriter(tracePath, append = true, AutoFlush = true)
+        let traceLock = obj ()
+
         let traceSink (line: string) =
+            lock traceLock (fun () -> traceFile.WriteLine line)
             broadcast (sprintf """{"type":"trace","event":%s}""" line)
+
+        let finishRun =
+            Trace.openRun (fun line -> lock traceLock (fun () -> traceFile.WriteLine line))
+                { runId = runId
+                  command = "ui"
+                  task = None
+                  model = (match config.model with Some m -> m | None -> config.providers.defaultModel)
+                  agent = defaultArg config.agentDir "default"
+                  budgetLlmCalls = config.providers.budgetLlmCalls
+                  budgetTokens = config.providers.budgetTokens
+                  policy =
+                    config.policySources
+                    |> List.map (fun source ->
+                        { Trace.source = PolicyConfig.originLabel source.origin
+                          Trace.digest = PolicyConfig.digest source.policy
+                          Trace.isProtected =
+                            match source.origin with PolicyConfig.Baseline _ -> true | _ -> false }) }
 
         let policyTrust path content =
             if config.policyTrust path content then true
@@ -339,6 +367,15 @@ module Ui =
                 messages.Value <- updated
                 SessionStore.save config.root sessionId updated
             broadcast (stateJson ())
+            // The same receipt the terminal prints, re-derived from the
+            // trace this session has been writing all along.
+            (match Receipt.ofTrace tracePath with
+             | Ok summary ->
+                 broadcast
+                     (jsonEvent
+                         [ "type", str "receipt"
+                           "text", str (Receipt.render Receipt.plain summary) ])
+             | Error _ -> ())
             broadcast (jsonEvent [ "type", str "done" ])
             Interlocked.Exchange(turnRunning, 0) |> ignore
 
@@ -617,4 +654,8 @@ module Ui =
           stop =
             fun () ->
                 running.Value <- false
+                // Close the run record so the session's trace ends the way a
+                // terminal run's does, then release the file.
+                finishRun (if interrupted.Value then Trace.Interrupted else Trace.Completed)
+                (try traceFile.Dispose() with _ -> ())
                 try listener.Stop() with _ -> () }

@@ -383,7 +383,7 @@ module Receipt =
             | Some d -> " · " + describeDuration d
             | None -> ""
         let outcome =
-            if not s.finished then "incomplete (no run-finished event)"
+            if not s.finished then "unfinished"
             else
                 match s.status with
                 | Some "ok" -> "ok"

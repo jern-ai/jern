@@ -820,12 +820,26 @@ let private runUi (model: string option) (cliBudget: int option) (auto: bool) (p
               // The server never prompts: the terminal answered above, and
               // rebuilds mid-session only consult what was decided there.
               policyGrantTrust = grantsAlreadyTrusted }
+    // Ctrl-C (or a supervisor's SIGTERM) closes the run record before the
+    // process goes away, so a UI session's trace ends like a terminal run's.
+    // PosixSignalRegistration is the reliable path here — ProcessExit does
+    // not run for a signalled console app. The registrations are held for
+    // the process's lifetime on purpose: collecting them unhooks the signal.
+    let signalHooks =
+        [ Runtime.InteropServices.PosixSignal.SIGINT
+          Runtime.InteropServices.PosixSignal.SIGTERM ]
+        |> List.map (fun signal ->
+            Runtime.InteropServices.PosixSignalRegistration.Create(
+                signal, fun _ -> server.stop ()))
     printfn " %s %s — ui at %s" (Style.rust "jern") (Style.steel ("v" + AgentEnv.version)) (Style.bold server.url)
     printfn " %s" (Style.dim (root + " · ctrl-c to stop"))
     try
         Diagnostics.Process.Start(Diagnostics.ProcessStartInfo(server.url, UseShellExecute = true)) |> ignore
     with _ -> ()
     server.run ()
+    // Held until the listener returns: a collected registration unhooks its
+    // signal, and this loop is the whole lifetime of the server.
+    GC.KeepAlive signalHooks
     0
 
 let private runUndo () =
