@@ -155,8 +155,9 @@ let ``the simple commands parse`` () =
     Assert.Equal(Eject, command ["eject"])
     Assert.Equal(Repl, command ["repl"])
     Assert.Equal(Mcp, command ["mcp"])
-    Assert.Equal(Policy false, command ["policy"])
-    Assert.Equal(Policy true, command ["policy"; "init"])
+    Assert.Equal(Policy(false, false), command ["policy"])
+    Assert.Equal(Policy(true, false), command ["policy"; "init"])
+    Assert.Equal(Policy(false, true), command ["policy"; "--show-compiled"])
     Assert.Equal(Script "f.ikr", command ["script"; "f.ikr"])
 
 [<Fact>]
@@ -172,3 +173,17 @@ let ``replay parses its trace and optional swaps in any order`` () =
     Assert.Equal(SubUsage Args.replayUsage, failure ["replay"])
     Assert.Equal(SubUsage Args.replayUsage, failure ["replay"; "a"; "b"])
     Assert.Equal(SubUsage Args.replayUsage, failure ["replay"; "t.jsonl"; "--policy"])
+
+[<Fact>]
+let ``policy governance flags are global and repeatable`` () =
+    let globals args =
+        match Args.parse args with
+        | Ok(g, _) -> g
+        | Error e -> failwithf "unexpected parse error: %A" e
+    let g = globals ["run"; "--policy-baseline"; "base.json"; "task"]
+    Assert.Equal(Some "base.json", g.policyBaseline)
+    // Pins accumulate, in order, from anywhere on the line.
+    let pinned = globals ["--policy-trust"; "aa"; "test"; "--policy-trust"; "bb"]
+    Assert.Equal<string list>([ "aa"; "bb" ], pinned.policyTrust)
+    Assert.Equal(BadValue "--policy-baseline needs a file path", failure ["run"; "--policy-baseline"])
+    Assert.Equal(BadValue "--policy-trust needs a sha256 policy digest", failure ["--policy-trust"])

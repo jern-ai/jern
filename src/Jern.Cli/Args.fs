@@ -12,10 +12,18 @@ type Globals =
       budget: int option
       auto: bool
       think: int option
-      effort: string option }
+      effort: string option
+      /// --policy-baseline <file>: a policy that this checkout may tighten
+      /// but not weaken. CI supplies it from the base branch or from
+      /// workflow-owned data, never from the pull request's own tree.
+      policyBaseline: string option
+      /// --policy-trust <sha256>: policy digests whose grants apply without
+      /// an interactive prompt. The way a workflow blesses grants headlessly.
+      policyTrust: string list }
 
 let defaultGlobals =
-    { model = None; budget = None; auto = false; think = None; effort = None }
+    { model = None; budget = None; auto = false; think = None; effort = None
+      policyBaseline = None; policyTrust = [] }
 
 type Command =
     /// Bare `jern` — chat on a terminal, usage text otherwise.
@@ -31,7 +39,7 @@ type Command =
     | Test of dir: string option * record: bool
     | Replay of trace: string * policy: string option * agent: string option
     | Mcp
-    | Policy of init: bool
+    | Policy of init: bool * showCompiled: bool
 
 type ParseError =
     /// A flag's value is missing or invalid; printed as "jern: <message>".
@@ -69,6 +77,11 @@ let private extractGlobals (args: string list) =
         | ["--think"] -> Error(BadValue "--think needs a positive token budget")
         | "--effort" :: level :: rest -> go acc { g with effort = Some level } rest
         | ["--effort"] -> Error(BadValue "--effort needs a level (low|medium|high)")
+        | "--policy-baseline" :: file :: rest -> go acc { g with policyBaseline = Some file } rest
+        | ["--policy-baseline"] -> Error(BadValue "--policy-baseline needs a file path")
+        | "--policy-trust" :: digest :: rest ->
+            go acc { g with policyTrust = g.policyTrust @ [ digest ] } rest
+        | ["--policy-trust"] -> Error(BadValue "--policy-trust needs a sha256 policy digest")
         | arg :: rest -> go (arg :: acc) g rest
     go [] defaultGlobals args
 
@@ -139,7 +152,8 @@ let parse (argv: string list) : Result<Globals * Command, ParseError> =
             | "test" :: more -> parseTest more
             | "replay" :: more -> parseReplay more
             | ["mcp"] -> Ok Mcp
-            | ["policy"] -> Ok(Policy false)
-            | ["policy"; "init"] -> Ok(Policy true)
+            | ["policy"] -> Ok(Policy(false, false))
+            | ["policy"; "--show-compiled"] -> Ok(Policy(false, true))
+            | ["policy"; "init"] -> Ok(Policy(true, false))
             | other -> Error(UnknownArgs other)
         command |> Result.map (fun c -> globals, c)

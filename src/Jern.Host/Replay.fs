@@ -45,7 +45,12 @@ module Replay =
           /// MCP servers to connect for toolset parity in the requests;
           /// their tools are advertised but never invoked — every call is
           /// answered from the recording.
-          mcpServers: Mcp.ServerSpec list }
+          mcpServers: Mcp.ServerSpec list
+          /// Policy from configuration, so a replay is judged by the rules
+          /// in force *now*. Grants are taken as given: a replay performs no
+          /// real effects (every call answers from the trace), so there is
+          /// nothing for a trust prompt to protect here.
+          policySources: PolicyConfig.Source list }
 
     type private Recorded =
         { task: string
@@ -198,6 +203,7 @@ module Replay =
                             agentSources = Session.agentPackageSources options.agentDir
                             agentConfig = options.agentConfig
                             mcpServers = options.mcpServers
+                            policySources = options.policySources
                             toolDispatch = Some toolDispatch
                             // The recording already answers everything, so
                             // approval questions (from a swapped-in stricter

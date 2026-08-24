@@ -39,13 +39,16 @@ Usage:
                       edited agent to see exactly where and how the run
                       would have diverged
   jern mcp            Connect the configured MCP servers and list their tools
-  jern policy [init]  Show the active tool policy; `init` writes a workspace
-                      policy (.jern/policy.ikr) that overrides the built-in
-                      rules for this repo — enforced, testable Kernel source
+  jern policy [init | --show-compiled]
+                      Show the effective policy and where each rule came
+                      from; `init` writes a workspace policy
+                      (.jern/policy.ikr); `--show-compiled` prints the Kernel
+                      source that jern.json's "policy" object compiles to
   jern --version      Print version
 
 Flag order is free: global flags (--model, --budget, --auto, --think,
---effort) and each command's own flags may appear anywhere on the line
+--effort, --policy-baseline, --policy-trust) and each command's own flags
+may appear anywhere on the line
 (e.g. jern run "fix the tests" --agent agents/reviewer).
 
 Models & providers:
@@ -73,6 +76,18 @@ Budgets:
   --budget <n> caps the run at n model calls (or set jern.json
   "budget": { "llm_calls": n, "tokens": m }). Enforced in the handler
   stack: on exhaustion the agent must ask you before continuing.
+
+Policy:
+  A "policy" object in jern.json enforces repository rules without any
+  Kernel — restrictions apply on sight, grants are confirmed once:
+    "policy": { "edits_within": ["src/"], "shell_allow": ["pytest"],
+                "deny": ["mcp__*"], "memory": "ask" }
+  Restrictions compose by severity, so nothing loaded later (a grant, a
+  hand-written .jern/policy.ikr) can turn a denial into an approval.
+  --policy-baseline <file> supplies rules the checkout may tighten but not
+  weaken (CI points this at base-branch data, never at the PR's own tree);
+  --policy-trust <sha256> blesses a policy's grants in an unattended run,
+  where jern never prompts. See jern policy.
 
 MCP:
   Add servers in jern.json — their tools join the agent's toolset as
@@ -151,6 +166,8 @@ type private UsageMeter() =
 
 let mutable private cliThink : int option = None
 let mutable private cliEffort : string option = None
+let mutable private cliPolicyBaseline : string option = None
+let mutable private cliPolicyTrust : string list = []
 
 let private loadProviders () =
     match Providers.load Environment.CurrentDirectory with
@@ -169,6 +186,77 @@ let private sessionBudget (providers: Providers.Config) (cliBudget: int option) 
     match cliBudget with
     | Some calls -> Providers.budget { providers with budgetLlmCalls = Some calls }
     | None -> Providers.budget providers
+
+/// The protected policy baseline (`--policy-baseline <file>`): rules this
+/// checkout may tighten but never weaken. CI points it at base-branch or
+/// workflow-owned data — never at the pull request's own tree, which is the
+/// whole point. The file may be a bare policy object or a jern.json-shaped
+/// file with a "policy" key, so a workflow can reuse a checked-in config.
+let private baselineSource () =
+    match cliPolicyBaseline with
+    | None -> None
+    | Some file ->
+        if not (IO.File.Exists file) then
+            eprintfn "jern: --policy-baseline '%s' does not exist" file
+            exit 2
+        let node =
+            try
+                let doc = Text.Json.Nodes.JsonNode.Parse(IO.File.ReadAllText file: string)
+                match doc with
+                | :? Text.Json.Nodes.JsonObject as o when not (isNull o.["policy"]) -> o.["policy"]
+                | other -> other
+            with ex ->
+                eprintfn "jern: --policy-baseline '%s' is not readable JSON: %s" file ex.Message
+                exit 2
+        match PolicyConfig.parse node with
+        | Error message ->
+            eprintfn "jern: --policy-baseline '%s': %s" file message
+            exit 2
+        | Ok policy ->
+            Some { PolicyConfig.origin = PolicyConfig.Baseline(IO.Path.GetFileName file)
+                   PolicyConfig.policy = policy }
+
+/// Every policy source for this run. The baseline goes first: it is the
+/// layer nothing in the checkout may weaken.
+let private policySources (providers: Providers.Config) =
+    (baselineSource () |> Option.toList) @ providers.policySources
+
+/// Has this source's grant half already been blessed — by a `--policy-trust`
+/// pin from the workflow, or by an earlier yes in the trust store? Asks
+/// nothing; `jern policy` and headless runs use it as-is.
+let private grantsAlreadyTrusted (identity: string) (canonical: string) =
+    let digest = Trust.contentHash canonical
+    cliPolicyTrust |> List.exists (fun pin -> pin.Trim().ToLowerInvariant() = digest)
+    || Trust.isTrusted (Trust.defaultStorePath ()) identity canonical
+
+/// First-use trust for the *grant* half of a repository-supplied policy.
+/// Restrictions never come here — tightening is free. Loosening is not: a
+/// cloned repo's jern.json can grant permissions exactly like its
+/// policy.ikr can, so it is shown and confirmed once. Declining (or having
+/// no terminal) drops the grants and keeps the restrictions.
+let private ttyPolicyGrantTrust (identity: string) (canonical: string) =
+    if grantsAlreadyTrusted identity canonical then true
+    else
+        let digest = Trust.contentHash canonical
+        if Console.IsInputRedirected then
+            // Session names the source it dropped; add only the remedy.
+            eprintfn "jern: to allow that policy's grants in an unattended run: --policy-trust %s" digest
+            false
+        else
+            let rule = Style.dim (String.replicate 60 "─")
+            printfn ""
+            printfn "%s" (Style.yellow (sprintf "This workspace's policy grants extra permissions: %s" identity))
+            printfn "%s" (Style.dim "Its restrictions apply either way; only the relaxations need your yes.")
+            printfn "%s" rule
+            printfn "%s" canonical
+            printfn "%s" rule
+            printf "%s %s " (Style.yellow "trust these policy grants?") (Style.bold "[y/N]")
+            match Console.ReadLine() with
+            | null -> false
+            | answer when answer.Trim().ToLowerInvariant() = "y" ->
+                Trust.remember (Trust.defaultStorePath ()) identity canonical
+                true
+            | _ -> false
 
 /// The provider-routing bridge for live commands. `interrupted` aborts a
 /// streaming turn from inside the text callback.
@@ -326,7 +414,9 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
                 mcpServers = providers.mcpServers
                 budget = sessionBudget providers cliBudget
                 interrupted = (fun () -> interrupted.Value)
-                policyTrust = ttyPolicyTrust }
+                policyTrust = ttyPolicyTrust
+                policySources = policySources providers
+                policyGrantTrust = ttyPolicyGrantTrust }
 
     let effectiveModel () =
         match currentModel with
@@ -425,7 +515,9 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
             agentConfig = Providers.agentConfig providers
             mcpServers = providers.mcpServers
             budget = sessionBudget providers cliBudget
-            policyTrust = ttyPolicyTrust }
+            policyTrust = ttyPolicyTrust
+            policySources = policySources providers
+            policyGrantTrust = ttyPolicyGrantTrust }
     match Session.createWith config with
     | Choice1Of2 error ->
         eprintfn "Startup error: %s" (showError error)
@@ -468,7 +560,8 @@ let private runReplay (tracePath: string) (policyFile: string option) (agentDir:
                     agentDir = agent
                     policyFile = policyFile
                     agentConfig = Providers.agentConfig providers
-                    mcpServers = providers.mcpServers } with
+                    mcpServers = providers.mcpServers
+                    policySources = policySources providers } with
         | Error message ->
             eprintfn "jern replay: %s" message
             2
@@ -520,9 +613,10 @@ let private runMcp () =
         if failures = 0 then 0 else 1
 
 
-/// `jern policy` — show which policy governs this workspace;
+/// `jern policy` — show the effective policy with provenance;
+/// `jern policy --show-compiled` — the Kernel source config compiles to;
 /// `jern policy init` — write the workspace override template.
-let private runPolicy (init: bool) =
+let private runPolicy (init: bool) (showCompiled: bool) =
     let root = Environment.CurrentDirectory
     let workspacePath = IO.Path.Combine(root, ".jern", "policy.ikr")
     if init then
@@ -538,16 +632,65 @@ let private runPolicy (init: bool) =
             printfn "wrote %s" workspacePath
             printfn "it now governs every jern session in this workspace; edit and re-run"
             0
-    else
-        if IO.File.Exists workspacePath then
-            printfn "workspace policy: %s" workspacePath
-            printfn ""
-            printf "%s" (IO.File.ReadAllText workspacePath)
+    elif showCompiled then
+        // Exactly what the config layers evaluate to — the escape hatch stays
+        // honest: paste this into .jern/policy.ikr and edit it by hand.
+        let sources = policySources (loadProviders ())
+        if sources.IsEmpty then
+            printfn "%s" (Style.dim "; no \"policy\" in configuration — only the built-in rules below apply")
+            printf "%s" (IO.File.ReadAllText(Session.kernelFile "policy.ikr"))
         else
-            let builtin = Session.kernelFile "policy.ikr"
-            printfn "built-in policy: %s (override with: jern policy init)" builtin
+            for source in sources do
+                let label = PolicyConfig.originLabel source.origin
+                let grants =
+                    match source.origin with
+                    | PolicyConfig.Workspace _ ->
+                        grantsAlreadyTrusted (PolicyConfig.trustIdentity source.origin)
+                                             (PolicyConfig.canonicalJson source.policy)
+                    | _ -> true
+                printf "%s" (PolicyConfig.compile label grants source.policy)
+        0
+    else
+        let providers = loadProviders ()
+        let sources = policySources providers
+        printfn ""
+        printfn " %s %s" (Style.rust "effective policy") (Style.dim root)
+        printfn ""
+        printfn "  %s" (Style.bold "built-in")
+        printfn "    %s" (Style.dim (Session.kernelFile "policy.ikr"))
+        printfn "    %s" (Style.dim "reads allow; writes, shell, and MCP tools ask")
+        for source in sources do
+            let label = PolicyConfig.originLabel source.origin
+            let canonical = PolicyConfig.canonicalJson source.policy
+            let isProtected = match source.origin with PolicyConfig.Baseline _ -> true | _ -> false
+            let grantsTrusted =
+                if not (PolicyConfig.hasGrants source.policy) then true
+                else
+                    match source.origin with
+                    | PolicyConfig.Workspace _ ->
+                        grantsAlreadyTrusted (PolicyConfig.trustIdentity source.origin) canonical
+                    | _ -> true
             printfn ""
-            printf "%s" (IO.File.ReadAllText builtin)
+            printfn "  %s %s%s" (Style.bold label)
+                (Style.dim ("sha256 " + (PolicyConfig.digest source.policy).Substring(0, 12) + "…"))
+                (if isProtected then "  " + Style.steel "[protected]" else "")
+            for line in PolicyConfig.describeRestrictions source.policy do
+                printfn "    %s %s" (Style.steel "restrict") line
+            for line in PolicyConfig.describeGrants source.policy do
+                printfn "    %s    %s   %s" (Style.steel "grant") line
+                    (if grantsTrusted then Style.green "[trusted]" else Style.yellow "[not trusted — dropped]")
+        if IO.File.Exists workspacePath then
+            let content = IO.File.ReadAllText workspacePath
+            let trusted = Trust.isTrusted (Trust.defaultStorePath ()) workspacePath content
+            printfn ""
+            printfn "  %s %s" (Style.bold ".jern/policy.ikr")
+                (if trusted then Style.green "[trusted]" else Style.yellow "[not trusted — skipped]")
+            printfn "    %s" (Style.dim "arbitrary Kernel; may relax the base, but restrictions above still win")
+        printfn ""
+        printfn " %s" (Style.dim "restrictions compose by severity — a denial beats ask beats allow;")
+        printfn " %s" (Style.dim "nothing loaded later can turn a restriction's denial into an approval.")
+        printfn " %s" (Style.dim "compiled source: jern policy --show-compiled")
+        printfn ""
         0
 
 /// `jern ui` — serve the chat session as a local web app and open it.
@@ -564,6 +707,14 @@ let private runUi (model: string option) (cliBudget: int option) (auto: bool) (p
     let policyPath = IO.Path.GetFullPath(IO.Path.Combine(root, ".jern", "policy.ikr"))
     if IO.File.Exists policyPath then
         ttyPolicyTrust policyPath (IO.File.ReadAllText policyPath) |> ignore
+    let sources = policySources providers
+    for source in sources do
+        if PolicyConfig.hasGrants source.policy then
+            match source.origin with
+            | PolicyConfig.Workspace _ ->
+                ttyPolicyGrantTrust (PolicyConfig.trustIdentity source.origin)
+                                    (PolicyConfig.canonicalJson source.policy) |> ignore
+            | _ -> ()
     let server =
         Ui.start
             { root = root
@@ -581,7 +732,11 @@ let private runUi (model: string option) (cliBudget: int option) (auto: bool) (p
               auto = auto
               port = port
               policyTrust = fun path content -> Trust.isTrusted (Trust.defaultStorePath ()) path content
-              rememberPolicy = fun path content -> Trust.remember (Trust.defaultStorePath ()) path content }
+              rememberPolicy = fun path content -> Trust.remember (Trust.defaultStorePath ()) path content
+              policySources = sources
+              // The server never prompts: the terminal answered above, and
+              // rebuilds mid-session only consult what was decided there.
+              policyGrantTrust = grantsAlreadyTrusted }
     printfn " %s %s — ui at %s" (Style.rust "jern") (Style.steel ("v" + AgentEnv.version)) (Style.bold server.url)
     printfn " %s" (Style.dim (root + " · ctrl-c to stop"))
     try
@@ -617,7 +772,9 @@ let private runRepl (model: string option) =
         | Ok bridge -> bridge
     match Session.createWith
               { Session.configIn Environment.CurrentDirectory bridge with
-                  policyTrust = ttyPolicyTrust } with
+                  policyTrust = ttyPolicyTrust
+                  policySources = policySources (loadProviders ())
+                  policyGrantTrust = ttyPolicyGrantTrust } with
     | Choice1Of2 error ->
         eprintfn "Startup error: %s" (showError error)
         1
@@ -643,7 +800,9 @@ let private runScript (path: string) (model: string option) =
         | Ok bridge -> bridge
     match Session.createWith
               { Session.configIn Environment.CurrentDirectory bridge with
-                  policyTrust = ttyPolicyTrust } with
+                  policyTrust = ttyPolicyTrust
+                  policySources = policySources (loadProviders ())
+                  policyGrantTrust = ttyPolicyGrantTrust } with
     | Choice1Of2 error ->
         eprintfn "Startup error: %s" (showError error)
         1
@@ -691,6 +850,8 @@ let main argv =
     | Ok(globals, command) ->
         cliThink <- globals.think
         cliEffort <- globals.effort
+        cliPolicyBaseline <- globals.policyBaseline
+        cliPolicyTrust <- globals.policyTrust
         let model = globals.model
         let cliBudget = globals.budget
         let auto = globals.auto
@@ -709,7 +870,7 @@ let main argv =
         | Args.Undo -> runUndo ()
         | Args.Ui(port, agent) -> runUi model cliBudget auto port agent
         | Args.Mcp -> runMcp ()
-        | Args.Policy init -> runPolicy init
+        | Args.Policy(init, showCompiled) -> runPolicy init showCompiled
         | Args.Eject -> runEject ()
         | Args.Test(dir, record) -> runTests dir record model
         | Args.Replay(trace, policy, agent) -> runReplay trace policy agent

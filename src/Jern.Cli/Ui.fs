@@ -69,7 +69,13 @@ module Ui =
           /// Called when the user saves the workspace policy in the brain
           /// editor — an edit through the authenticated UI is the user
           /// authoring the file, so its content is trusted without a prompt.
-          rememberPolicy: string -> string -> unit }
+          rememberPolicy: string -> string -> unit
+          /// Policy from configuration (jern.json, a protected baseline).
+          /// Restrictions always apply; grants only when policyGrantTrust
+          /// agrees — the CLI answers that on the terminal before the server
+          /// starts, like the workspace-policy question.
+          policySources: PolicyConfig.Source list
+          policyGrantTrust: string -> string -> bool }
 
     type Server =
         { url: string
@@ -284,7 +290,9 @@ module Ui =
                     mcpServers = config.mcpServers
                     budget = config.budget
                     interrupted = (fun () -> interrupted.Value)
-                    policyTrust = policyTrust }
+                    policyTrust = policyTrust
+                    policySources = config.policySources
+                    policyGrantTrust = config.policyGrantTrust }
 
         let session =
             match buildSession () with

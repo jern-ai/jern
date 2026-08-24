@@ -180,7 +180,9 @@ module PolicyConfig =
         b.ToString()
 
     let private kernelList (values: string list) =
-        "(list " + String.Join(" ", values |> List.map kernelString) + ")"
+        match values with
+        | [] -> "(list)"
+        | _ -> "(list " + String.Join(" ", values |> List.map kernelString) + ")"
 
     /// Split tool-name patterns into exact names and `*`-suffix prefixes.
     /// Wildcards are expanded here rather than in Kernel, so the generated
@@ -239,6 +241,25 @@ module PolicyConfig =
             add (sprintf "(add-memory-restriction! %s %s)" (kernelString (label + " memory")) value)
         | _ -> ()
         String.Join("\n", lines) + "\n"
+
+    /// Human-readable summaries of a policy's two halves, for `jern policy`
+    /// and the trust prompt. Restrictions always apply; grants are the part
+    /// that needs a yes.
+    let describeRestrictions (policy: Policy) : string list =
+        [ if not policy.editsWithin.IsEmpty then
+            yield "edits_within: " + String.Join(", ", policy.editsWithin)
+          if not policy.deny.IsEmpty then
+            yield "deny: " + String.Join(", ", policy.deny)
+          match policy.memory with
+          | Some ("ask" | "deny" as m) -> yield "memory: " + m
+          | _ -> () ]
+
+    let describeGrants (policy: Policy) : string list =
+        [ if not policy.shellAllow.IsEmpty then
+            yield "shell_allow: " + String.Join(", ", policy.shellAllow)
+          if not policy.allow.IsEmpty then
+            yield "allow: " + String.Join(", ", policy.allow)
+          if policy.memory = Some "allow" then yield "memory: allow" ]
 
     // ---------------------------------------------------------------------
     // Sources

@@ -50,7 +50,8 @@ let private replay tracePath policyFile =
           agentDir = repoAgentDir ()
           policyFile = policyFile
           agentConfig = Nil
-          mcpServers = [] }
+          mcpServers = []
+          policySources = [] }
 
 [<Fact>]
 let ``a faithful replay re-runs the whole recording offline`` () =

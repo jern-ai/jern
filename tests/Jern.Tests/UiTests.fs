@@ -28,7 +28,9 @@ let private startServer root makeBridge agentSources agentDir model : Ui.Server 
               // Tests trust every workspace policy and never touch the
               // real ~/.config/jern/trusted.json.
               policyTrust = (fun _ _ -> true)
-              rememberPolicy = fun _ _ -> () }
+              rememberPolicy = fun _ _ -> ()
+              policySources = []
+              policyGrantTrust = fun _ _ -> true }
     Task.Run(server.run) |> ignore
     server
 
