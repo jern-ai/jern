@@ -46,8 +46,15 @@ Every effect crosses the handler stack installed by
 user can read and replace:
 
 ```
-log → approval → provider → budget → tool-executor → git → policy → agent code
+log → approval → memory → spawn → provider → budget → tool-executor → git → policy → agent code
 ```
+
+(Outermost first. A `jern/tool-call` performed by agent code meets the policy
+handler first and, if allowed, re-performs outward through git into the
+executor; `jern/approve` questions raised by policy, budget, or memory travel
+outward to the approval handler, which therefore sits outside them all. A
+`kernel_eval` program and a `jern/spawn` child each get a *fresh copy* of
+this whole stack, so their effects are governed exactly like the parent's.)
 
 - The **policy handler** sees every `jern/tool-call` first and decides
   `:allow`, `:ask`, or deny. The default policy: reads (`read_file`,
@@ -60,6 +67,74 @@ log → approval → provider → budget → tool-executor → git → policy �
   model-call or token budget is a hard cap — exhaustion becomes an approval
   question, not a suggestion the model may ignore.
 - Denials come back to the agent as error tool-results, not crashes.
+
+### Policy is composed, not overwritten
+
+The rules in force are the composition of several layers, and the direction
+each layer may push is fixed:
+
+```
+  restrictions   tighten only          jern.json + a protected baseline
+  base           tool-policy           built-in, or .jern/policy.ikr
+  grants         relax the base only   trusted config
+```
+
+A decision's severity — deny beats `:ask` beats `:allow` — is what makes the
+guarantee: **no layer loaded later can turn a restriction's denial into an
+approval.** Not a trusted grant, not a hand-written `.jern/policy.ikr` that
+rebinds `tool-policy` to `:allow` wholesale. Every `policy-decision` in the
+trace records the layer that decided (`:by`), and each layer announces its
+identity and SHA-256 digest as a `policy-layer` trace event when the session
+is built. `jern policy` prints the effective composition with provenance;
+`jern policy --show-compiled` prints the Kernel source configuration
+compiles to.
+
+### Policy from configuration, and its trust split
+
+A `"policy"` object in `jern.json` gives a repository enforced rules without
+any Kernel:
+
+```json
+"policy": {
+  "edits_within": ["src/", "tests/"],
+  "shell_allow":  ["pytest"],
+  "deny":         ["mcp__*"],
+  "memory":       "ask"
+}
+```
+
+The two halves are trusted differently, because they carry different risk:
+
+- **Restrictions** (`edits_within`, `deny`, `memory: ask|deny`) only tighten,
+  so they load on sight, with no prompt. A cloned repository can lock its
+  agents down without asking anyone's permission.
+- **Grants** (`shell_allow`, `allow`, `memory: allow`) can loosen approvals —
+  the same power a workspace policy file has — so a repository-supplied grant
+  is confirmed once, exactly like `.jern/policy.ikr`. Trust is keyed by the
+  source's identity plus the SHA-256 of its *canonical* JSON (UTF-8, keys
+  sorted ordinally, arrays order-preserving, no insignificant whitespace), so
+  a reordered or reformatted file is the same policy and an edited one asks
+  again. Declining — or having no terminal — drops the grants and keeps the
+  restrictions.
+
+Malformed policy is a startup error, never a silent no-op: a typo in a rule
+meant to restrict must not look like it applied.
+
+### Protected baselines, for unattended and CI runs
+
+A policy checked out *from* a pull request cannot govern that pull request:
+the same diff can loosen `jern.json`, replace `.jern/policy.ikr`, or bless a
+changed recording. `--policy-baseline <file>` supplies rules from outside the
+checkout — the base branch, or data the workflow owns — that the checkout may
+tighten but never weaken. Its restrictions outrank everything in the tree,
+and its identity and digest appear in `jern policy` and in the trace.
+
+Headless runs never prompt. Where a workflow does want a policy's grants, it
+pins them with `--policy-trust <sha256>`; without a pin the grants are
+dropped, the restrictions stay, and jern prints the digest that would allow
+them. A workflow that sources its purported baseline from the head checkout
+has no protection at all — that is the Action's responsibility to prevent,
+and it is documented as such.
 
 ### Workspace policy loads on first-use trust
 
@@ -87,8 +162,10 @@ never silent.
 
 Every effect is recorded as JSONL at the same choke point that enforces
 policy: `llm-call`/`llm-response`, `tool-call`/`tool-result`,
-`policy-decision` (with the decision), `approval-denied`, and agent `log`
-events, each timestamped. `jern run` writes it to `.jern/trace-*.jsonl`. A
+`policy-decision` (with the decision and the layer that made it),
+`policy-layer` (each layer's identity, digest, and whether its grants were
+trusted), `approval-denied`, `memory-recall`/`memory-remember`,
+`spawn`/`spawn-result`, and agent `log` events, each timestamped. `jern run` writes it to `.jern/trace-*.jsonl`. A
 side effect that bypassed policy would be a side effect with no
 `policy-decision` line — the trace makes the claim checkable.
 

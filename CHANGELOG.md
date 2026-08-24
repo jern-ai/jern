@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+- **Policy from configuration.** A `"policy"` object in `jern.json`
+  (`edits_within`, `shell_allow`, `allow`, `deny`, `memory`) enforces
+  repository rules without writing any Kernel. `jern policy` prints the
+  effective policy with per-layer provenance, digests, and trust status;
+  `jern policy --show-compiled` prints the Kernel source it compiles to.
+- **Policy composes instead of being overwritten.** The policy handler
+  now combines layers by severity — a denial beats `:ask` beats
+  `:allow` — over a base that `.jern/policy.ikr` may still rebind. The
+  guarantee that falls out: no layer loaded later can turn a
+  restriction's denial into an approval. Every `policy-decision` trace
+  event records the layer that decided, and each layer announces its
+  identity and SHA-256 digest as a `policy-layer` event.
+- **A trust split sized to the risk.** Restrictions only tighten, so
+  they load with no prompt — a cloned repo can lock its agents down
+  freely. Grants can loosen approvals, so a repository-supplied one is
+  confirmed once, keyed by the source's identity plus the SHA-256 of its
+  canonical JSON (sorted keys, order-preserving arrays, no insignificant
+  whitespace). Declining, or having no terminal, drops the grants and
+  keeps the restrictions.
+- **Protected baselines and headless trust**, for unattended and CI
+  runs: `--policy-baseline <file>` supplies rules from outside the
+  checkout — base branch or workflow-owned data — that the tree may
+  tighten but never weaken, so a pull request cannot buy itself
+  permission by rewriting its own `jern.json` or `.jern/policy.ikr`.
+  `--policy-trust <sha256>` blesses a policy's grants where jern must
+  never prompt; without a pin, unattended runs drop grants, keep
+  restrictions, and print the digest that would allow them.
+
 ## 0.12.0 — 2026-08-23
 
 - **Programmatic tool calling: `kernel_eval`.** The model can now write

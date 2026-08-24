@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>jern — the coding agent whose brain is a program</title>
-<meta name="description" content="jern (Norwegian: iron) is a terminal coding agent whose loop, tools, and policies are IronKernel source you can read, edit, and unit-test deterministically.">
+<title>jern — the coding agent you can govern</title>
+<meta name="description" content="jern (Norwegian: iron) is a terminal coding agent you can govern: rules your repository enforces, hard budgets, a byte-exact audit trail of every run, and a regression suite for the agent's own behavior.">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta property="og:title" content="jern — the coding agent whose brain is a program">
-<meta property="og:description" content="Read the agent's loop, edit it without trusting it, and unit-test it with deterministic LLM replay.">
+<meta property="og:title" content="jern — the coding agent you can govern">
+<meta property="og:description" content="Rules your repository enforces, budgets that are walls, and a byte-exact record of every run — replayable offline.">
 <meta property="og:image" content="https://jern.ai/icon-512.png">
 <meta property="og:url" content="https://jern.ai">
 <style>
@@ -59,6 +59,7 @@
   pre code { color: var(--ink); }
   pre .c { color: var(--dim); }
   pre .p { color: var(--rust); }
+  pre .s { color: var(--steel); }
   a { color: var(--steel); }
   .loop { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
           gap: .8rem; margin: 1.5rem 0; }
@@ -82,9 +83,9 @@
 <main>
   <h1>jern<span class="no">/jæɳ/ — Norwegian for <em>iron</em></span></h1>
 
-  <p class="tagline">A terminal coding agent whose brain is a
-  <b>program</b> — not a prompt, not a config file. Read it, edit it,
-  and unit-test it deterministically.</p>
+  <p class="tagline">A terminal coding agent you can <b>govern</b>: rules
+  your repository enforces, budgets that are walls, and a byte-exact record
+  of every run.</p>
 
   <video controls preload="metadata" poster="screencast-poster.png">
     <source src="screencast.webm" type="video/webm">
@@ -102,15 +103,19 @@
   <a href="https://github.com/jern-ai/jern/releases/latest">releases page</a>.
   Full reference in the <a href="/docs/">docs</a>.</p>
 
+  <pre><code><span class="c">// jern.json — enforced for every jern session in this repo</span>
+<span class="s">"policy"</span>: { <span class="s">"edits_within"</span>: [<span class="s">"src/"</span>], <span class="s">"shell_allow"</span>: [<span class="s">"pytest"</span>], <span class="s">"deny"</span>: [<span class="s">"mcp__*"</span>] }</code></pre>
+
   <pre><code><span class="p">$</span> jern run "fix the failing test"   <span class="c"># works like the agents you know</span>
-<span class="p">$</span> jern eject                        <span class="c"># the whole brain: ~120 lines of source</span>
-<span class="p">$</span> $EDITOR agents/default/src/main.ikr   <span class="c"># change the loop; no recompile</span>
+<span class="p">$</span> jern policy                       <span class="c"># every rule, and where it came from</span>
+<span class="p">$</span> jern replay .jern/trace-*.jsonl   <span class="c"># re-run any past run offline;</span>
+                                    <span class="c"># --policy strict.ikr shows what would differ</span>
 <span class="p">$</span> jern test                         <span class="c"># deterministic replay — offline, no key —</span>
                                     <span class="c"># catches any change to agent behavior</span></code></pre>
 
   <div class="loop">
     <div><b>use it</b><p>Anthropic, OpenAI, Ollama, or any OpenAI-compatible endpoint. MCP servers as tools. Streaming, git auto-commit with undo, a local web UI with approval cards, a full JSONL audit trace.</p></div>
-    <div><b>read it</b><p>The loop, the tools, the allow/ask/deny policy, and the run budgets are IronKernel source shipped beside the binary — not hooks into an opaque core. Your repo can carry its own enforced policy.</p></div>
+    <div><b>govern it</b><p>A <code>policy</code> object in <code>jern.json</code> scopes edits, allowlists commands, and denies tools — enforced at the one choke point every effect crosses. Restrictions only tighten: nothing loaded later can turn a denial into an approval.</p></div>
     <div><b>edit it</b><p>Agent code runs in a capability environment holding no file, network, or process authority — only unforgeable effect tags. Editing the brain never means trusting it.</p></div>
     <div><b>test it</b><p><code>jern test</code> replays recorded LLM fixtures byte-exactly and asserts trajectory properties — "never shelled out", "edits only under src/". A regression-tested agent: name another one.</p></div>
   </div>

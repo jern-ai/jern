@@ -1,0 +1,20 @@
+{
+  "//": "A worked jern.json. Copy the parts you want into your repository's own.",
+
+  "default_model": "anthropic/claude-opus-5",
+  "test_command": "pytest -q",
+
+  "policy": {
+    "//": "Restrictions tighten and load on sight. Grants can loosen approvals, so jern confirms them once (or takes --policy-trust <sha256> in CI).",
+
+    "edits_within": ["src/", "tests/"],
+    "deny": ["mcp__*"],
+    "shell_allow": ["pytest", "npm test"],
+    "allow": ["mcp__github__get_issue"],
+    "memory": "ask"
+  },
+
+  "budget": { "llm_calls": 30, "tokens": 200000 },
+
+  "limits": { "shell_timeout_seconds": 120, "eval_timeout_seconds": 30 }
+}

@@ -1,19 +1,34 @@
 # jern
 
-**jern** (Norwegian: *iron*) is a terminal coding agent whose brain is an
-**inspectable, editable, testable program**: the agent loop, tools, and
-policies are [IronKernel](https://ironkernel.org/) source shipped alongside
-the binary. https://jern.ai
+**jern** (Norwegian: *iron*) is a terminal coding agent you can **govern**:
+the rules it works under are enforced by the runtime rather than requested in
+a prompt, every run leaves a byte-exact audit trail, and its behavior has a
+regression suite. https://jern.ai
 
-- `jern run "fix the failing test"` works out of the box *(M3)*
-- `jern --agent ./my-agent` swaps the brain *(M6)*
-- `jern test` runs the agent against recorded LLM fixtures, deterministically *(M5)*
+```json
+// jern.json — your repository's rules, enforced for every session in it
+"policy": { "edits_within": ["src/"], "shell_allow": ["pytest"], "deny": ["mcp__*"] }
+```
 
-The agent performs effects; it holds no authority. Agent code runs in a
-restricted capability environment and reaches the world only through
-`(perform jern/llm-call …)`, `(perform jern/tool-call …)`, … — answered by a
-handler stack the host installs (trace → policy → approval → provider), itself
-Kernel source you can read and replace.
+- **Rules are enforced, not suggested.** An edit outside `src/` comes back to
+  the model as a denial it must work around — there is no path to the
+  filesystem that skips the check. Restrictions compose by severity, so
+  nothing loaded later can turn a denial into an approval.
+- **Budgets are walls.** `--budget 20` means the 21st model call becomes a
+  question to you, not a surprise on your bill.
+- **Every run is recorded**, and `jern replay` re-runs it offline — swap in
+  stricter rules to see exactly where the run would have gone differently.
+- **`jern test`** replays recorded LLM traffic byte-exactly and asserts
+  properties of the whole trajectory: never shelled out, edits stayed under
+  `src/`, at most four model calls.
+
+Why it can promise that, when a prompt cannot: the loop, the tools, and the
+policy are [IronKernel](https://ironkernel.org/) source shipped beside the
+binary, and agent code holds *no authority* — it reaches the world only
+through effects the host's handler stack answers. Enforcement lives at that
+choke point, so it cannot be argued around. You never have to open that
+source (`jern.json` covers the common cases); when you want to, it is right
+there — `jern eject`, edit, `jern test`.
 
 Scope and milestones: [docs/implementation-plan.md](docs/implementation-plan.md).
 Long-range map: [ideas/iron-agent-spec.md](ideas/iron-agent-spec.md).
@@ -35,6 +50,20 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M21 — policy from configuration** (unreleased): a `"policy"` object in
+  `jern.json` — `edits_within`, `shell_allow`, `allow`, `deny`, `memory` —
+  gives a repository enforced rules with no Kernel in sight. The policy
+  handler now *composes* layers instead of asking one redefinable function:
+  restrictions tighten, grants relax the base, and severity decides, so
+  **nothing loaded later can turn a restriction's denial into an approval** —
+  not a trusted grant, not a hand-written `.jern/policy.ikr`. Restrictions
+  load on sight; grants can loosen approvals, so a repo-supplied one is
+  confirmed once (keyed by canonical-JSON digest) and declining keeps the
+  restrictions. `--policy-baseline <file>` supplies rules from outside the
+  checkout that a pull request may tighten but never weaken, and
+  `--policy-trust <sha256>` blesses grants where jern must not prompt.
+  `jern policy` shows every rule with provenance and trust status;
+  `jern policy --show-compiled` prints the Kernel it all compiles to.
 - **M20 — programmatic tool calling** (v0.12): the model writes a
   whole IronKernel program instead of one tool call per round-trip — the
   new `kernel_eval` tool evaluates it in a persistent sandbox child of

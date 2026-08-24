@@ -43,6 +43,7 @@
   pre code { color: var(--ink); }
   pre .c { color: var(--dim); }
   pre .p { color: var(--rust); }
+  pre .s { color: var(--steel); }
   a { color: var(--steel); }
   table { border-collapse: collapse; width: 100%; margin: .8rem 0;
           font-size: .88rem; }
@@ -155,8 +156,9 @@
   where behavior would have diverged, recorded-vs-actual.</p>
 
   <h3>jern policy</h3>
-  <pre><code><span class="p">$</span> jern policy        <span class="c"># show the active tool policy</span>
-<span class="p">$</span> jern policy init   <span class="c"># write .jern/policy.ikr for this workspace</span></code></pre>
+  <pre><code><span class="p">$</span> jern policy                  <span class="c"># every rule in force, and where it came from</span>
+<span class="p">$</span> jern policy --show-compiled  <span class="c"># the Kernel source jern.json compiles to</span>
+<span class="p">$</span> jern policy init             <span class="c"># write .jern/policy.ikr for this workspace</span></code></pre>
 
   <h3>jern mcp</h3>
   <p>Connects the configured MCP servers and lists their tools.
@@ -180,6 +182,8 @@
     <tr><td><code>--budget &lt;n&gt;</code></td><td>Hard cap the run at n model calls (<a href="#budgets">budgets</a>)</td></tr>
     <tr><td><code>--think &lt;tokens&gt;</code></td><td>Anthropic extended thinking with that budget (<a href="#reasoning">reasoning</a>)</td></tr>
     <tr><td><code>--effort low|medium|high</code></td><td>Reasoning effort for OpenAI-style reasoning models</td></tr>
+    <tr><td><code>--policy-baseline &lt;file&gt;</code></td><td>Rules this checkout may tighten but not weaken (<a href="#approvals">policy</a>)</td></tr>
+    <tr><td><code>--policy-trust &lt;sha256&gt;</code></td><td>Bless a policy's grants where jern must not prompt (CI)</td></tr>
   </table>
 
   <h2 id="configuration">Configuration</h2>
@@ -211,6 +215,7 @@
     <tr><td><code>thinking_tokens</code></td><td>Anthropic extended-thinking budget</td></tr>
     <tr><td><code>reasoning_effort</code></td><td>Effort for OpenAI-style reasoning models</td></tr>
     <tr><td><code>mcp_servers</code></td><td>MCP servers whose tools join the agent's toolset</td></tr>
+    <tr><td><code>policy</code></td><td>Enforced repository rules — see <a href="#approvals">approvals &amp; policy</a></td></tr>
   </table>
   <p>API keys come from provider environment variables
   (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, …). Keys set
@@ -265,10 +270,43 @@
     auto-approves everything the policy would ask about. <b>Explicit policy
     denials still deny</b> — they never reach an approver at all.</li>
   </ul>
-  <p>The rules themselves are enforced Kernel source. The workspace can
-  carry its own: <code>jern policy init</code> writes
-  <code>.jern/policy.ikr</code>, which overrides the built-in rules for
-  every session in that repo:</p>
+  <h3>Rules from jern.json</h3>
+  <p>The common cases need no Kernel at all — a <code>policy</code> object in
+  <code>jern.json</code> is enforced for every session in that repository:</p>
+  <pre><code><span class="s">"policy"</span>: {
+  <span class="s">"edits_within"</span>: [<span class="s">"src/"</span>, <span class="s">"tests/"</span>],   <span class="c">// writes outside these are denied</span>
+  <span class="s">"shell_allow"</span>:  [<span class="s">"pytest"</span>],           <span class="c">// auto-allow these commands</span>
+  <span class="s">"allow"</span>:        [<span class="s">"mcp__github__get_issue"</span>],
+  <span class="s">"deny"</span>:         [<span class="s">"mcp__*"</span>],           <span class="c">// `*` suffix wildcards</span>
+  <span class="s">"memory"</span>:       <span class="s">"ask"</span>                <span class="c">// allow | ask | deny</span>
+}</code></pre>
+  <p><b>Policy composes; it is not overwritten.</b> Restrictions
+  (<code>edits_within</code>, <code>deny</code>, <code>memory: ask|deny</code>)
+  only ever tighten. Grants (<code>shell_allow</code>, <code>allow</code>,
+  <code>memory: allow</code>) only relax the base rules. Decisions combine by
+  severity — a denial beats <code>ask</code> beats <code>allow</code> — so
+  <em>nothing loaded later can turn a restriction's denial into an
+  approval</em>: not a grant, not a hand-written policy file. Every decision
+  in the trace records which layer made it, and <code>jern policy</code>
+  prints the whole composition with digests and trust status.</p>
+  <p>The two halves are trusted differently. Restrictions load on sight — a
+  repository may lock its agents down without asking. Grants can loosen
+  approvals, so a repo-supplied one is confirmed once, keyed by the SHA-256 of
+  the policy's canonical JSON; declining drops the grants and keeps the
+  restrictions. A malformed policy is a startup error, never a silent no-op.</p>
+  <p><b>Unattended and CI runs.</b> <code>--policy-baseline &lt;file&gt;</code>
+  supplies rules from outside the checkout — a base branch, or data a workflow
+  owns — that the tree may tighten but never weaken, so a pull request cannot
+  buy itself permission by rewriting its own <code>jern.json</code> or
+  <code>.jern/policy.ikr</code>. Headless runs never prompt:
+  <code>--policy-trust &lt;sha256&gt;</code> blesses a policy's grants, and
+  without a pin the grants are dropped while the restrictions stay.</p>
+
+  <h3>Rules as Kernel source</h3>
+  <p>Beyond what the config expresses, the rules are enforced Kernel source.
+  The workspace can carry its own: <code>jern policy init</code> writes
+  <code>.jern/policy.ikr</code>, which rebinds the base policy for
+  every session in that repo (config restrictions still wrap it):</p>
   <pre><code>(define tool-policy
   (lambda (call)
     (cond ((path-within? call "src/") :allow)   <span class="c">; scope edits</span>
