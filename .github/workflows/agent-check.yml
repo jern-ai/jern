@@ -12,7 +12,7 @@ on:
       version:
         description: "jern release to check with"
         required: true
-        default: "0.13.0"
+        default: "0.14.0"
 
 permissions:
   contents: read
@@ -27,8 +27,5 @@ jobs:
         with:
           version: ${{ inputs.version }}
           tests: "true"
-          # Turn on once a release carries `jern golden`; v0.13.0 does not,
-          # and the action now says so rather than reporting "nothing to
-          # check" when the command is simply absent.
-          golden: "false"
+          golden: "true"
           comment: "false"
