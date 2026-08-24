@@ -27,4 +27,8 @@ jobs:
         with:
           version: ${{ inputs.version }}
           tests: "true"
+          # Turn on once a release carries `jern golden`; v0.13.0 does not,
+          # and the action now says so rather than reporting "nothing to
+          # check" when the command is simply absent.
+          golden: "false"
           comment: "false"

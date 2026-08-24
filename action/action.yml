@@ -199,11 +199,28 @@ runs:
           else
             code=$?
             cat "$RUNNER_TEMP/golden.md" "$RUNNER_TEMP/golden.err"
-            # Exit 2 means "nothing to check", which is not a behavior change.
-            if [ "$code" = "2" ]; then
+            # jern exits 2 for several "could not check" reasons. Only one
+            # of them — an empty .jern/golden/ — is benign. Anything else
+            # (an unknown `golden` command on an older release, an unreadable
+            # sidecar) must not be mistaken for "nothing to check".
+            if [ "$code" = "2" ] && grep -q "no recordings in" "$RUNNER_TEMP/golden.err"; then
               echo "- ℹ️ no golden sessions recorded (\`jern golden record \"task\"\`)" >> "$summary"
+            elif grep -qi "unknown arguments\|usage: jern" "$RUNNER_TEMP/golden.err" "$RUNNER_TEMP/golden.md" 2>/dev/null; then
+              failed=1
+              {
+                echo "- ⚠️ jern ${{ inputs.version }} has no \`golden\` command"
+                echo
+                echo "  Upgrade \`version\` to a release that supports golden sessions, or set \`golden: \"false\"\`."
+              } >> "$summary"
             else
               failed=1
+              {
+                echo "- ⚠️ the golden check could not run"
+                echo
+                echo '```'
+                sed -e 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/golden.err"
+                echo '```'
+              } >> "$summary"
             fi
           fi
           echo "::endgroup::"
