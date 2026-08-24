@@ -71,7 +71,12 @@ module Providers =
           reasoningEffort: string option
           /// Tool limits (jern.json "limits": {"max_file_bytes", …,
           /// "shell_timeout_seconds"}); applied via Tools.configureLimits.
-          limits: Tools.Limits }
+          limits: Tools.Limits
+          /// Policy sources, one per config file that carried a "policy"
+          /// object, in load order. Not merged: each keeps its own origin,
+          /// because origin decides whether its grants need trust
+          /// (PolicyConfig).
+          policySources: PolicyConfig.Source list }
 
     let defaultConfig =
         { defaultModel = "anthropic/" + AnthropicBridge.defaultModel
@@ -83,9 +88,10 @@ module Providers =
           budgetTokens = None
           thinkingTokens = None
           reasoningEffort = None
-          limits = Tools.defaultLimits }
+          limits = Tools.defaultLimits
+          policySources = [] }
 
-    let private applyFile (config: Config) (path: string) : Config =
+    let private applyFile (config: Config) (path: string, origin: string -> PolicyConfig.Origin) : Config =
         if not (File.Exists path) then config
         else
             let doc = JsonNode.Parse(File.ReadAllText path).AsObject()
@@ -193,6 +199,20 @@ module Providers =
                          | null -> config.limits.evalTimeoutSeconds
                          | v -> v.GetValue<float>()) }
                 | _ -> config.limits
+            // A "policy" object contributes a source tagged with this file's
+            // origin. A malformed one is a startup error, never a silent
+            // no-op: a typo in a rule meant to restrict must not look like
+            // it applied.
+            let policySources =
+                match doc.["policy"] with
+                | null -> config.policySources
+                | node ->
+                    match PolicyConfig.parse node with
+                    | Error message -> failwithf "%s: %s" path message
+                    | Ok policy ->
+                        if PolicyConfig.isEmpty policy then config.policySources
+                        else config.policySources @ [ { PolicyConfig.origin = origin path
+                                                        PolicyConfig.policy = policy } ]
             { defaultModel = defaultModel
               aliases = aliases
               providers = providers
@@ -202,7 +222,8 @@ module Providers =
               budgetTokens = budgetTokens
               thinkingTokens = thinkingTokens
               reasoningEffort = reasoningEffort
-              limits = limits }
+              limits = limits
+              policySources = policySources }
 
     /// Optional persisted API keys: ~/.config/jern/credentials.json holds
     /// { "<ENV_NAME>": "<key>", … } with 0600 permissions. Environment
@@ -248,8 +269,8 @@ module Providers =
     let load (workspaceRoot: string) : Result<Config, string> =
         let files =
             [ Path.Combine(Environment.GetFolderPath Environment.SpecialFolder.UserProfile,
-                           ".config", "jern", "config.json")
-              Path.Combine(workspaceRoot, "jern.json") ]
+                           ".config", "jern", "config.json"), PolicyConfig.UserConfig
+              Path.Combine(workspaceRoot, "jern.json"), PolicyConfig.Workspace ]
         try
             Ok(files |> List.fold applyFile defaultConfig)
         with ex ->

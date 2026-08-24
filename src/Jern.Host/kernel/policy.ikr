@@ -59,6 +59,154 @@
               (or? (equal? command allowed)
                    (string-prefix? command (String.concat allowed " "))))))))
 
+; --- Policy layers -----------------------------------------------------------
+;
+; The effective decision for a call is *composed*, not overwritten:
+;
+;   grants        relax the base for calls they match   (trusted config only)
+;   base          `tool-policy` below; .jern/policy.ikr may rebind it
+;   restrictions  tighten whatever the base decided     (config + CI baseline)
+;
+; Restrictions combine by severity — a denial beats :ask beats :allow — so
+; nothing installed later can turn a restriction's denial into an approval:
+; not a trusted grant, not a hand-written workspace policy that rebinds
+; `tool-policy` wholesale. That property is what lets a protected CI baseline
+; govern a pull request that carries its own policy.
+;
+; PolicyConfig.fs compiles jern.json's "policy" object into calls to the
+; add-…! forms below; `jern policy --show-compiled` prints that exact source,
+; which you can paste into .jern/policy.ikr and edit by hand.
+
+(define *policy-restrictions* (vector ()))
+(define *policy-grants* (vector ()))
+(define *memory-restrictions* (vector ()))
+(define *memory-grants* (vector ()))
+
+(define policy-layers (lambda (box) (reverse (vector-ref box 0))))
+(define policy-layer-add!
+  (lambda (box layer) (vector-set! box 0 (cons layer (vector-ref box 0)))))
+
+(define add-policy-restriction!
+  (lambda (name rule)
+    (policy-layer-add! *policy-restrictions* (list :name name :rule rule))))
+(define add-policy-grant!
+  (lambda (name rule)
+    (policy-layer-add! *policy-grants* (list :name name :rule rule))))
+(define add-memory-restriction!
+  (lambda (name decision)
+    (policy-layer-add! *memory-restrictions* (list :name name :decision decision))))
+(define add-memory-grant!
+  (lambda (name decision)
+    (policy-layer-add! *memory-grants* (list :name name :decision decision))))
+
+; :allow < :ask < a denial (any reason string). Severity is what makes
+; restrictions one-directional.
+(define policy-severity
+  (lambda (decision)
+    (cond ((eqv? decision :allow) 0)
+          ((eqv? decision :ask) 1)
+          (#t 2))))
+
+; --- Helpers the compiled layers use -----------------------------------------
+
+(define policy-any?
+  (lambda (test values)
+    (if (null? values)
+        #f
+        (if (test (car values)) #t (policy-any? test (cdr values))))))
+
+(define policy-file-write?
+  (lambda (call)
+    (sequence
+      (define name (plist-get call :name))
+      (or? (equal? name "edit_file") (equal? name "write_file")))))
+
+(define policy-path-within-any?
+  (lambda (call prefixes)
+    (policy-any? (lambda (prefix) (path-within? call prefix)) prefixes)))
+
+(define policy-command-is-any?
+  (lambda (call commands)
+    (policy-any? (lambda (command) (command-is? call command)) commands)))
+
+; Tool-name match. `*` wildcards are expanded host-side into a prefix list,
+; so this stays simple: exact names, or names starting with a prefix.
+(define policy-name-matches-any?
+  (lambda (call exacts prefixes)
+    (sequence
+      (define name (plist-get call :name))
+      (or? (policy-any? (lambda (exact) (equal? name exact)) exacts)
+           (policy-any? (lambda (prefix) (string-prefix? name prefix)) prefixes)))))
+
+; --- Composition -------------------------------------------------------------
+
+; The first grant that applies, as (:decision d :by name), or :none.
+(define policy-first-grant
+  (lambda (call)
+    (sequence
+      (define loop
+        (lambda (layers)
+          (if (null? layers)
+              :none
+              (sequence
+                (define layer (car layers))
+                (define decision ((plist-get layer :rule) call))
+                (if (eqv? decision :none)
+                    (loop (cdr layers))
+                    (list :decision decision :by (plist-get layer :name)))))))
+      (loop (policy-layers *policy-grants*)))))
+
+; Tighten an outcome with every restriction; the most severe wins.
+(define policy-tighten
+  (lambda (call outcome)
+    (sequence
+      (define loop
+        (lambda (layers current)
+          (if (null? layers)
+              current
+              (sequence
+                (define layer (car layers))
+                (define decision ((plist-get layer :rule) call))
+                (loop (cdr layers)
+                      (if (< (policy-severity (plist-get current :decision))
+                             (policy-severity decision))
+                          (list :decision decision :by (plist-get layer :name))
+                          current))))))
+      (loop (policy-layers *policy-restrictions*) outcome))))
+
+; What actually governs a tool call: (:decision d :by "which layer said so").
+(define effective-tool-policy
+  (lambda (call)
+    (sequence
+      (define granted (policy-first-grant call))
+      (define base
+        (if (eqv? granted :none)
+            (list :decision (tool-policy call) :by "tool-policy")
+            granted))
+      (policy-tighten call base))))
+
+; The same composition for memory access. Layers carry decisions rather than
+; rules — `memory` is a whole-store toggle, not a per-key rule.
+(define effective-memory-policy
+  (lambda (op key)
+    (sequence
+      (define first-grant
+        (lambda (layers)
+          (if (null? layers) :none (plist-get (car layers) :decision))))
+      (define granted (first-grant (policy-layers *memory-grants*)))
+      (define base (if (eqv? granted :none) (memory-policy op key) granted))
+      (define loop
+        (lambda (layers current)
+          (if (null? layers)
+              current
+              (sequence
+                (define decision (plist-get (car layers) :decision))
+                (loop (cdr layers)
+                      (if (< (policy-severity current) (policy-severity decision))
+                          decision
+                          current))))))
+      (loop (policy-layers *memory-restrictions*) base))))
+
 ; One-line description of a tool call, for approval prompts and the trace.
 (define describe-tool-call
   (lambda (call)
@@ -106,7 +254,9 @@
 
 ; Memory access (jern/recall and jern/remember) crosses the same choke
 ; point, decided here per key: :allow, :ask (a jern/approve question), or
-; anything else to deny. The default allows both — the store lives in the
+; anything else to deny. This is the *base* layer — jern.json's
+; "policy": {"memory": …} composes with it exactly like tool policy does,
+; and its restrictions win. The default allows both — the store lives in the
 ; workspace's own .jern/memory.json — but a workspace policy can rebind
 ; this, e.g. to make remembering ask first:
 ;   (define memory-policy
@@ -122,11 +272,13 @@
     (prompt jern/tool-call
       (lambda (call resume-call)
         (sequence
-          (define decision (tool-policy call))
+          (define outcome (effective-tool-policy call))
+          (define decision (plist-get outcome :decision))
           (jern/host-trace
             (list :event "policy-decision"
                   :call (describe-tool-call call)
-                  :decision decision))
+                  :decision decision
+                  :by (plist-get outcome :by)))
           (cond ((eqv? decision :allow)
                  (resume resume-call (perform jern/tool-call call)))
                 ((eqv? decision :ask)

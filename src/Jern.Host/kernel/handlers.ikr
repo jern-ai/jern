@@ -124,8 +124,9 @@
       (eval body env))))
 
 ; Persistent memory: jern/recall and jern/remember cross the stack like any
-; other effect — traced, and gated by memory-policy (policy.ikr; a workspace
-; policy may rebind it). The store is <workspace>/.jern/memory.json, written
+; other effect — traced, and gated by the composed memory policy (policy.ikr:
+; jern.json restrictions over `memory-policy`, which a workspace policy may
+; rebind). The store is <workspace>/.jern/memory.json, written
 ; only by the host primitives bound here. recall answers the stored string,
 ; or :null when the key is absent or the policy denies; remember answers #t
 ; when the value was stored, #f otherwise. An :ask decision becomes a
@@ -137,7 +138,7 @@
         (sequence
           (define key (plist-get entry :key))
           (define value (plist-get entry :value))
-          (define decision (memory-policy "remember" key))
+          (define decision (effective-memory-policy "remember" key))
           (jern/host-trace
             (list :event "memory-remember" :key key :decision decision))
           (define allowed
@@ -150,7 +151,7 @@
       (prompt jern/recall
         (lambda (key resume-recall)
           (sequence
-            (define decision (memory-policy "recall" key))
+            (define decision (effective-memory-policy "recall" key))
             (define value
               (cond ((eqv? decision :allow) (jern/host-memory-get key))
                     ((eqv? decision :ask)

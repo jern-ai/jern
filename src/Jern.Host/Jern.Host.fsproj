@@ -12,8 +12,9 @@
     <Compile Include="Tools.fs" />
     <Compile Include="Approvals.fs" />
     <Compile Include="Mcp.fs" />
-    <Compile Include="Providers.fs" />
     <Compile Include="Trust.fs" />
+    <Compile Include="PolicyConfig.fs" />
+    <Compile Include="Providers.fs" />
     <Compile Include="Fixtures.fs" />
     <Compile Include="Git.fs" />
     <Compile Include="Memory.fs" />

@@ -54,6 +54,15 @@ module Session =
           /// trusts everything — the CLI front-ends install a first-use
           /// prompt backed by Trust (docs/security-model.md).
           policyTrust: string -> string -> bool
+          /// Policy sources composed into this session (config files, a
+          /// protected CI baseline). Their *restrictions* always apply;
+          /// their *grants* apply only when policyGrantTrust agrees.
+          policySources: PolicyConfig.Source list
+          /// Consulted for the grant half of a repository-supplied policy:
+          /// (trust identity, canonical JSON) -> trusted? Restrictions never
+          /// consult it. The default trusts everything — the CLI front-ends
+          /// install a first-use prompt (and a headless digest check).
+          policyGrantTrust: string -> string -> bool
           /// Replaces the executor for every jern/tool-call that reaches the
           /// host (built-in and MCP tools alike). None = the real tools.
           /// `jern replay` substitutes a bridge that answers from a recorded
@@ -238,20 +247,27 @@ module Session =
                         | Choice2Of2 reply -> bounceContinue env cont reply
                 | bad -> signal cont (NumArgs(1, bad))
 
+            /// One timestamped JSONL line per event. Used by the jern/trace
+            /// primitive below and by the host itself, for events that belong
+            /// to the run rather than to any effect (policy provenance).
+            let emitTrace (event: LispVal) =
+                match config.traceSink with
+                | None -> ()
+                | Some sink ->
+                    let ts = System.DateTime.UtcNow.ToString("o")
+                    let payload = Json.serialize event
+                    let line =
+                        if payload.StartsWith "{" then
+                            sprintf """{"ts":"%s",%s""" ts (payload.Substring 1)
+                        else
+                            sprintf """{"ts":"%s","data":%s}""" ts payload
+                    sink line
+
             let hostTrace env cont = function
                 | [event] ->
-                    match config.traceSink with
-                    | None -> bounceContinue env cont Inert
-                    | Some _ when threadAbandoned () -> bounceContinue env cont Inert
-                    | Some sink ->
-                        let ts = System.DateTime.UtcNow.ToString("o")
-                        let payload = Json.serialize event
-                        let line =
-                            if payload.StartsWith "{" then
-                                sprintf """{"ts":"%s",%s""" ts (payload.Substring 1)
-                            else
-                                sprintf """{"ts":"%s","data":%s}""" ts payload
-                        sink line
+                    if threadAbandoned () then bounceContinue env cont Inert
+                    else
+                        emitTrace event
                         bounceContinue env cont Inert
                 | bad -> signal cont (NumArgs(1, bad))
 
@@ -402,6 +418,43 @@ module Session =
                      :: AgentEnv.stringBindings
                      @ AgentEnv.effectBindings tags)
 
+            // Policy from configuration (jern.json, a protected CI baseline)
+            // compiles to Kernel layers installed on top of the built-in
+            // policy. Restrictions always load. Grants can loosen approvals,
+            // so a repository-supplied one is the same attack surface as a
+            // workspace policy file and needs the same first-use trust; when
+            // that is declined, the grants are dropped and the restrictions
+            // stay (docs/roadmap-governance.md §2).
+            let policyConfigLayers =
+                config.policySources
+                |> List.filter (fun source -> not (PolicyConfig.isEmpty source.policy))
+                |> List.map (fun source ->
+                    let label = PolicyConfig.originLabel source.origin
+                    let canonical = PolicyConfig.canonicalJson source.policy
+                    let grantsTrusted =
+                        if not (PolicyConfig.hasGrants source.policy) then true
+                        else
+                            match source.origin with
+                            // The user's own machine config and a baseline
+                            // supplied by a protected workflow are, by
+                            // construction, not the repository's to write.
+                            | PolicyConfig.UserConfig _ | PolicyConfig.Baseline _ -> true
+                            | PolicyConfig.Workspace _ ->
+                                config.policyGrantTrust
+                                    (PolicyConfig.trustIdentity source.origin) canonical
+                    if not grantsTrusted then
+                        eprintfn "jern: grants in %s are not trusted — dropping them; its restrictions still apply" label
+                    let compiled = PolicyConfig.compile label grantsTrusted source.policy
+                    emitTrace
+                        (ofList
+                            [ Keyword "event"; Obj("policy-layer" :> obj)
+                              Keyword "source"; Obj(label :> obj)
+                              Keyword "digest"; Obj(PolicyConfig.digest source.policy :> obj)
+                              Keyword "grants"; Bool grantsTrusted
+                              Keyword "protected"
+                              Bool (match source.origin with PolicyConfig.Baseline _ -> true | _ -> false) ])
+                    handlerEnv, sprintf "<policy from %s>" label, Some compiled)
+
             // A workspace may carry its own policy: <root>/.jern/policy.ikr
             // loads after the built-in one and rebinds what it redefines
             // (usually tool-policy). It runs privileged, so policyTrust
@@ -440,6 +493,7 @@ module Session =
                 @ [ // The prelude's helpers (plist-get & co.) serve both sides.
                     handlerEnv, kernelFile "prelude.ikr", None
                     handlerEnv, kernelFile "policy.ikr", None ]
+                @ policyConfigLayers
                 @ workspacePolicy
                 @ [ handlerEnv, kernelFile "handlers.ikr", None ]
                 @ (config.agentSources |> List.map (fun path -> agentEnv, path, None))
@@ -599,6 +653,8 @@ module Session =
           budget = Nil
           interrupted = fun () -> false
           policyTrust = fun _ _ -> true
+          policySources = []
+          policyGrantTrust = fun _ _ -> true
           toolDispatch = None
           spawnDepth = 0 }
 
