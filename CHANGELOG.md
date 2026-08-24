@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.0 — 2026-08-24
 
 - **The run receipt.** Every `jern run` now ends with the evidence for
   what it did — model calls and tokens against budget, tools used, files

@@ -53,7 +53,7 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
-- **M22 — the run receipt** (unreleased): every run ends with its own
+- **M22 — the run receipt** (v0.13): every run ends with its own
   evidence — calls and tokens against budget, tools, files written, policy
   decisions, and the trace path — and `jern receipt [--md|--json]`
   re-derives it for any past run, because the receipt is a *pure function*
@@ -63,7 +63,7 @@ $ jern test agents/default               # deterministic replay against
   carries status and duration, and a trace without them summarizes as
   explicitly partial instead of guessing. `jern ui` now persists its trace
   too, and shows the receipt when a turn ends.
-- **M21 — policy from configuration** (unreleased): a `"policy"` object in
+- **M21 — policy from configuration** (v0.13): a `"policy"` object in
   `jern.json` — `edits_within`, `shell_allow`, `allow`, `deny`, `memory` —
   gives a repository enforced rules with no Kernel in sight. The policy
   handler now *composes* layers instead of asking one redefinable function:
