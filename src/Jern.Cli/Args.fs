@@ -31,6 +31,12 @@ type ReceiptFormat =
     | Markdown
     | Json
 
+/// `jern golden …` — record, check, or list committed golden sessions.
+type GoldenCommand =
+    | GoldenRecord of task: string * slug: string option
+    | GoldenCheck of filter: string option * markdown: bool
+    | GoldenList
+
 type Command =
     /// Bare `jern` — chat on a terminal, usage text otherwise.
     | NoArgs
@@ -45,6 +51,7 @@ type Command =
     | Test of dir: string option * record: bool
     | Replay of trace: string * policy: string option * agent: string option
     | Receipt of trace: string option * format: ReceiptFormat
+    | Golden of GoldenCommand
     | Mcp
     | Policy of init: bool * showCompiled: bool
 
@@ -61,6 +68,8 @@ let uiUsage = "usage: jern ui [--port <n>] [--agent <dir>] [--model <spec>] [--b
 let testUsage = "usage: jern test [<agent-dir>] [--record]"
 let replayUsage = "usage: jern replay <trace.jsonl> [--policy <file>] [--agent <dir>]"
 let receiptUsage = "usage: jern receipt [<trace.jsonl>] [--md | --json]"
+let goldenUsage =
+    "usage: jern golden record \"task\" [--slug <name>] | jern golden check [--filter <slug>] [--md] | jern golden list"
 
 let private positiveInt (flag: string) (what: string) (raw: string) =
     match Int32.TryParse raw with
@@ -152,6 +161,30 @@ let private parseReceipt rest =
         | _ -> Error(SubUsage receiptUsage)
     go None Text rest
 
+/// jern golden record "task" [--slug s] | check [--filter s] [--md] | list
+let private parseGolden rest =
+    match rest with
+    | "record" :: more ->
+        let rec go slug positionals = function
+            | "--slug" :: name :: tail -> go (Some name) positionals tail
+            | ["--slug"] -> Error(SubUsage goldenUsage)
+            | arg :: tail -> go slug (arg :: positionals) tail
+            | [] ->
+                match List.rev positionals with
+                | [task] -> Ok(Golden(GoldenRecord(task, slug)))
+                | _ -> Error(SubUsage goldenUsage)
+        go None [] more
+    | "check" :: more ->
+        let rec go filter markdown = function
+            | "--filter" :: slug :: tail -> go (Some slug) markdown tail
+            | ["--filter"] -> Error(SubUsage goldenUsage)
+            | "--md" :: tail -> go filter true tail
+            | [] -> Ok(Golden(GoldenCheck(filter, markdown)))
+            | _ -> Error(SubUsage goldenUsage)
+        go None false more
+    | ["list"] -> Ok(Golden GoldenList)
+    | _ -> Error(SubUsage goldenUsage)
+
 let parse (argv: string list) : Result<Globals * Command, ParseError> =
     match extractGlobals argv with
     | Error e -> Error e
@@ -171,6 +204,7 @@ let parse (argv: string list) : Result<Globals * Command, ParseError> =
             | "test" :: more -> parseTest more
             | "replay" :: more -> parseReplay more
             | "receipt" :: more -> parseReceipt more
+            | "golden" :: more -> parseGolden more
             | ["mcp"] -> Ok Mcp
             | ["policy"] -> Ok(Policy(false, false))
             | ["policy"; "--show-compiled"] -> Ok(Policy(false, true))

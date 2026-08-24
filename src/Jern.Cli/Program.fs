@@ -43,6 +43,16 @@ Usage:
                       tools used, files touched, policy decisions, and the
                       trace it came from. Printed after every `jern run`;
                       --md is ready to paste into a pull request
+  jern golden record "task" [--slug <name>]
+  jern golden check [--filter <slug>] [--md]
+  jern golden list
+                      Golden sessions: record a real task once, then check
+                      it forever offline. `check` replays every recording
+                      against the current agent and policy — a behavior
+                      change fails with the exact divergence — and enforces
+                      the declarative assertions in each recording's sidecar
+                      (edits_within, no_tools, max_files_edited,
+                      max_llm_calls, max_tokens), which survive re-recording
   jern mcp            Connect the configured MCP servers and list their tools
   jern policy [init | --show-compiled]
                       Show the effective policy and where each rule came
@@ -549,19 +559,23 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
         | _ -> printfn "%s" (Style.dim (sprintf "session saved: %s (resume with: jern --resume %s)" id id))
         0
 
-let private runTask (autoApprove: bool) (agentDir: string option) (model: string option) (cliBudget: int option) (task: string) =
+/// Run one task to completion, writing its trace wherever the caller says.
+/// Shared by `jern run` and `jern golden record`: a golden recording is an
+/// ordinary run whose trace is kept and committed.
+let private runTaskTo (writer: IO.StreamWriter) (tracePath: string) (runId: string) (command: string)
+                      (autoApprove: bool) (agentDir: string option) (model: string option)
+                      (cliBudget: int option) (task: string) =
     let root = Environment.CurrentDirectory
     let providers = loadProviders ()
     let stream = ConsoleStream()
     let meter = UsageMeter()
     let bridge = routedBridge providers model (Some stream) meter None
-    let writer, tracePath, runId = newTraceSink root
     let agent =
         match agentDir with
         | Some dir -> dir
         | None -> Session.defaultAgentDir ()
     let finishRun =
-        openRun writer.WriteLine providers runId "run" (Some task) model agent cliBudget
+        openRun writer.WriteLine providers runId command (Some task) model agent cliBudget
     let config =
         { Session.configIn root bridge with
             traceSink = Some writer.WriteLine
@@ -595,6 +609,11 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
             // and the trace path — the evidence, not just the outcome.
             showReceipt tracePath
             0
+
+let private runTask (autoApprove: bool) (agentDir: string option) (model: string option)
+                    (cliBudget: int option) (task: string) =
+    let writer, tracePath, runId = newTraceSink Environment.CurrentDirectory
+    runTaskTo writer tracePath runId "run" autoApprove agentDir model cliBudget task
 
 /// `jern replay` — re-run a recorded trace offline, optionally with a
 /// swapped policy or agent, and report the first divergence.
@@ -695,6 +714,136 @@ let private runReceipt (tracePath: string option) (format: Args.ReceiptFormat) =
             | Args.Json -> printfn "%s" (Receipt.renderJson summary)
             | Args.Text -> printf "%s" (Receipt.render receiptPalette summary)
             0
+
+// --- golden sessions -------------------------------------------------------
+
+/// Replay one recording against the agent and policy in force *now*.
+let private replayGolden (providers: Providers.Config) (agentDir: string option) (tracePath: string) =
+    Replay.run
+        { tracePath = tracePath
+          agentDir = (match agentDir with Some dir -> dir | None -> Session.defaultAgentDir ())
+          policyFile = None
+          agentConfig = Providers.agentConfig providers
+          mcpServers = providers.mcpServers
+          policySources = policySources providers }
+
+/// `jern golden record "task"` — run the task for real once and keep the
+/// trace as a committed snapshot of how the agent handles it.
+let private runGoldenRecord (task: string) (slug: string option) (autoApprove: bool)
+                            (agentDir: string option) (model: string option) (cliBudget: int option) =
+    let root = Environment.CurrentDirectory
+    let slug = match slug with Some s -> Golden.slugify s | None -> Golden.slugify task
+    let dir = Golden.directory root
+    IO.Directory.CreateDirectory dir |> ignore
+    let tracePath = IO.Path.Combine(dir, slug + ".jsonl")
+    let metadataPath = IO.Path.Combine(dir, slug + ".json")
+    let rerecording = IO.File.Exists tracePath
+    // Keep any assertions the sidecar already carries: re-recording blesses
+    // new bytes, never the loss of a rule.
+    let existing =
+        if IO.File.Exists metadataPath then
+            match Golden.parseMetadata (IO.File.ReadAllText metadataPath) with
+            | Ok metadata -> metadata.assertions
+            | Error message ->
+                eprintfn "jern golden: %s (keeping no assertions)" message
+                Golden.noAssertions
+        else Golden.noAssertions
+    if rerecording then IO.File.Delete tracePath
+    let writer = new IO.StreamWriter(tracePath, append = false, AutoFlush = true)
+    let code = runTaskTo writer tracePath slug "golden" autoApprove agentDir model cliBudget task
+    if code = 0 then
+        IO.File.WriteAllText(
+            metadataPath,
+            Golden.metadataJson { task = task; recordedWith = AgentEnv.version; assertions = existing })
+        printfn ""
+        printfn "%s %s" (Style.green(if rerecording then "re-recorded" else "recorded")) (Style.bold slug)
+        printfn "%s" (Style.dim (sprintf "  %s" (IO.Path.GetRelativePath(root, tracePath))))
+        printfn "%s" (Style.dim (sprintf "  %s — commit both; add assertions under \"assert\" to protect meaning"
+                                     (IO.Path.GetRelativePath(root, metadataPath))))
+        printfn "%s" (Style.dim "  check it any time with: jern golden check")
+    else
+        eprintfn "jern golden: the run failed; nothing was recorded"
+        (try IO.File.Delete tracePath with _ -> ())
+    code
+
+/// `jern golden check` — replay every recording offline against the current
+/// agent and policy, then evaluate each one's declarative assertions.
+let private runGoldenCheck (filter: string option) (markdown: bool) (agentDir: string option) =
+    let root = Environment.CurrentDirectory
+    match Golden.list root with
+    | Error message ->
+        eprintfn "jern golden: %s" message
+        2
+    | Ok [] ->
+        eprintfn "jern golden: no recordings in %s (make one with: jern golden record \"task\")"
+            (IO.Path.GetRelativePath(root, Golden.directory root))
+        2
+    | Ok entries ->
+        let providers = loadProviders ()
+        let selected =
+            match filter with
+            | Some slug -> entries |> List.filter (fun e -> e.slug.Contains(slug: string))
+            | None -> entries
+        if selected.IsEmpty then
+            eprintfn "jern golden: no recording matches '%s'" (defaultArg filter "")
+            2
+        else
+            let verdicts =
+                selected |> List.map (Golden.check (replayGolden providers agentDir))
+            if markdown then
+                printf "%s" (Golden.renderMarkdown verdicts)
+            else
+                for v in verdicts do
+                    if v.Passed then
+                        printfn "%s - %s" (Style.green "ok  ") v.entry.slug
+                    else
+                        printfn "%s - %s" (Style.red "FAIL") v.entry.slug
+                        match v.divergence with
+                        | Some report ->
+                            printfn "       %s" (Style.describe (report.Replace("\n", "\n       ")))
+                        | None -> ()
+                        for failure in v.failures do
+                            printfn "       %s %s" (Style.red "assertion failed:") failure
+                printfn ""
+                let failed = verdicts |> List.filter (fun v -> not v.Passed)
+                let verdict = sprintf "%d matched, %d changed" (verdicts.Length - failed.Length) failed.Length
+                printfn "%s" (if failed.IsEmpty then Style.green verdict else Style.red verdict)
+                if not failed.IsEmpty then
+                    printfn "%s" (Style.dim "re-record a deliberate change with: jern golden record \"<task>\" --slug <slug>")
+            if verdicts |> List.forall (fun v -> v.Passed) then 0 else 1
+
+let private runGoldenList () =
+    let root = Environment.CurrentDirectory
+    match Golden.list root with
+    | Error message ->
+        eprintfn "jern golden: %s" message
+        2
+    | Ok [] ->
+        printfn "%s" (Style.dim "no golden sessions yet — record one with: jern golden record \"task\"")
+        0
+    | Ok entries ->
+        for entry in entries do
+            printfn "%s  %s" (Style.bold entry.slug) (Style.dim entry.metadata.task)
+            let assertions = entry.metadata.assertions
+            let described =
+                [ if not assertions.editsWithin.IsEmpty then
+                    yield "edits within " + String.Join(", ", assertions.editsWithin)
+                  if not assertions.noTools.IsEmpty then
+                    yield "never " + String.Join(", ", assertions.noTools)
+                  match assertions.maxFilesEdited with
+                  | Some n -> yield sprintf "≤%d files" n
+                  | None -> ()
+                  match assertions.maxLlmCalls with
+                  | Some n -> yield sprintf "≤%d model calls" n
+                  | None -> ()
+                  match assertions.maxTokens with
+                  | Some n -> yield sprintf "≤%d tokens" n
+                  | None -> () ]
+            if described.IsEmpty then
+                printfn "    %s" (Style.dim "no assertions — bytes only")
+            else
+                printfn "    %s %s" (Style.steel "asserts") (String.Join(" · ", described))
+        0
 
 /// `jern policy` — show the effective policy with provenance;
 /// `jern policy --show-compiled` — the Kernel source config compiles to;
@@ -972,4 +1121,8 @@ let main argv =
         | Args.Test(dir, record) -> runTests dir record model
         | Args.Replay(trace, policy, agent) -> runReplay trace policy agent
         | Args.Receipt(trace, format) -> runReceipt trace format
+        | Args.Golden(Args.GoldenRecord(task, slug)) ->
+            runGoldenRecord task slug auto None model cliBudget
+        | Args.Golden(Args.GoldenCheck(filter, markdown)) -> runGoldenCheck filter markdown None
+        | Args.Golden Args.GoldenList -> runGoldenList ()
         | Args.Script path -> runScript path model
