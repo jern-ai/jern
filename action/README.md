@@ -19,9 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jern-ai/jern/action@v0.13.0
+      - uses: jern-ai/jern/action@v0.14.0
         with:
-          version: "0.13.0"
+          version: "0.14.0"
           baseline-path: .jern/baseline.json
 ```
 
@@ -43,7 +43,7 @@ Traces are uploaded as a `jern-traces` artifact for 14 days.
 
 | Input | Default | Notes |
 |---|---|---|
-| `version` | *required* | Exact release, e.g. `0.13.0`. Deliberately not floating: `latest` would let the tool under test change without a commit. |
+| `version` | *required* | Exact release, e.g. `0.14.0`. Deliberately not floating: `latest` would let the tool under test change without a commit. |
 | `baseline-path` | `""` | Repository-relative path to a policy baseline. **Read from the base ref, never from the PR's checkout** (see below). |
 | `policy-trust` | `""` | Whitespace-separated SHA-256 policy digests whose *grants* may apply. Without a pin, unattended runs drop grants and keep restrictions. |
 | `golden` | `true` | Replay `.jern/golden/`. |

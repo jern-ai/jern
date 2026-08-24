@@ -53,7 +53,7 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
-- **M23 — behavioral CI** (unreleased): `jern golden record "task"` keeps a
+- **M23 — behavioral CI** (v0.14): `jern golden record "task"` keeps a
   real run as a committed snapshot; `jern golden check` replays every
   recording offline against the current agent and policy and fails with the
   exact divergence when behavior changed — plus declarative assertions

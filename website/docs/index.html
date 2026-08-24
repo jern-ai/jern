@@ -93,7 +93,7 @@
 
   <h2 id="install">Install</h2>
   <pre><code><span class="p">$</span> curl -fsSL https://jern.ai/install.sh | sh</code></pre>
-  <p>macOS and Linux, arm64 and x64. <code>JERN_VERSION=0.13.0</code> pins an
+  <p>macOS and Linux, arm64 and x64. <code>JERN_VERSION=0.14.0</code> pins an
   exact release (and <code>JERN_REQUIRE_SUMS=1</code> makes a missing
   checksum file fatal — worth setting in CI). The script installs to
   <code>~/.jern/bin</code> (override with <code>JERN_INSTALL=…</code>) and
@@ -464,9 +464,9 @@
   semantic trajectory assertions in Kernel.</p>
   <h3>In GitHub Actions</h3>
   <pre><code>- uses: actions/checkout@v4
-- uses: jern-ai/jern/action@v0.13.0
+- uses: jern-ai/jern/action@v0.14.0
   with:
-    version: <span class="s">"0.13.0"</span>
+    version: <span class="s">"0.14.0"</span>
     baseline-path: .jern/baseline.json</code></pre>
   <p>The action installs a pinned, checksum-verified release, prints the
   effective policy, runs the agent tests and the golden check, uploads the

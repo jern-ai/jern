@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.0 — 2026-08-24
 
 - **Golden sessions.** `jern golden record "task"` runs a real task once
   and keeps the trace as a committed snapshot; `jern golden check`
