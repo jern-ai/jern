@@ -25,6 +25,12 @@ let defaultGlobals =
     { model = None; budget = None; auto = false; think = None; effort = None
       policyBaseline = None; policyTrust = [] }
 
+/// How `jern receipt` prints: for a human, a PR comment, or a tool.
+type ReceiptFormat =
+    | Text
+    | Markdown
+    | Json
+
 type Command =
     /// Bare `jern` — chat on a terminal, usage text otherwise.
     | NoArgs
@@ -38,6 +44,7 @@ type Command =
     | Script of path: string
     | Test of dir: string option * record: bool
     | Replay of trace: string * policy: string option * agent: string option
+    | Receipt of trace: string option * format: ReceiptFormat
     | Mcp
     | Policy of init: bool * showCompiled: bool
 
@@ -53,6 +60,7 @@ let runUsage = "usage: jern run [--yes] [--agent <dir>] [--model <spec>] [--budg
 let uiUsage = "usage: jern ui [--port <n>] [--agent <dir>] [--model <spec>] [--budget <n>]"
 let testUsage = "usage: jern test [<agent-dir>] [--record]"
 let replayUsage = "usage: jern replay <trace.jsonl> [--policy <file>] [--agent <dir>]"
+let receiptUsage = "usage: jern receipt [<trace.jsonl>] [--md | --json]"
 
 let private positiveInt (flag: string) (what: string) (raw: string) =
     match Int32.TryParse raw with
@@ -133,6 +141,17 @@ let private parseReplay rest =
             | _ -> Error(SubUsage replayUsage)
     go None None [] rest
 
+/// jern receipt [<trace>] [--md|--json] — flag and path in any order.
+let private parseReceipt rest =
+    let rec go trace format = function
+        | "--md" :: more -> go trace Markdown more
+        | "--markdown" :: more -> go trace Markdown more
+        | "--json" :: more -> go trace Json more
+        | arg :: more when Option.isNone trace -> go (Some arg) format more
+        | [] -> Ok(Receipt(trace, format))
+        | _ -> Error(SubUsage receiptUsage)
+    go None Text rest
+
 let parse (argv: string list) : Result<Globals * Command, ParseError> =
     match extractGlobals argv with
     | Error e -> Error e
@@ -151,6 +170,7 @@ let parse (argv: string list) : Result<Globals * Command, ParseError> =
             | ["script"; path] -> Ok(Script path)
             | "test" :: more -> parseTest more
             | "replay" :: more -> parseReplay more
+            | "receipt" :: more -> parseReceipt more
             | ["mcp"] -> Ok Mcp
             | ["policy"] -> Ok(Policy(false, false))
             | ["policy"; "--show-compiled"] -> Ok(Policy(false, true))

@@ -14,6 +14,7 @@
     <Compile Include="Mcp.fs" />
     <Compile Include="Trust.fs" />
     <Compile Include="PolicyConfig.fs" />
+    <Compile Include="Trace.fs" />
     <Compile Include="Providers.fs" />
     <Compile Include="Fixtures.fs" />
     <Compile Include="Git.fs" />
@@ -22,6 +23,7 @@
     <Compile Include="SessionStore.fs" />
     <Compile Include="TestRunner.fs" />
     <Compile Include="Replay.fs" />
+    <Compile Include="Receipt.fs" />
   </ItemGroup>
   <ItemGroup>
     <!-- Host-owned Kernel source: the agent prelude and the handler stack. -->

@@ -253,15 +253,7 @@ module Session =
             let emitTrace (event: LispVal) =
                 match config.traceSink with
                 | None -> ()
-                | Some sink ->
-                    let ts = System.DateTime.UtcNow.ToString("o")
-                    let payload = Json.serialize event
-                    let line =
-                        if payload.StartsWith "{" then
-                            sprintf """{"ts":"%s",%s""" ts (payload.Substring 1)
-                        else
-                            sprintf """{"ts":"%s","data":%s}""" ts payload
-                    sink line
+                | Some sink -> Trace.event sink event
 
             let hostTrace env cont = function
                 | [event] ->

@@ -38,6 +38,11 @@ Usage:
                       network or the workspace. Swap in a policy file or an
                       edited agent to see exactly where and how the run
                       would have diverged
+  jern receipt [<trace.jsonl>] [--md | --json]
+                      What a run did: model calls and tokens against budget,
+                      tools used, files touched, policy decisions, and the
+                      trace it came from. Printed after every `jern run`;
+                      --md is ready to paste into a pull request
   jern mcp            Connect the configured MCP servers and list their tools
   jern policy [init | --show-compiled]
                       Show the effective policy and where each rule came
@@ -164,6 +169,14 @@ type private UsageMeter() =
         sprintf "tokens: %s in, %s out" (fmt input) (fmt output)
     member _.SawUsage = input > 0L || output > 0L
 
+/// The receipt's colors, in the terminal's palette.
+let private receiptPalette : Receipt.Palette =
+    { title = Style.rust
+      label = Style.steel
+      dim = Style.dim
+      good = Style.green
+      bad = Style.red }
+
 let mutable private cliThink : int option = None
 let mutable private cliEffort : string option = None
 let mutable private cliPolicyBaseline : string option = None
@@ -258,6 +271,36 @@ let private ttyPolicyGrantTrust (identity: string) (canonical: string) =
                 true
             | _ -> false
 
+/// Open the run envelope on a trace: the header a receipt is read from.
+/// Everything here is what the run was *configured* with, so a summary never
+/// has to infer it from the effects that followed.
+let private openRun (sink: string -> unit) (providers: Providers.Config) (runId: string)
+                    (command: string) (task: string option) (model: string option)
+                    (agent: string) (cliBudget: int option) =
+    Trace.openRun sink
+        { runId = runId
+          command = command
+          task = task
+          model = (match model with Some m -> m | None -> providers.defaultModel)
+          agent = agent
+          budgetLlmCalls = (match cliBudget with Some n -> Some n | None -> providers.budgetLlmCalls)
+          budgetTokens = providers.budgetTokens
+          policy =
+            policySources providers
+            |> List.map (fun source ->
+                { Trace.source = PolicyConfig.originLabel source.origin
+                  Trace.digest = PolicyConfig.digest source.policy
+                  Trace.isProtected =
+                    match source.origin with PolicyConfig.Baseline _ -> true | _ -> false }) }
+
+/// Print the receipt for a finished (or in-progress) trace.
+let private showReceipt (tracePath: string) =
+    match Receipt.ofTrace tracePath with
+    | Error message -> eprintfn "jern: %s" message
+    | Ok summary ->
+        printfn ""
+        printf "%s" (Receipt.render receiptPalette summary)
+
 /// The provider-routing bridge for live commands. `interrupted` aborts a
 /// streaming turn from inside the text callback.
 let private routedBridge (config: Providers.Config) (model: string option)
@@ -311,9 +354,10 @@ let private runTests (dirArg: string option) (record: bool) (model: string optio
 let private newTraceSink (root: string) =
     let dir = IO.Path.Combine(root, ".jern")
     IO.Directory.CreateDirectory dir |> ignore
-    let path = IO.Path.Combine(dir, sprintf "trace-%s.jsonl" (DateTime.Now.ToString("yyyyMMdd-HHmmss")))
+    let runId = DateTime.Now.ToString("yyyyMMdd-HHmmss")
+    let path = IO.Path.Combine(dir, sprintf "trace-%s.jsonl" runId)
     let writer = new IO.StreamWriter(path, append = true, AutoFlush = true)
-    writer, path
+    writer, path, runId
 
 /// Ask on the terminal; deny when there is no terminal to ask. `a` answers
 /// yes and stops asking about that tool for the rest of the session.
@@ -399,8 +443,11 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
     Console.CancelKeyPress.Add(fun e ->
         e.Cancel <- true
         interrupted.Value <- true)
-    let writer, _ = newTraceSink root
+    let writer, tracePath, runId = newTraceSink root
     let mutable currentModel = model
+    let finishRun =
+        openRun writer.WriteLine providers runId "chat" None model
+            (Session.defaultAgentDir ()) cliBudget
 
     let makeSession () =
         let bridge =
@@ -454,6 +501,7 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
                     printfn "/undo                    revert the last jern commit"
                     printfn "/clear                   forget this conversation's history"
                     printfn "/cost                    token totals for this session"
+                    printfn "/receipt                 what this session has done so far"
                     printfn "/help                    this list"
                 | ["/undo"] ->
                     match Git.undoLast root with
@@ -477,6 +525,10 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
                     printfn "history cleared"
                 | ["/cost"] ->
                     printfn "%s" meter.Line
+                | ["/receipt"] ->
+                    // The trace is flushed per line, so a mid-session
+                    // receipt reads the run so far.
+                    showReceipt tracePath
                 | command :: _ ->
                     eprintfn "jern: unknown command %s (try /help)" command
                 | [] -> ()
@@ -490,6 +542,7 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
                     messages <- updated
                     SessionStore.save root id messages
                     printfn "%s" (Style.dim (sprintf "[%s · %s · session %s]" (effectiveModel ()) meter.Line id))
+        finishRun (if interrupted.Value then Trace.Interrupted else Trace.Completed)
         writer.Dispose()
         match messages with
         | Nil -> ()
@@ -502,11 +555,13 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
     let stream = ConsoleStream()
     let meter = UsageMeter()
     let bridge = routedBridge providers model (Some stream) meter None
-    let writer, tracePath = newTraceSink root
+    let writer, tracePath, runId = newTraceSink root
     let agent =
         match agentDir with
         | Some dir -> dir
         | None -> Session.defaultAgentDir ()
+    let finishRun =
+        openRun writer.WriteLine providers runId "run" (Some task) model agent cliBudget
     let config =
         { Session.configIn root bridge with
             traceSink = Some writer.WriteLine
@@ -520,20 +575,25 @@ let private runTask (autoApprove: bool) (agentDir: string option) (model: string
             policyGrantTrust = ttyPolicyGrantTrust }
     match Session.createWith config with
     | Choice1Of2 error ->
+        finishRun (Trace.Failed(showError error))
+        writer.Dispose()
         eprintfn "Startup error: %s" (showError error)
         1
     | Choice2Of2 session ->
         let outcome = Session.runAgent session task
+        (match outcome with
+         | Choice1Of2 error -> finishRun (Trace.Failed(showError error))
+         | Choice2Of2 _ -> finishRun Trace.Completed)
         writer.Dispose()
         match outcome with
         | Choice1Of2 error ->
             eprintfn "Agent error: %s" (showError error)
-            eprintfn "Trace: %s" tracePath
+            showReceipt tracePath
             1
         | Choice2Of2 _ ->
-            printfn ""
-            if meter.SawUsage then printfn "%s" (Style.dim meter.Line)
-            printfn "%s" (Style.dim ("Trace: " + tracePath))
+            // The receipt carries the tokens, the files, the policy tally,
+            // and the trace path — the evidence, not just the outcome.
+            showReceipt tracePath
             0
 
 /// `jern replay` — re-run a recorded trace offline, optionally with a
@@ -612,6 +672,29 @@ let private runMcp () =
                 Mcp.shutdown server
         if failures = 0 then 0 else 1
 
+
+/// `jern receipt [<trace>]` — the evidence for a run, re-derived from its
+/// trace. With no argument, the newest trace in this workspace.
+let private runReceipt (tracePath: string option) (format: Args.ReceiptFormat) =
+    let resolved =
+        match tracePath with
+        | Some path -> Some path
+        | None -> Receipt.latestTrace Environment.CurrentDirectory
+    match resolved with
+    | None ->
+        eprintfn "jern receipt: no traces in %s/.jern (run jern first)" Environment.CurrentDirectory
+        2
+    | Some path ->
+        match Receipt.ofTrace path with
+        | Error message ->
+            eprintfn "jern receipt: %s" message
+            2
+        | Ok summary ->
+            match format with
+            | Args.Markdown -> printf "%s" (Receipt.renderMarkdown summary)
+            | Args.Json -> printfn "%s" (Receipt.renderJson summary)
+            | Args.Text -> printf "%s" (Receipt.render receiptPalette summary)
+            0
 
 /// `jern policy` — show the effective policy with provenance;
 /// `jern policy --show-compiled` — the Kernel source config compiles to;
@@ -874,4 +957,5 @@ let main argv =
         | Args.Eject -> runEject ()
         | Args.Test(dir, record) -> runTests dir record model
         | Args.Replay(trace, policy, agent) -> runReplay trace policy agent
+        | Args.Receipt(trace, format) -> runReceipt trace format
         | Args.Script path -> runScript path model
