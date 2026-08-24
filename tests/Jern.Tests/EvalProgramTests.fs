@@ -150,6 +150,12 @@ let ``a runaway program times out and the session stays usable`` () =
         let runaway = run session """(call-tool "kernel_eval" (list :code "(define spin (lambda () (spin))) (spin)"))"""
         Assert.True(isErrorOf runaway)
         Assert.Contains("timed out", contentOf runaway)
+        // The abandoned program is still spinning — that is the documented
+        // trade (it can burn a core, it just cannot act) — so restore the
+        // normal cap before asking whether the session still works. Leaving
+        // the one-second cap in place would race the runaway thread for CPU
+        // on a small CI machine and time out an addition.
+        Tools.configureLimits saved
         let after = run session """(call-tool "kernel_eval" (list :code "(+ 40 2)"))"""
         Assert.False(isErrorOf after)
         Assert.Contains("42", contentOf after)
