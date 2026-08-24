@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- **The run receipt.** Every `jern run` now ends with the evidence for
+  what it did — model calls and tokens against budget, tools used, files
+  actually written, policy decisions with the first denial's reason,
+  subagents and programs, and the trace it all came from. `jern receipt
+  [<trace.jsonl>] [--md|--json]` re-derives the same summary for any
+  run, at any time; `--md` is ready to paste into a pull request. Chat
+  gains `/receipt` for the session so far, and `jern ui` shows the same
+  receipt as a collapsible card when a turn ends.
+- **The trace is now a versioned run record.** A `run-started` event
+  carries `schema_version` plus what the run was configured with (run
+  id, jern version, command and task, model, agent, budget, policy layer
+  digests), and exactly one `run-finished` carries status and duration.
+  A receipt is a *pure function* of that record, so nothing accumulates
+  during the run and old traces still summarize — explicitly marked
+  partial where the envelope is missing, rather than inventing values.
+  Unknown events are ignored (a newer jern may write them); an unknown
+  major schema version is refused with guidance.
+- **`jern ui` writes an audit file.** A UI session's trace previously
+  went only to the browser, leaving nothing to review afterwards. It now
+  writes `.jern/trace-*.jsonl` like a terminal run and closes its run
+  record on ctrl-c.
+
 - **Policy from configuration.** A `"policy"` object in `jern.json`
   (`edits_within`, `shell_allow`, `allow`, `deny`, `memory`) enforces
   repository rules without writing any Kernel. `jern policy` prints the

@@ -85,6 +85,7 @@
     <a href="#mcp">MCP</a>
     <a href="#subagents">Subagents &amp; memory</a>
     <a href="#programs">Programs &amp; skills</a>
+    <a href="#receipts">Receipts</a>
     <a href="#testing">Testing agents</a>
     <a href="#ui">The web UI</a>
   </div>
@@ -154,6 +155,12 @@
   a stricter policy with <code>--policy</code> (or an edited agent with
   <code>--agent</code>) to fork the recorded past and see the first effect
   where behavior would have diverged, recorded-vs-actual.</p>
+
+  <h3>jern receipt</h3>
+  <pre><code><span class="p">$</span> jern receipt                 <span class="c"># the newest run in this workspace</span>
+<span class="p">$</span> jern receipt .jern/trace-*.jsonl --md   <span class="c"># ready for a pull request</span></code></pre>
+  <p>What a run did, re-derived from its trace. See
+  <a href="#receipts">receipts</a>.</p>
 
   <h3>jern policy</h3>
   <pre><code><span class="p">$</span> jern policy                  <span class="c"># every rule in force, and where it came from</span>
@@ -393,6 +400,29 @@
   <em>unprivileged</em> and needs no trust prompt: skills code runs where
   the model's code runs, and can only reach the world through the same
   policed effects.</p>
+
+  <h2 id="receipts">Receipts</h2>
+  <p>Every <code>jern run</code> ends with the evidence for what it did:</p>
+  <pre><code>receipt · run 20260824-101530 · 2m 14s · ok
+  model calls   4 (anthropic/claude-opus-5) · 18.2k in / 2.1k out · budget 4/20
+  tools         read_file ×3 · grep ×2 · edit_file ×2 · shell ×1
+  files touched src/parser.py · tests/test_parser.py   (2 jern commits, undo with `jern undo`)
+  policy        7 allowed · 2 approved by you · 1 denied (edits are limited to src/)
+  trace         .jern/trace-20260824-101530.jsonl</code></pre>
+  <p>A receipt is a <b>pure function of the trace</b> — nothing accumulates
+  it while the run happens — so <code>jern receipt &lt;trace.jsonl&gt;</code>
+  reproduces it for any run you still have, and <code>--md</code> renders it
+  for a pull request comment (<code>--json</code> for tooling). In chat,
+  <code>/receipt</code> shows the session so far; <code>jern ui</code> shows
+  the same card when a turn ends.</p>
+  <p>To make that honest, the trace is a versioned run record: a
+  <code>run-started</code> event carries the schema version and what the run
+  was configured with (model, agent, budget, policy layer digests), and one
+  <code>run-finished</code> event carries status and duration. A trace
+  missing them — an older recording, or a run cut short — is summarized as
+  explicitly partial rather than filled in with guesses. Events this build
+  does not know are ignored; a trace from a future schema version is
+  refused with guidance instead of misread.</p>
 
   <h2 id="testing">Testing agents</h2>
   <p>An agent package's <code>test/*.ikr</code> holds

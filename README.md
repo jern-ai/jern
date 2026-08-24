@@ -16,8 +16,11 @@ regression suite. https://jern.ai
   nothing loaded later can turn a denial into an approval.
 - **Budgets are walls.** `--budget 20` means the 21st model call becomes a
   question to you, not a surprise on your bill.
-- **Every run is recorded**, and `jern replay` re-runs it offline — swap in
-  stricter rules to see exactly where the run would have gone differently.
+- **Every run ends with a receipt** — calls, tokens against budget, files
+  touched, policy decisions, trace path — re-derivable later with
+  `jern receipt --md` for a pull request. And `jern replay` re-runs any
+  recorded run offline: swap in stricter rules to see exactly where it
+  would have gone differently.
 - **`jern test`** replays recorded LLM traffic byte-exactly and asserts
   properties of the whole trajectory: never shelled out, edits stayed under
   `src/`, at most four model calls.
@@ -50,6 +53,16 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M22 — the run receipt** (unreleased): every run ends with its own
+  evidence — calls and tokens against budget, tools, files written, policy
+  decisions, and the trace path — and `jern receipt [--md|--json]`
+  re-derives it for any past run, because the receipt is a *pure function*
+  of the trace rather than something accumulated as the run goes. The trace
+  became a versioned run record to make that honest: `run-started` carries
+  the schema version and the run's configuration, one `run-finished`
+  carries status and duration, and a trace without them summarizes as
+  explicitly partial instead of guessing. `jern ui` now persists its trace
+  too, and shows the receipt when a turn ends.
 - **M21 — policy from configuration** (unreleased): a `"policy"` object in
   `jern.json` — `edits_within`, `shell_allow`, `allow`, `deny`, `memory` —
   gives a repository enforced rules with no Kernel in sight. The policy

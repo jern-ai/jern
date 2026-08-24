@@ -160,14 +160,21 @@ never silent.
 
 ## Audit: the trace is the security log
 
-Every effect is recorded as JSONL at the same choke point that enforces
-policy: `llm-call`/`llm-response`, `tool-call`/`tool-result`,
+Every run opens with a `run-started` event carrying the trace's schema
+version and what the run was configured with — model, agent, budget, and the
+identity and digest of every policy layer in force — and closes with exactly
+one `run-finished` carrying its status and duration. Between them, every
+effect is recorded as JSONL at the same choke point that enforces policy: `llm-call`/`llm-response`, `tool-call`/`tool-result`,
 `policy-decision` (with the decision and the layer that made it),
 `policy-layer` (each layer's identity, digest, and whether its grants were
 trusted), `approval-denied`, `memory-recall`/`memory-remember`,
 `spawn`/`spawn-result`, and agent `log` events, each timestamped. `jern run` writes it to `.jern/trace-*.jsonl`. A
 side effect that bypassed policy would be a side effect with no
-`policy-decision` line — the trace makes the claim checkable.
+`policy-decision` line — the trace makes the claim checkable. `jern receipt`
+summarizes any trace back into what the run did; because it is a pure
+function of the record, a receipt cannot claim more than the trace shows,
+and a truncated or pre-envelope trace is reported as partial rather than
+completed.
 
 ## Process-level tools: OS sandboxing plus approval
 
