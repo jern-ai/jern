@@ -205,6 +205,15 @@ module PolicyConfig =
         let add (line: string) = lines.Add line
         add (sprintf "; policy layers from %s (sha256 %s)" label (digest policy))
         if not policy.editsWithin.IsEmpty then
+            // "." and "./" read as "the whole workspace", but as literal
+            // prefixes they match nothing — every workspace-relative path
+            // starts with a directory name. Normalizing them to the empty
+            // prefix makes the rule mean what it looks like it means, rather
+            // than silently denying every write.
+            let normalized =
+                policy.editsWithin
+                |> List.map (fun prefix -> if prefix = "." || prefix = "./" then "" else prefix)
+            let policy = { policy with editsWithin = normalized }
             let prefixes = String.Join(", ", policy.editsWithin)
             add (sprintf "(add-policy-restriction! %s" (kernelString (label + " edits_within")))
             add  "  (lambda (call)"

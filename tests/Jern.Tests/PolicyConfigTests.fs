@@ -134,6 +134,24 @@ let ``edits_within denies writes outside the prefixes with a reason the model se
     finally
         Directory.Delete(root, true)
 
+/// "." looks like "anywhere" and would otherwise match nothing, because no
+/// workspace-relative path begins with a dot.
+[<Fact>]
+let ``edits_within "." means the whole workspace, not nothing`` () =
+    let root = makeRoot ()
+    try
+        File.WriteAllText(Path.Combine(root, "anywhere.txt"), "x\n")
+        let asked = ResizeArray<string>()
+        let session =
+            sessionWith root [ workspaceSource "/w/jern.json" (parsePolicy """{"edits_within":["."]}""") ]
+                        (fun _ _ -> true) asked
+        let result =
+            call session """(call-tool "edit_file" (list :path "anywhere.txt" :old_string "x" :new_string "y"))"""
+        Assert.False(isErrorOf result)
+        Assert.Equal("y\n", File.ReadAllText(Path.Combine(root, "anywhere.txt")))
+    finally
+        Directory.Delete(root, true)
+
 [<Fact>]
 let ``shell_allow auto-allows exactly its commands`` () =
     let root = makeRoot ()

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.3 — 2026-08-25
+
+- **`"edits_within": ["."]` now means the whole workspace.** As a literal
+  prefix it matched nothing — no workspace-relative path starts with a dot
+  — so a rule that reads as "anywhere" silently denied every write. `.`
+  and `./` normalize to the empty prefix when the policy compiles.
+
 ## 0.14.2 — 2026-08-25
 
 - **The Action reports a behavior change as a behavior change.** A golden
