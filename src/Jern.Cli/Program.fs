@@ -911,6 +911,11 @@ let private runPolicy (init: bool) (showCompiled: bool) =
             for line in PolicyConfig.describeGrants source.policy do
                 printfn "    %s    %s   %s" (Style.steel "grant") line
                     (if grantsTrusted then Style.green "[trusted]" else Style.yellow "[not trusted — dropped]")
+            // Pinning grants for an unattended run needs the *whole* digest,
+            // so print it where someone wiring up CI will look for it.
+            if PolicyConfig.hasGrants source.policy then
+                printfn "    %s --policy-trust %s"
+                    (Style.dim "pin these grants in CI with:") (PolicyConfig.digest source.policy)
         if IO.File.Exists workspacePath then
             let content = IO.File.ReadAllText workspacePath
             let trusted = Trust.isTrusted (Trust.defaultStorePath ()) workspacePath content

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.14.1 — 2026-08-25
+
+Both fixes came from building the public demo repository, which is what a
+demo is for.
+
+- **`jern golden check --md` emits Markdown and nothing else.** A replayed
+  agent narrates itself ("→ read_file") as it re-executes, and those lines
+  landed on the same stdout the pull-request comment is read from. A replay
+  now silences the replayed run's console: it is the recording narrating
+  itself, not progress of the replay.
+- **`jern policy` prints the full digest needed to pin grants.** The
+  displayed digest is truncated for readability, but `--policy-trust`
+  compares all 64 characters — so anyone wiring up CI had to trigger the
+  "grants are not trusted" warning to discover the value. Sources with
+  grants now show `pin these grants in CI with: --policy-trust <digest>`.
+
 ## 0.14.0 — 2026-08-24
 
 - **Golden sessions.** `jern golden record "task"` runs a real task once

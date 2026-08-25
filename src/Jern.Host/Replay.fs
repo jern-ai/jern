@@ -147,6 +147,16 @@ module Replay =
         sprintf "diverged from the recording at %s #%d.\n  recorded: %s\n  actual:   %s"
             kind ordinal (excerpt recorded) (excerpt actual)
 
+    /// Console.Out is process-global, so two replays running at once could
+    /// restore it in the wrong order and leave it silenced. Replays are
+    /// sequential in the CLI; this keeps them sequential everywhere else too.
+    ///
+    /// (Not unit-tested on purpose: asserting it means swapping the global
+    /// Console.Out inside a test, which swallows the runner's own output and
+    /// makes the suite flaky. The invariant is verified end to end instead —
+    /// `jern golden check --md` must emit Markdown and nothing else.)
+    let private consoleLock = obj ()
+
     /// Re-run the recorded session. Side-effect-free: the scratch workspace
     /// is a throwaway temp directory and every effect answers from the trace.
     let run (options: Options) : Result<Outcome, string> =
@@ -214,7 +224,20 @@ module Replay =
                     match Session.createWith config with
                     | Choice1Of2 error -> Error(sprintf "cannot build the replay session: %s" (showError error))
                     | Choice2Of2 session ->
-                        let outcome = Session.runAgent session recorded.task
+                        // The replayed agent prints its own progress ("→
+                        // read_file") as it re-executes. That is the recorded
+                        // run narrating itself, not progress of the replay,
+                        // and it would contaminate machine-read output —
+                        // `jern golden check --md` writes a PR comment to the
+                        // same stdout. Silence it for the duration.
+                        let outcome =
+                            lock consoleLock (fun () ->
+                                let realOut = Console.Out
+                                try
+                                    Console.SetOut TextWriter.Null
+                                    Session.runAgent session recorded.task
+                                finally
+                                    Console.SetOut realOut)
                         match divergence with
                         | Some report -> Ok(Diverged report)
                         | None ->
