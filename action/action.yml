@@ -294,6 +294,57 @@ runs:
         echo "summary=$summary" >> "$GITHUB_OUTPUT"
         cat "$summary" >> "$GITHUB_STEP_SUMMARY"
 
+    - name: Record behavioral check trace
+      if: always()
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CHECK_OUTCOME: ${{ steps.check.outputs.outcome }}
+        CHECK_SUMMARY: ${{ steps.check.outputs.summary }}
+        JERN_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        mkdir -p .jern
+        run_id="github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        trace=".jern/trace-${run_id}.jsonl"
+        started_at="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+        outcome="${CHECK_OUTCOME:-error}"
+        summary=""
+        if [ -n "${CHECK_SUMMARY:-}" ] && [ -f "$CHECK_SUMMARY" ]; then
+          summary="$(cat "$CHECK_SUMMARY")"
+        fi
+
+        jq -cn \
+          --arg ts "$started_at" \
+          --arg run_id "$run_id" \
+          --arg version "$JERN_VERSION" \
+          '{ts:$ts,event:"run-started",schema_version:1,run_id:$run_id,jern_version:$version,command:"check",model:"offline",agent:"workspace",budget:{llm_calls:null,tokens:null},policy:[]}' \
+          > "$trace"
+        jq -cn \
+          --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" \
+          --arg outcome "$outcome" \
+          --arg repository "$GITHUB_REPOSITORY" \
+          --arg actor "$GITHUB_ACTOR" \
+          --arg ref "$GITHUB_REF" \
+          --arg sha "$GITHUB_SHA" \
+          --arg workflow "$GITHUB_WORKFLOW" \
+          --arg run_id "$GITHUB_RUN_ID" \
+          --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+          --arg summary "$summary" \
+          '{ts:$ts,event:"behavioral-check",outcome:$outcome,repository:$repository,actor:$actor,ref:$ref,sha:$sha,workflow:$workflow,github_run_id:$run_id,github_run_attempt:$run_attempt,summary:$summary}' \
+          >> "$trace"
+        if [ "$outcome" = "pass" ]; then
+          jq -cn \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" \
+            '{ts:$ts,event:"run-finished",status:"ok",duration_ms:0}' \
+            >> "$trace"
+        else
+          jq -cn \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" \
+            '{ts:$ts,event:"run-finished",status:"error",reason:"behavioral check failed",duration_ms:0}' \
+            >> "$trace"
+        fi
+
     - name: Upload traces
       if: always()
       uses: actions/upload-artifact@v4
@@ -346,9 +397,8 @@ runs:
           fi
         done < <(find .jern -maxdepth 1 -type f -name '*.jsonl' -print0 2>/dev/null || true)
         if [ "${#traces[@]}" = "0" ]; then
-          echo "::notice::Jern Cloud upload skipped: no generated traces found."
           echo "run_ids=" >> "$GITHUB_OUTPUT"
-          exit 0
+          fail_or_warn "Jern Cloud upload skipped: no generated traces found."
         fi
 
         audience="${CLOUD_URL%/}"

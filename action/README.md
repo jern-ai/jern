@@ -69,7 +69,9 @@ before PostgreSQL persistence.
 Cloud upload never needs a repository or organization secret. To require cloud
 retention rather than treating it as best-effort, set `cloud-upload: "true"`.
 Committed `.jern/golden/*.jsonl` fixtures are not sent to the cloud; only traces
-generated at the top level of `.jern/` are uploaded.
+generated at the top level of `.jern/` are uploaded. Each invocation records a
+current CI trace with the behavioral verdict, GitHub provenance, and Markdown
+summary; it does not relabel a historical golden recording as a new run.
 
 ## The protected baseline
 
