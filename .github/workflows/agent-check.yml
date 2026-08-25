@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   jern:
@@ -24,8 +25,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./action
+        id: check
         with:
           version: ${{ inputs.version }}
           tests: "true"
           golden: "true"
           comment: "false"
+          cloud-upload: "true"
+
+      - name: Verify cloud upload
+        env:
+          CLOUD_RUNS: ${{ steps.check.outputs.cloud-runs }}
+        run: |
+          if [ -z "$CLOUD_RUNS" ]; then
+            echo "::error::the action did not create a Jern Cloud run"
+            exit 1
+          fi
+          echo "Jern Cloud runs: $CLOUD_RUNS"

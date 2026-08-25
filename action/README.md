@@ -2,9 +2,10 @@
 
 Replay your committed **golden sessions** against the agent and policy in a
 pull request, run your agent test suites, and report the result as a single
-PR comment. Offline and deterministic: **no API key, no model calls, no
+PR comment. Execution is deterministic: **no API key, no model calls, no
 network calls to a provider** — every model and tool result comes from the
-recording.
+recording. Generated traces can optionally be encrypted and retained by Jern
+Cloud using GitHub's short-lived OIDC identity, with no cloud secret.
 
 ```yaml
 name: agent behavior
@@ -13,6 +14,7 @@ on: [pull_request]
 permissions:
   contents: read
   pull-requests: write     # only needed for the PR comment
+  id-token: write          # enables secretless Jern Cloud trace upload
 
 jobs:
   jern:
@@ -52,6 +54,22 @@ Traces are uploaded as a `jern-traces` artifact for 14 days.
 | `comment` | `true` | Post/update one PR comment; falls back to the job summary. |
 | `working-directory` | `.` | |
 | `github-token` | `github.token` | Used only for the comment. |
+| `cloud-upload` | `auto` | `auto` uploads when `id-token: write` is available and warns on failure; `true` requires success; `false` disables cloud access. |
+| `cloud-url` | `https://api.jern.ai` | Cloud API origin and OIDC audience. |
+
+## Jern Cloud upload
+
+The action requests a short-lived GitHub OIDC token whose audience is the
+configured `cloud-url`. Jern Cloud verifies GitHub's signature and admits the
+run only when the token's repository ID and name match an active, selected
+Jern Cloud GitHub App installation. The API returns a one-hour, single-run
+upload credential; only its SHA-256 digest is stored, and the trace is encrypted
+before PostgreSQL persistence.
+
+Cloud upload never needs a repository or organization secret. To require cloud
+retention rather than treating it as best-effort, set `cloud-upload: "true"`.
+Committed `.jern/golden/*.jsonl` fixtures are not sent to the cloud; only traces
+generated at the top level of `.jern/` are uploaded.
 
 ## The protected baseline
 

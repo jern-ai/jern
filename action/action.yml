@@ -2,7 +2,8 @@ name: "jern behavioral check"
 description: >-
   Check agent behavior in CI: replay committed golden sessions against the
   agent and policy in this checkout, run agent test suites, and report a
-  receipt. Offline and deterministic — no API key, no model calls.
+  receipt. Execution is deterministic with no model calls; traces can be
+  uploaded to Jern Cloud using GitHub OIDC.
 author: "jern-ai"
 branding:
   icon: shield
@@ -58,6 +59,17 @@ inputs:
     description: Token used to post the pull-request comment.
     required: false
     default: ${{ github.token }}
+  cloud-upload:
+    description: >-
+      Upload generated traces to Jern Cloud using GitHub Actions OIDC. "auto"
+      uploads when id-token: write is available and warns on failure; "true"
+      requires upload success; "false" disables cloud access.
+    required: false
+    default: "auto"
+  cloud-url:
+    description: Jern Cloud API origin and OIDC audience.
+    required: false
+    default: https://api.jern.ai
 
 outputs:
   outcome:
@@ -66,10 +78,27 @@ outputs:
   summary:
     description: Path to the Markdown summary this action produced.
     value: ${{ steps.check.outputs.summary }}
+  cloud-runs:
+    description: Space-separated Jern Cloud run IDs created by this action.
+    value: ${{ steps.cloud.outputs.run_ids }}
 
 runs:
   using: composite
   steps:
+    - name: Snapshot existing traces
+      id: trace-baseline
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TRACE_BASELINE: ${{ runner.temp }}/jern-trace-baseline.sha256
+      run: |
+        set -euo pipefail
+        : > "$TRACE_BASELINE"
+        while IFS= read -r -d '' trace; do
+          sha256sum "$trace" >> "$TRACE_BASELINE"
+        done < <(find .jern -maxdepth 1 -type f -name '*.jsonl' -print0 2>/dev/null || true)
+        echo "file=$TRACE_BASELINE" >> "$GITHUB_OUTPUT"
+
     - name: Install jern (pinned, checksum-verified)
       shell: bash
       env:
@@ -275,6 +304,86 @@ runs:
           ${{ inputs.working-directory }}/.jern/golden/*.jsonl
         if-no-files-found: ignore
         retention-days: 14
+
+    - name: Upload traces to Jern Cloud
+      id: cloud
+      if: ${{ always() && inputs.cloud-upload != 'false' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        CLOUD_MODE: ${{ inputs.cloud-upload }}
+        CLOUD_URL: ${{ inputs.cloud-url }}
+        TRACE_BASELINE: ${{ steps.trace-baseline.outputs.file }}
+      run: |
+        set -euo pipefail
+
+        fail_or_warn() {
+          if [ "$CLOUD_MODE" = "true" ]; then
+            echo "::error::$1"
+            exit 1
+          fi
+          echo "::warning::$1"
+          exit 0
+        }
+
+        case "$CLOUD_MODE" in
+          auto|true) ;;
+          *)
+            echo "::error::cloud-upload must be 'auto', 'true', or 'false'."
+            exit 1
+            ;;
+        esac
+
+        if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+          fail_or_warn "Jern Cloud upload skipped: grant the job 'id-token: write' permission."
+        fi
+
+        traces=()
+        while IFS= read -r -d '' trace; do
+          digest="$(sha256sum "$trace")"
+          if ! grep -Fxq -- "$digest" "$TRACE_BASELINE"; then
+            traces+=("$trace")
+          fi
+        done < <(find .jern -maxdepth 1 -type f -name '*.jsonl' -print0 2>/dev/null || true)
+        if [ "${#traces[@]}" = "0" ]; then
+          echo "::notice::Jern Cloud upload skipped: no generated traces found."
+          echo "run_ids=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        audience="${CLOUD_URL%/}"
+        encoded_audience="$(jq -rn --arg value "$audience" '$value | @uri')"
+        oidc_response="$(curl --fail --silent --show-error \
+          -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${encoded_audience}")" \
+          || fail_or_warn "Jern Cloud upload failed while requesting GitHub identity."
+        oidc_token="$(jq -er '.value' <<< "$oidc_response")" \
+          || fail_or_warn "GitHub returned an invalid OIDC response."
+        echo "::add-mask::$oidc_token"
+
+        run_ids=()
+        for trace in "${traces[@]}"; do
+          run_response="$(curl --fail --silent --show-error \
+            -X POST "${audience}/v1/runs" \
+            -H "Authorization: Bearer $oidc_token")" \
+            || fail_or_warn "Jern Cloud rejected run authorization."
+          run_id="$(jq -er '.run_id' <<< "$run_response")" \
+            || fail_or_warn "Jern Cloud returned an invalid run credential."
+          upload_token="$(jq -er '.upload_token' <<< "$run_response")" \
+            || fail_or_warn "Jern Cloud returned an invalid upload credential."
+          echo "::add-mask::$upload_token"
+
+          curl --fail --silent --show-error \
+            -X POST "${audience}/v1/runs/${run_id}/trace" \
+            -H 'Content-Type: application/x-ndjson' \
+            -H "Authorization: Bearer $upload_token" \
+            --data-binary "@$trace" >/dev/null \
+            || fail_or_warn "Jern Cloud trace upload failed for ${run_id}."
+          run_ids+=("$run_id")
+          echo "::notice::Uploaded $(basename "$trace") to Jern Cloud run $run_id."
+        done
+
+        echo "run_ids=${run_ids[*]}" >> "$GITHUB_OUTPUT"
 
     - name: Comment on the pull request
       if: ${{ inputs.comment == 'true' && github.event_name == 'pull_request' }}
