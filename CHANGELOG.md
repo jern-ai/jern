@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.2 — 2026-08-25
+
+- **The Action reports a behavior change as a behavior change.** A golden
+  check that found a divergence exits 1, and the action's error branch
+  labelled that "the golden check could not run" above the verdict it had
+  in hand. Exit 1 with a verdict is now the ordinary failure path.
+- **Documented what a golden check cannot see.** It re-executes the agent
+  against the recording's model and tool results, so it catches changes to
+  the agent, its configuration, and the policy — but not a change to a
+  file the agent reads *during* the run. Editing a `CONVENTIONS.md` that
+  the agent loads with `read_file` changes what a live run would see while
+  the replay still answers that read from the recording. Found by building
+  the demo repository and watching a pull request pass that should not
+  have.
+
 ## 0.14.1 — 2026-08-25
 
 Both fixes came from building the public demo repository, which is what a

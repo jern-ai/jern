@@ -84,6 +84,12 @@ State it plainly, because CI security is where optimism gets expensive:
   Use a separate `workflow_run` job if you need comments on forks.
 - **Anything a recording never exercised.** A golden session protects the
   behavior it captured. It is a snapshot, not a proof.
+- **What the agent *reads* at runtime.** A check re-executes the agent
+  against the recording's model and tool results, so it catches changes to
+  the agent, its configuration, and the policy — but not a change to a file
+  the agent reads through a tool during the run. Editing `CONVENTIONS.md`,
+  for instance, changes what a *live* run would see; the replay still
+  answers that `read_file` from the recording. Re-record to capture it.
 
 ## Live runs are not here yet — on purpose
 

@@ -212,6 +212,11 @@ runs:
                 echo
                 echo "  Upgrade \`version\` to a release that supports golden sessions, or set \`golden: \"false\"\`."
               } >> "$summary"
+            elif [ -s "$RUNNER_TEMP/golden.md" ]; then
+              # The ordinary failure: behavior changed. jern already wrote the
+              # verdict and the divergence as Markdown, which is appended
+              # below — saying "could not run" on top of it would be wrong.
+              failed=1
             else
               failed=1
               {

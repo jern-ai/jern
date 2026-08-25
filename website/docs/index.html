@@ -457,6 +457,13 @@
     <span class="s">"max_llm_calls"</span>: 6
   }
 }</code></pre>
+  <p>A check re-executes the agent against the recording's model and tool
+  results, so it catches changes to <em>the agent</em>: its source, its
+  configuration, the policy that governs it. It does not catch a change to a
+  file the agent reads during the run — editing a <code>CONVENTIONS.md</code>
+  that the agent loads with <code>read_file</code> changes what a live run
+  would see, while the replay still answers that read from the recording.
+  Re-record to capture it.</p>
   <p>Three related things, kept distinct on purpose:
   <code>jern replay</code> is ad-hoc forensics over any past run;
   <code>jern golden check</code> is a committed snapshot for CI; and
