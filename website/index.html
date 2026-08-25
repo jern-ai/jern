@@ -40,6 +40,9 @@
                   border-radius: 8px; font-weight: 600; text-decoration: none;
                   white-space: nowrap; }
   main { max-width: 60rem; margin: 0 auto; padding: 2.6rem 1.25rem 6rem; }
+  main img.demo { display: block; width: 100%; height: auto;
+                  border: 1px solid var(--line); border-radius: 10px;
+                  margin: 1.4rem 0 .5rem; }
   video { display: block; width: 100%; border: 1px solid var(--line);
           border-radius: 8px; margin: 1.6rem 0 .4rem; }
   .caption { font-size: .85rem; color: var(--dim); margin: 0 0 1rem; }
@@ -87,13 +90,17 @@
   your repository enforces, budgets that are walls, and a byte-exact record
   of every run.</p>
 
-  <video controls preload="metadata" poster="screencast-poster.png">
-    <source src="screencast.webm" type="video/webm">
-  </video>
-  <p class="caption">Thirty seconds, no audio: a task runs behind an approval
-  card; the agent's own source opens in <code>jern ui</code>; its regression
-  suite runs green; a tampered system prompt is caught by replay on the exact
-  divergence; revert — green again.</p>
+  <img class="demo" src="demo.gif" alt="A terminal session: jern policy shows the rules in
+  force with a protected baseline; jern golden check passes; one line of
+  jern.json changes; the check fails with the exact recorded-vs-actual
+  difference; a receipt summarizes the run." width="900" height="600">
+  <p class="caption">Real output from the
+  <a href="https://github.com/jern-ai/jern-demo">demo repository</a>: the
+  rules in force and where each came from, a recorded session replaying
+  clean, one line of configuration changed, and the same check failing with
+  the exact difference — offline, no model called. Then the receipt for the
+  run. <a href="screencast.webm">The older walkthrough</a> shows the agent's
+  own source being edited and tested.</p>
 
   <div class="install">
     <pre><code><span class="p">$</span> curl -fsSL https://jern.ai/install.sh | sh</code></pre>
