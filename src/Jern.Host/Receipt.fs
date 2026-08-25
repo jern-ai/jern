@@ -400,7 +400,11 @@ module Receipt =
         | Some reason -> b.AppendLine("  " + palette.bad reason) |> ignore
         | None -> ()
         for label, value in rows s do
-            b.AppendLine(sprintf "  %-14s%s" (palette.label label) value) |> ignore
+            // Pad on the label's *visible* width: a styled label carries ANSI
+            // escapes that %-14s would count, so a colored terminal would get
+            // no padding at all and the columns would collapse.
+            let padding = String(' ', max 1 (14 - label.Length))
+            b.AppendLine("  " + palette.label label + padding + value) |> ignore
         if not s.hasEnvelope then
             b.AppendLine(palette.dim "  (older trace: no run envelope, so model, budget, and outcome are unknown)")
             |> ignore

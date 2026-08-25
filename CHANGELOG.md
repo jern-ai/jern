@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.4 — 2026-08-25
+
+- **The receipt lines up in a colored terminal.** Its labels were padded
+  to a fixed width *including* their ANSI escapes, so a real terminal —
+  the only place the colors exist — got no padding at all and the columns
+  collapsed (`model calls6 (anthropic/…`). Redirected output looked fine,
+  which is why the tests, and every captured example, missed it. Padding
+  is now computed on the label's visible width, and a test asserts a
+  styled palette produces the same layout as the plain one.
+
 ## 0.14.3 — 2026-08-25
 
 - **`"edits_within": ["."]` now means the whole workspace.** As a literal

@@ -95,6 +95,19 @@ let ``every rendering carries the same facts`` () =
     Assert.Equal("src/parser.py", doc.["files_touched"].AsArray().[0].GetValue<string>())
     Assert.Equal(1, doc.["policy"].AsObject().["denied_by_rule"].GetValue<int>())
 
+/// Styling must not move the columns: a palette that wraps labels in ANSI
+/// escapes has to produce the same visible layout as the plain one.
+[<Fact>]
+let ``colored rendering keeps the same column layout`` () =
+    let s = summarize canned
+    let styled: Receipt.Palette =
+        { title = (fun t -> "\u001b[1m" + t + "\u001b[0m")
+          label = (fun t -> "\u001b[36m" + t + "\u001b[0m")
+          dim = id; good = id; bad = id }
+    let strip (text: string) =
+        Text.RegularExpressions.Regex.Replace(text, "\u001b\[[0-9;]*m", "")
+    Assert.Equal(Receipt.render Receipt.plain s, strip (Receipt.render styled s))
+
 [<Fact>]
 let ``a denied approval is not counted as an approval`` () =
     let s =
