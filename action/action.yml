@@ -421,18 +421,41 @@ runs:
             || fail_or_warn "Jern Cloud rejected run authorization."
           run_id="$(jq -er '.run_id' <<< "$run_response")" \
             || fail_or_warn "Jern Cloud returned an invalid run credential."
-          upload_token="$(jq -er '.upload_token' <<< "$run_response")" \
-            || fail_or_warn "Jern Cloud returned an invalid upload credential."
-          echo "::add-mask::$upload_token"
+          run_token="$(jq -er '.run_token // .upload_token' <<< "$run_response")" \
+            || fail_or_warn "Jern Cloud returned an invalid run credential."
+          echo "::add-mask::$run_token"
 
           curl --fail --silent --show-error \
             -X POST "${audience}/v1/runs/${run_id}/trace" \
             -H 'Content-Type: application/x-ndjson' \
-            -H "Authorization: Bearer $upload_token" \
+            -H "Authorization: Bearer $run_token" \
             --data-binary "@$trace" >/dev/null \
             || fail_or_warn "Jern Cloud trace upload failed for ${run_id}."
+
+          receipt_file="${RUNNER_TEMP}/jern-receipt-${run_id}.json"
+          jern receipt "$trace" --json > "$receipt_file" \
+            || fail_or_warn "Jern could not derive a receipt for ${run_id}."
+          receipt_digest="$(sha256sum "$receipt_file" | cut -d ' ' -f 1)"
+          outcome="$(jq -er 'if .complete then (if .status == "ok" then "success" elif .status == "interrupted" then "interrupted" else "failure" end) else "abandoned" end' "$receipt_file")" \
+            || fail_or_warn "Jern returned an invalid receipt outcome for ${run_id}."
+          input_tokens="$(jq -er '.input_tokens | select(type == "number" and . >= 0)' "$receipt_file")" \
+            || fail_or_warn "Jern returned invalid input-token usage for ${run_id}."
+          output_tokens="$(jq -er '.output_tokens | select(type == "number" and . >= 0)' "$receipt_file")" \
+            || fail_or_warn "Jern returned invalid output-token usage for ${run_id}."
+          completion="$(jq -cn \
+            --arg outcome "$outcome" \
+            --argjson input_tokens "$input_tokens" \
+            --argjson output_tokens "$output_tokens" \
+            --arg receipt_digest "$receipt_digest" \
+            '{outcome:$outcome,input_tokens:$input_tokens,output_tokens:$output_tokens,receipt_digest:$receipt_digest}')"
+          curl --fail --silent --show-error \
+            -X POST "${audience}/v1/runs/${run_id}/complete" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer $run_token" \
+            --data "$completion" >/dev/null \
+            || fail_or_warn "Jern Cloud completion failed for ${run_id}."
           run_ids+=("$run_id")
-          echo "::notice::Uploaded $(basename "$trace") to Jern Cloud run $run_id."
+          echo "::notice::Uploaded $(basename "$trace") and its receipt to Jern Cloud run $run_id."
         done
 
         echo "run_ids=${run_ids[*]}" >> "$GITHUB_OUTPUT"
