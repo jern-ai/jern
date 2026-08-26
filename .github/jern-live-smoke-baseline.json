@@ -1,0 +1,6 @@
+{
+  "policy": {
+    "deny": ["shell", "edit_file", "write_file", "mcp__*"],
+    "memory": "deny"
+  }
+}

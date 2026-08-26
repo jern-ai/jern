@@ -46,3 +46,6 @@ jobs:
 
       - name: Test
         run: dotnet test jern/Jern.slnx -c Release --no-build --verbosity normal
+
+      - name: Test live Action contract
+        run: bash jern/action/test-live-run.sh

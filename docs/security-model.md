@@ -63,9 +63,10 @@ this whole stack, so their effects are governed exactly like the parent's.)
 - `:ask` performs `jern/approve`; the **approval handler** delegates to the
   host approver — a TTY `[y/N]` prompt for `jern run`, everything-approved for
   `--yes`, `jern script`, and the REPL (where the user is the one acting).
-- The **budget handler** sees every `jern/llm-call` first; a configured
-  model-call or token budget is a hard cap — exhaustion becomes an approval
-  question, not a suggestion the model may ignore.
+- The **budget handler** sees every `jern/llm-call` first. A configured local
+  model-call or token budget is renewable through approval. A cloud-authorized
+  run also has a separate host-enforced token cap at the provider boundary;
+  approval cannot renew it and spawned agents share the same counter.
 - Denials come back to the agent as error tool-results, not crashes.
 
 ### Policy is composed, not overwritten
@@ -135,6 +136,28 @@ dropped, the restrictions stay, and jern prints the digest that would allow
 them. A workflow that sources its purported baseline from the head checkout
 has no protection at all — that is the Action's responsibility to prevent,
 and it is documented as such.
+
+### Live Action pilot
+
+The Action's optional `live-task` mode is deliberately narrower than its
+offline checks. It accepts live work only for `workflow_dispatch` on the
+repository's default branch, requires a protected `baseline-path`, requires
+mandatory Jern Cloud upload, and requires jern 0.14.5 or newer. Pull requests,
+scheduled runs, arbitrary branches, best-effort cloud mode, and runs without
+GitHub OIDC are rejected before a cloud reservation or provider call.
+
+The Action does not pass `--auto`. A headless task may perform only operations
+the effective policy allows without an approval prompt; grants from the
+protected baseline apply only when their digest is pinned with `policy-trust`.
+Branch protection and review remain repository responsibilities: the Action
+can verify that the ref is the default branch, not that GitHub's protection
+settings are adequate.
+
+Provider credentials are ordinary runner environment secrets and are never
+Action inputs or cloud request fields. The runner requests a token reservation
+with GitHub OIDC, then gives `jern run` the server-returned cap. It uploads the
+trace and receipt even when the task fails before propagating that failure to
+the job. This pilot does not push branches or open pull requests.
 
 ### Workspace policy loads on first-use trust
 
@@ -214,4 +237,7 @@ nothing that process does. jern's honest posture:
   approval prompts show the exact command for this reason.
 - Exfiltration via approved shell commands or via the LLM request itself
   (workspace file contents go to the provider by design).
+- Sensitive prompts or tool results appearing in the trace. Jern Cloud
+  encrypts retained traces, but the runner still sends the trace to the cloud;
+  use a customer-controlled runner and policy appropriate for that data.
 - Resource exhaustion by agent code (no CPU/memory limits in-runtime).

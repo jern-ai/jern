@@ -1,0 +1,44 @@
+# Production integration smoke for the live Action path. It deliberately has
+# no provider key: authorization and evidence upload must succeed, while the
+# live task itself must report failure before spending model tokens.
+name: live agent (smoke)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  live:
+    name: authorize + record expected failure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./action
+        id: governed
+        continue-on-error: true
+        with:
+          version: "0.14.5"
+          live-task: "Reply with a short greeting without using tools."
+          live-token-budget: "1"
+          baseline-path: .github/jern-live-smoke-baseline.json
+          tests: "false"
+          golden: "false"
+          comment: "false"
+          cloud-upload: "true"
+
+      - name: Verify governed failure evidence
+        if: always()
+        env:
+          ACTION_OUTCOME: ${{ steps.governed.outcome }}
+          LIVE_OUTCOME: ${{ steps.governed.outputs.live-outcome }}
+          CLOUD_RUNS: ${{ steps.governed.outputs.cloud-runs }}
+        run: |
+          set -euo pipefail
+          test "$ACTION_OUTCOME" = "failure"
+          test "$LIVE_OUTCOME" = "failure"
+          test -n "$CLOUD_RUNS"
+          echo "Expected provider-auth failure recorded as Jern Cloud run: $CLOUD_RUNS"

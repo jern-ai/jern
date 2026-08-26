@@ -1,9 +1,8 @@
 name: "jern behavioral check"
 description: >-
-  Check agent behavior in CI: replay committed golden sessions against the
-  agent and policy in this checkout, run agent test suites, and report a
-  receipt. Execution is deterministic with no model calls; traces can be
-  uploaded to Jern Cloud using GitHub OIDC.
+  Check agent behavior in CI, or run an explicitly authorized live task on a
+  customer runner under a Jern Cloud token cap. Provider credentials stay on
+  the runner; traces and receipts can be uploaded using GitHub OIDC.
 author: "jern-ai"
 branding:
   icon: shield
@@ -70,6 +69,19 @@ inputs:
     description: Jern Cloud API origin and OIDC audience.
     required: false
     default: https://api.jern.ai
+  live-task:
+    description: >-
+      Optional live task. This secure pilot runs only on workflow_dispatch of
+      the repository's default branch and requires baseline-path,
+      cloud-upload: "true", and jern 0.14.5 or newer.
+    required: false
+    default: ""
+  live-token-budget:
+    description: >-
+      Positive token reservation requested for live-task. Jern enforces the
+      token_budget returned by Cloud, not this untrusted request value.
+    required: false
+    default: ""
 
 outputs:
   outcome:
@@ -80,7 +92,10 @@ outputs:
     value: ${{ steps.check.outputs.summary }}
   cloud-runs:
     description: Space-separated Jern Cloud run IDs created by this action.
-    value: ${{ steps.cloud.outputs.run_ids }}
+    value: ${{ steps.live.outputs.run_id }} ${{ steps.cloud.outputs.run_ids }}
+  live-outcome:
+    description: Live receipt outcome, or empty when live-task was not set.
+    value: ${{ steps.live.outputs.outcome }}
 
 runs:
   using: composite
@@ -294,6 +309,23 @@ runs:
         echo "summary=$summary" >> "$GITHUB_OUTPUT"
         cat "$summary" >> "$GITHUB_STEP_SUMMARY"
 
+    - name: Run cloud-authorized live task
+      id: live
+      if: ${{ inputs.live-task != '' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        LIVE_TASK: ${{ inputs.live-task }}
+        LIVE_TOKEN_BUDGET: ${{ inputs.live-token-budget }}
+        BASELINE_FILE: ${{ steps.baseline.outputs.file }}
+        POLICY_TRUST: ${{ inputs.policy-trust }}
+        CLOUD_MODE: ${{ inputs.cloud-upload }}
+        CLOUD_URL: ${{ inputs.cloud-url }}
+        TRACE_BASELINE: ${{ steps.trace-baseline.outputs.file }}
+        JERN_VERSION: ${{ inputs.version }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: bash "${{ github.action_path }}/live-run.sh"
+
     - name: Record behavioral check trace
       if: always()
       shell: bash
@@ -419,7 +451,7 @@ runs:
             -H 'Content-Type: application/json' \
             --data '{"token_budget":0}')" \
             || fail_or_warn "Jern Cloud rejected run authorization."
-          run_id="$(jq -er '.run_id' <<< "$run_response")" \
+          run_id="$(jq -er '.run_id | select(test("^run_[0-9a-f]{32}$"))' <<< "$run_response")" \
             || fail_or_warn "Jern Cloud returned an invalid run credential."
           run_token="$(jq -er '.run_token // .upload_token' <<< "$run_response")" \
             || fail_or_warn "Jern Cloud returned an invalid run credential."
@@ -438,9 +470,9 @@ runs:
           receipt_digest="$(sha256sum "$receipt_file" | cut -d ' ' -f 1)"
           outcome="$(jq -er 'if .complete then (if .status == "ok" then "success" elif .status == "interrupted" then "interrupted" else "failure" end) else "abandoned" end' "$receipt_file")" \
             || fail_or_warn "Jern returned an invalid receipt outcome for ${run_id}."
-          input_tokens="$(jq -er '.input_tokens | select(type == "number" and . >= 0)' "$receipt_file")" \
+          input_tokens="$(jq -er '.input_tokens | select(type == "number" and . >= 0 and floor == .)' "$receipt_file")" \
             || fail_or_warn "Jern returned invalid input-token usage for ${run_id}."
-          output_tokens="$(jq -er '.output_tokens | select(type == "number" and . >= 0)' "$receipt_file")" \
+          output_tokens="$(jq -er '.output_tokens | select(type == "number" and . >= 0 and floor == .)' "$receipt_file")" \
             || fail_or_warn "Jern returned invalid output-token usage for ${run_id}."
           completion="$(jq -cn \
             --arg outcome "$outcome" \
