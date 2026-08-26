@@ -3,172 +3,88 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>jern — the coding agent you can govern</title>
-<meta name="description" content="jern (Norwegian: iron) is a terminal coding agent you can govern: rules your repository enforces, hard budgets, a byte-exact audit trail of every run, and a regression suite for the agent's own behavior.">
-<link rel="icon" type="image/svg+xml" href="icon.svg">
-<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta property="og:title" content="jern — the coding agent you can govern">
-<meta property="og:description" content="Rules your repository enforces, budgets that are walls, and a byte-exact record of every run — replayable offline.">
-<meta property="og:image" content="https://jern.ai/icon-512.png">
+<title>Jern Cloud — governed coding agents on your GitHub runners</title>
+<meta name="description" content="Govern coding-agent work on your GitHub runners with repository-owned policy, hard run limits, and encrypted evidence. Your code, model keys, and compute stay in your environment.">
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/site.css">
+<meta property="og:title" content="Jern Cloud — put coding agents to work without giving up control">
+<meta property="og:description" content="Repository-owned policy, hard run limits, and encrypted evidence on your GitHub runners.">
+<meta property="og:image" content="https://jern.ai/demo-poster.png">
 <meta property="og:url" content="https://jern.ai">
-<style>
-  :root {
-    --bg: #fdf9f2; --panel: #f6efe2; --ink: #35312a; --dim: #8a8274;
-    --rust: #c2643a; --steel: #2c7a8f; --line: #e9dfcd;
-    --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: var(--bg); color: var(--ink);
-         font: 17px/1.65 -apple-system, "Segoe UI", system-ui, sans-serif; }
-  nav { position: sticky; top: 0; z-index: 5; background: rgba(253,249,242,.92);
-        backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
-  nav .inner { max-width: 60rem; margin: 0 auto; display: flex; align-items: center;
-               gap: 1.1rem; padding: .6rem 1.25rem; }
-  nav img { border-radius: 8px; }
-  nav .brand { font-weight: 700; color: var(--ink); text-decoration: none; }
-  nav a { color: var(--dim); text-decoration: none; font-size: .92rem; }
-  nav a:hover { color: var(--ink); }
-  nav .spacer { flex: 1; }
-  nav .cta { background: var(--rust); color: #fff; padding: .35rem .95rem;
-             border-radius: 7px; font-weight: 600; }
-  nav .cta:hover { color: #fff; filter: brightness(1.1); }
-  .install { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap;
-             margin: 1.4rem 0 0; }
-  .install pre { flex: 1; min-width: 18rem; margin: 0; }
-  .install .cta { background: var(--rust); color: #fff; padding: .65rem 1.2rem;
-                  border-radius: 8px; font-weight: 600; text-decoration: none;
-                  white-space: nowrap; }
-  main { max-width: 60rem; margin: 0 auto; padding: 2.6rem 1.25rem 6rem; }
-  main img.demo { display: block; width: 100%; height: auto;
-                  border: 1px solid var(--line); border-radius: 10px;
-                  margin: 1.4rem 0 .5rem; }
-  video { display: block; width: 100%; border: 1px solid var(--line);
-          border-radius: 8px; margin: 1.6rem 0 .4rem; }
-  .caption { font-size: .85rem; color: var(--dim); margin: 0 0 1rem; }
-  h1 { font-size: 3.2rem; letter-spacing: -0.02em; }
-  h1 .no { color: var(--dim); font-weight: 400; font-size: 1.1rem; letter-spacing: 0;
-           display: block; margin-top: .25rem; }
-  .tagline { font-size: 1.35rem; margin: 1.5rem 0 0; }
-  .tagline b { color: var(--rust); }
-  h2 { font-size: 1.15rem; text-transform: uppercase; letter-spacing: .12em;
-       color: var(--steel); margin: 3.5rem 0 1rem; }
-  p { margin: 1rem 0; color: var(--ink); }
-  p.dim, li.dim { color: var(--dim); }
-  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-        padding: 1rem 1.2rem; overflow-x: auto; font-family: var(--mono);
-        font-size: .86rem; line-height: 1.6; margin: 1.2rem 0; }
-  code { font-family: var(--mono); font-size: .9em; color: var(--steel); }
-  pre code { color: var(--ink); }
-  pre .c { color: var(--dim); }
-  pre .p { color: var(--rust); }
-  pre .s { color: var(--steel); }
-  a { color: var(--steel); }
-  .loop { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
-          gap: .8rem; margin: 1.5rem 0; }
-  .loop div { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-              padding: 1rem; }
-  .loop b { color: var(--rust); font-family: var(--mono); font-size: .95rem; }
-  .loop p { font-size: .88rem; color: var(--dim); margin: .4rem 0 0; }
-  footer { margin-top: 5rem; color: var(--dim); font-size: .85rem;
-           border-top: 1px solid var(--line); padding-top: 1.5rem; }
-</style>
+<meta name="twitter:card" content="summary_large_image">
 </head>
 <body>
-<nav><div class="inner">
-  <img src="icon.svg" alt="" width="26" height="26">
-  <a class="brand" href="/">jern</a>
-  <a href="/docs/">Docs</a>
-  <a href="https://github.com/jern-ai/jern">GitHub</a>
-  <span class="spacer"></span>
-  <a class="cta" href="https://github.com/jern-ai/jern/releases/latest">Download</a>
-</div></nav>
+<header class="site-header">
+  <a class="brand-lockup" href="/" aria-label="Jern Cloud home"><img src="/icon.svg" alt="" width="32" height="32"><strong>Jern</strong><span></span><em>Cloud</em></a>
+  <nav aria-label="Primary navigation"><a href="#product">Product</a><a href="/security/">Security</a><a href="/open-source/">Open source</a><a href="/docs/">Docs</a><a href="#pricing">Pricing</a></nav>
+  <a class="nav-action" href="https://cloud.jern.ai/auth/github?source=jern-ai-home">Start with GitHub</a>
+</header>
 <main>
-  <h1>jern<span class="no">/jæɳ/ — Norwegian for <em>iron</em></span></h1>
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="hero-media" aria-hidden="true"></div>
+    <div class="hero-copy">
+      <p class="kicker">Governed agent operations</p>
+      <h1 id="hero-title">Govern coding agents on your GitHub runners.</h1>
+      <p>Repository-owned policy, hard run limits, and encrypted evidence for unattended coding-agent work. Your code, model keys, and compute stay in your environment.</p>
+      <div class="hero-actions"><a class="button primary" href="https://cloud.jern.ai/auth/github?source=jern-ai-home">Start with GitHub <span aria-hidden="true">→</span></a><a class="button quiet" href="#evidence">See a governed run</a></div>
+    </div>
+    <div class="hero-proof" aria-label="Trust summary"><span>Open-source runtime</span><span>Customer-controlled runners</span><span>Bring your own model</span><span>GitHub OIDC</span><span>Encrypted evidence</span></div>
+  </section>
 
-  <p class="tagline">A terminal coding agent you can <b>govern</b>: rules
-  your repository enforces, budgets that are walls, and a byte-exact record
-  of every run.</p>
+  <section class="evidence-band" id="evidence" aria-labelledby="evidence-title">
+    <div class="section-heading"><p class="kicker">A real governed run</p><h2 id="evidence-title">The evidence arrives with the work.</h2><p>A successful provider-backed repair in the public <a href="https://github.com/jern-ai/jern-demo">jern-demo</a> repository, authorized by GitHub identity and retained by Jern Cloud.</p></div>
+    <div class="evidence-ledger">
+      <div class="ledger-head"><div><span class="live-dot"></span><strong>Run completed</strong></div><a href="https://github.com/jern-ai/jern/actions/runs/33005241771">Open GitHub run ↗</a></div>
+      <div class="ledger-grid">
+        <dl><dt>Repository</dt><dd>jern-ai/jern-demo</dd></dl><dl><dt>Workflow</dt><dd>governed live repair</dd></dl><dl><dt>Commit</dt><dd><code>68310e7</code></dd></dl><dl><dt>Actor</dt><dd>ademar</dd></dl>
+        <dl><dt>Policy</dt><dd>Protected baseline</dd></dl><dl><dt>Model access</dt><dd>Customer secret</dd></dl><dl><dt>Cloud upload</dt><dd>Required</dd></dl><dl><dt>Trace</dt><dd>Encrypted at ingestion</dd></dl>
+      </div>
+      <div class="receipt-strip"><span>Repository identity bound with GitHub OIDC</span><span>Run cap applied at the provider boundary</span><span>Receipt derived from the exact trace</span></div>
+    </div>
+  </section>
 
-  <img class="demo" src="demo.gif" alt="A terminal session: jern policy shows the rules in
-  force with a protected baseline; jern golden check passes; one line of
-  jern.json changes; the check fails with the exact recorded-vs-actual
-  difference; a receipt summarizes the run." width="900" height="600">
-  <p class="caption">Real output from the
-  <a href="https://github.com/jern-ai/jern-demo">demo repository</a>: the
-  rules in force and where each came from, a recorded session replaying
-  clean, one line of configuration changed, and the same check failing with
-  the exact difference — offline, no model called. Then the receipt for the
-  run. <a href="screencast.webm">The older walkthrough</a> shows the agent's
-  own source being edited and tested.</p>
+  <section class="steps-band" id="product" aria-labelledby="steps-title">
+    <div class="section-heading compact"><p class="kicker">From repository to evidence</p><h2 id="steps-title">Four deliberate steps. No hosted runner required.</h2></div>
+    <ol class="steps">
+      <li><span>01</span><h3>Connect</h3><p>Select only the repositories Jern Cloud may inspect through the GitHub App.</p></li>
+      <li><span>02</span><h3>Review</h3><p>Cloud opens a setup pull request with a pinned Action and least-authority baseline. It never merges it.</p></li>
+      <li><span>03</span><h3>Run</h3><p>GitHub Actions executes Jern with your runner and provider secret under the protected policy.</p></li>
+      <li><span>04</span><h3>Inspect</h3><p>The team receives repository-bound provenance, lifecycle state, usage, and encrypted run evidence.</p></li>
+    </ol>
+  </section>
 
-  <div class="install">
-    <pre><code><span class="p">$</span> curl -fsSL https://jern.ai/install.sh | sh</code></pre>
-    <a class="cta" href="https://github.com/jern-ai/jern/releases/latest">Download&nbsp;binaries</a>
-  </div>
-  <p class="caption">macOS &amp; Linux, arm64 &amp; x64 — Windows builds on the
-  <a href="https://github.com/jern-ai/jern/releases/latest">releases page</a>.
-  Full reference in the <a href="/docs/">docs</a>.</p>
+  <section class="boundary-band" aria-labelledby="boundary-title">
+    <div class="boundary-copy"><p class="kicker">The boundary is the product</p><h2 id="boundary-title">Keep execution close. Centralize control.</h2><p>Jern Cloud is a control plane around the open-source Jern runtime. Enforcement happens where the code runs. Cloud authorizes the run, reserves its cap, and retains its evidence without receiving your model credential.</p><a class="text-link" href="/security/">Read the data flow and honest limits →</a></div>
+    <div class="boundary-map" aria-label="Jern Cloud data boundary">
+      <div class="zone customer-zone"><strong>Your environment</strong><span>Source code</span><span>GitHub runner</span><span>Model key</span><span>Jern runtime</span></div>
+      <div class="flow" aria-hidden="true"><span>OIDC authorization</span><b>→</b><span>encrypted evidence</span></div>
+      <div class="zone cloud-zone"><strong>Jern Cloud</strong><span>Repository identity</span><span>Run authorization</span><span>Budget reservation</span><span>Encrypted trace</span></div>
+    </div>
+  </section>
 
-  <pre><code><span class="c">// jern.json — enforced for every jern session in this repo</span>
-<span class="s">"policy"</span>: { <span class="s">"edits_within"</span>: [<span class="s">"src/"</span>], <span class="s">"shell_allow"</span>: [<span class="s">"pytest"</span>], <span class="s">"deny"</span>: [<span class="s">"mcp__*"</span>] }</code></pre>
+  <section class="foundation-band" aria-labelledby="foundation-title">
+    <div class="section-heading compact"><p class="kicker">An inspectable foundation</p><h2 id="foundation-title">Trust starts in the open.</h2><p>Policy enforcement, receipt derivation, trace formats, replay, and the GitHub Action live in the Apache-2.0 Jern repository. The control plane does not reinterpret what the runtime recorded.</p></div>
+    <div class="foundation-links">
+      <a href="/open-source/"><strong>Open-source runtime</strong><span>Use, govern, edit, and test the agent.</span></a>
+      <a href="https://github.com/jern-ai/jern/blob/main/docs/security-model.md"><strong>Security model</strong><span>The claim, the boundary, and what it does not defend against.</span></a>
+      <a href="https://github.com/jern-ai/jern/tree/main/action"><strong>GitHub Action</strong><span>Pinned setup and customer-runner execution.</span></a>
+    </div>
+  </section>
 
-  <pre><code><span class="p">$</span> jern run "fix the failing test"   <span class="c"># works like the agents you know</span>
-<span class="p">$</span> jern policy                       <span class="c"># every rule, and where it came from</span>
-<span class="p">$</span> jern replay .jern/trace-*.jsonl   <span class="c"># re-run any past run offline;</span>
-                                    <span class="c"># --policy strict.ikr shows what would differ</span>
-<span class="p">$</span> jern test                         <span class="c"># deterministic replay — offline, no key —</span>
-                                    <span class="c"># catches any change to agent behavior</span></code></pre>
+  <section class="pricing-band" id="pricing" aria-labelledby="pricing-title">
+    <div class="pricing-copy"><p class="kicker">Founding Team pilot</p><h2 id="pricing-title">Start with one governed workspace.</h2><p>For teams ready to put a real repository under governed agent operations, with direct onboarding and a clear conversion decision.</p></div>
+    <div class="price">
+      <div><strong>$250</strong><span>per workspace / month</span></div>
+      <ul><li>Up to 10 governed repositories</li><li>Up to 10 team members</li><li>30-day evidence retention</li><li>Repository setup pull requests</li><li>Direct onboarding support</li></ul>
+      <a class="button primary" href="https://cloud.jern.ai/auth/github?source=jern-ai-pricing">Start with GitHub <span aria-hidden="true">→</span></a>
+      <small>Pilot access is reviewed with each team. Model and runner costs are not included.</small>
+    </div>
+  </section>
 
-  <div class="loop">
-    <div><b>use it</b><p>Anthropic, OpenAI, Ollama, or any OpenAI-compatible endpoint. MCP servers as tools. Streaming, git auto-commit with undo, a local web UI with approval cards, a full JSONL audit trace.</p></div>
-    <div><b>govern it</b><p>A <code>policy</code> object in <code>jern.json</code> scopes edits, allowlists commands, and denies tools — enforced at the one choke point every effect crosses. Restrictions only tighten: nothing loaded later can turn a denial into an approval.</p></div>
-    <div><b>edit it</b><p>Agent code runs in a capability environment holding no file, network, or process authority — only unforgeable effect tags. Editing the brain never means trusting it.</p></div>
-    <div><b>test it</b><p><code>jern test</code> replays recorded LLM fixtures byte-exactly and asserts trajectory properties — "never shelled out", "edits only under src/". A regression-tested agent: name another one.</p></div>
-  </div>
-
-  <h2>Why a language matters</h2>
-  <p>Editable was never the hard part — aider is editable Python. The hard
-  part is editable <em>without inheriting the host's authority</em>. jern's
-  agents run on <a href="https://ironkernel.org/">IronKernel</a>, a Kernel
-  dialect for .NET where environments are capabilities and effects are the
-  only way out: the model is reachable solely through an effect tag, so
-  policy is enforcement rather than convention, the audit trace is complete
-  by construction, and fixture replay is exhaustive — not a mock that an
-  <code>import</code> can bypass.</p>
-
-  <h2>Sixty seconds of the real thing</h2>
-  <pre><code><span class="c">; agents/default/src/main.ikr — the actual dispatch, not pseudocode</span>
-(define run-tool-use
-  (lambda (block)
-    (sequence
-      (define outcome
-        (call-tool (plist-get block :name) (plist-get block :input)))
-      ...)))
-
-<span class="c">; change policy? it's source too (kernel/policy.ikr)</span>
-(cond ((equal? name "shell") :ask)
-      ((equal? name "edit_file") :ask)
-      ((equal? name "read_file") :allow) ...)
-
-<span class="c">; and the agent has tests</span>
-(deftest "fixes a typo end to end"
-  (with-fixtures "fixtures/fix-typo.json"
-    (assert-equal "Fixed the typo." (run-agent "Fix the typo in greeting.txt"))
-    (assert-file-contains "greeting.txt" "hello world")))</code></pre>
-
-  <h2>Get it</h2>
-  <p>Binaries for macOS, Linux, and Windows on the
-  <a href="https://github.com/jern-ai/jern/releases">releases page</a> —
-  untar, put <code>jern</code> on your PATH, set a provider key
-  (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or none for
-  local Ollama), and run. Source, docs, and the security model live in the
-  <a href="https://github.com/jern-ai/jern">repository</a>.</p>
-
-  <footer>
-    Apache-2.0 · built on <a href="https://ironkernel.org/">IronKernel</a> ·
-    <a href="https://github.com/jern-ai/jern">GitHub</a>
-  </footer>
+  <section class="final-band"><p class="kicker">The next agent run can have a boundary</p><h2>Put coding agents to work without giving up control.</h2><div class="hero-actions"><a class="button primary" href="https://cloud.jern.ai/auth/github?source=jern-ai-final">Start with GitHub <span aria-hidden="true">→</span></a><a class="button quiet" href="/security/">Review security first</a></div></section>
 </main>
+<footer class="site-footer"><a class="brand-lockup" href="/"><img src="/icon.svg" alt="" width="28" height="28"><strong>Jern</strong><span></span><em>Cloud</em></a><p>Governed coding-agent work on infrastructure you control.</p><nav aria-label="Footer navigation"><a href="/open-source/">Open source</a><a href="/docs/">Docs</a><a href="/security/">Security</a><a href="/privacy/">Privacy</a><a href="/terms/">Pilot terms</a><a href="https://github.com/jern-ai/jern">GitHub</a></nav></footer>
 </body>
 </html>
