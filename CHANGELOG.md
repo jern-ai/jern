@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.14.5 — 2026-08-26
+
+- **Cloud-authorized runs enforce their reserved token cap locally.** A
+  customer runner supplies the cloud run ID and server-returned cap through
+  `JERN_CLOUD_RUN_ID` and `JERN_CLOUD_TOKEN_CAP`; `jern run` validates both
+  before creating a trace and applies an unrenewable provider-boundary limit.
+  Approval cannot extend it, spawned agents share the same counter, and a
+  provider that omits usage fails closed. The trace and machine-readable
+  receipt carry the cap and any hard-budget denial, binding completion
+  evidence to the governance limit without moving provider credentials into
+  Jern Cloud.
+
 ## 0.14.4 — 2026-08-25
 
 - **The receipt lines up in a colored terminal.** Its labels were padded
