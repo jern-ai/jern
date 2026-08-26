@@ -290,6 +290,7 @@ module Ui =
                   agent = defaultArg config.agentDir "default"
                   budgetLlmCalls = config.providers.budgetLlmCalls
                   budgetTokens = config.providers.budgetTokens
+                  cloudTokenCap = None
                   policy =
                     config.policySources
                     |> List.map (fun source ->

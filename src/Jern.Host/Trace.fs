@@ -62,6 +62,7 @@ module Trace =
           agent: string
           budgetLlmCalls: int option
           budgetTokens: int option
+          cloudTokenCap: int64 option
           policy: PolicyLayer list }
 
     /// Write `run-started` and return the function that closes the run with
@@ -85,6 +86,13 @@ module Trace =
         budget.["tokens"] <-
             (match start.budgetTokens with Some n -> JsonValue.Create n :> JsonNode | None -> null)
         doc.["budget"] <- budget
+        (match start.cloudTokenCap with
+         | Some cap ->
+             let cloud = JsonObject()
+             cloud.["run_id"] <- JsonValue.Create start.runId
+             cloud.["token_cap"] <- JsonValue.Create cap
+             doc.["cloud"] <- cloud
+         | None -> ())
         let layers = JsonArray()
         for layer in start.policy do
             let l = JsonObject()

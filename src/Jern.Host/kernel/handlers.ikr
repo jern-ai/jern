@@ -20,6 +20,7 @@
           (jern/host-trace (list :event "llm-call" :request request))
           (define response (jern/host-llm-call request))
           (jern/host-trace (list :event "llm-response" :response response))
+          (jern/host-hard-token-check)
           (resume resume-llm response)))
       (eval body env))))
 

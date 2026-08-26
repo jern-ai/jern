@@ -21,6 +21,29 @@ open IronKernel.SymbolTable
 /// delegation (docs/capabilities.md).
 module Session =
 
+    type HardTokenBudget(limit: int64) =
+        let gate = obj ()
+        let mutable spent = 0L
+        let mutable violation: string option = None
+
+        do
+            if limit <= 0L then
+                invalidArg (nameof limit) "hard token budget must be positive"
+
+        member _.Limit = limit
+        member _.Spent = lock gate (fun () -> spent)
+        member _.Violation = lock gate (fun () -> violation)
+
+        member _.Account(tokens: int64) =
+            if tokens < 0L then invalidArg (nameof tokens) "token usage must not be negative"
+            lock gate (fun () ->
+                spent <- Checked.(+) spent tokens
+                spent)
+
+        member _.Reject(message: string) =
+            lock gate (fun () ->
+                if violation.IsNone then violation <- Some message)
+
     type Config =
         { workspaceRoot: string
           bridge: AnthropicBridge.LlmBridge
@@ -45,6 +68,10 @@ module Session =
           /// (:llm_calls N :tokens M); Nil = unlimited. Exhaustion becomes
           /// a jern/approve question — approving grants another round.
           budget: LispVal
+          /// An unrenewable token ceiling enforced at the provider boundary.
+          /// The same instance is inherited by spawned sessions, so approval
+          /// and delegation cannot reset it.
+          hardTokenBudget: HardTokenBudget option
           /// Polled before every llm/tool dispatch; true aborts the turn
           /// with a Kernel error (Ctrl-C).
           interrupted: unit -> bool
@@ -209,15 +236,80 @@ module Session =
             let threadAbandoned () =
                 abandonedThreads.ContainsKey System.Threading.Thread.CurrentThread.ManagedThreadId
 
+            let emitTrace (event: LispVal) =
+                match config.traceSink with
+                | None -> ()
+                | Some sink -> Trace.event sink event
+
+            let hardBudgetError (budget: HardTokenBudget) message =
+                emitTrace
+                    (ofList [ Keyword "event"; Obj("hard-token-budget-denied" :> obj)
+                              Keyword "limit"; Obj(budget.Limit :> obj)
+                              Keyword "tokens"; Obj(budget.Spent :> obj) ])
+                Default message
+
+            let responseTokens response =
+                let token usage key =
+                    match Tools.plistTryGet key usage with
+                    | Some (Obj value) ->
+                        try
+                            let parsed = Convert.ToInt64 value
+                            if parsed >= 0L then Ok parsed
+                            else Error(sprintf "provider returned negative %s usage" key)
+                        with _ ->
+                            Error(sprintf "provider returned invalid %s usage" key)
+                    | _ -> Error(sprintf "provider omitted %s usage" key)
+                match Tools.plistTryGet "usage" response with
+                | Some usage ->
+                    match token usage "input_tokens", token usage "output_tokens" with
+                    | Ok input, Ok output ->
+                        try Ok(Checked.(+) input output)
+                        with :? OverflowException -> Error "provider token usage overflowed"
+                    | Error message, _ | _, Error message -> Error message
+                | None -> Error "provider omitted token usage"
+
             let hostLlmCall env cont = function
                 | [request] ->
                     if config.interrupted () || threadAbandoned () then
                         signal cont (Default "interrupted by user")
                     else
-                        match config.bridge request with
-                        | Choice1Of2 error -> signal cont error
-                        | Choice2Of2 reply -> bounceContinue env cont reply
+                        match config.hardTokenBudget with
+                        | Some budget when budget.Spent >= budget.Limit ->
+                            signal cont
+                                (hardBudgetError budget
+                                    (sprintf "hard token budget of %d exhausted after %d tokens"
+                                        budget.Limit budget.Spent))
+                        | hardBudget ->
+                            match config.bridge request with
+                            | Choice1Of2 error -> signal cont error
+                            | Choice2Of2 reply ->
+                                match hardBudget with
+                                | None -> bounceContinue env cont reply
+                                | Some budget ->
+                                    match responseTokens reply with
+                                    | Error message ->
+                                        budget.Reject(sprintf "hard token budget cannot verify usage: %s" message)
+                                        bounceContinue env cont reply
+                                    | Ok tokens ->
+                                        try
+                                            let spent = budget.Account tokens
+                                            if spent > budget.Limit then
+                                                budget.Reject(
+                                                    sprintf "hard token budget of %d exceeded with %d tokens"
+                                                        budget.Limit spent)
+                                            bounceContinue env cont reply
+                                        with :? OverflowException ->
+                                            budget.Reject "hard token budget usage overflowed"
+                                            bounceContinue env cont reply
                 | bad -> signal cont (NumArgs(1, bad))
+
+            let hostHardTokenCheck env cont = function
+                | [] ->
+                    match config.hardTokenBudget |> Option.bind _.Violation with
+                    | Some message ->
+                        signal cont (hardBudgetError config.hardTokenBudget.Value message)
+                    | None -> bounceContinue env cont Inert
+                | bad -> signal cont (NumArgs(0, bad))
 
             // kernel_eval is answered here, before the replay override:
             // replay must *re-execute* programs (their inner effects are
@@ -246,14 +338,6 @@ module Session =
                         | Choice1Of2 error -> signal cont error
                         | Choice2Of2 reply -> bounceContinue env cont reply
                 | bad -> signal cont (NumArgs(1, bad))
-
-            /// One timestamped JSONL line per event. Used by the jern/trace
-            /// primitive below and by the host itself, for events that belong
-            /// to the run rather than to any effect (policy provenance).
-            let emitTrace (event: LispVal) =
-                match config.traceSink with
-                | None -> ()
-                | Some sink -> Trace.event sink event
 
             let hostTrace env cont = function
                 | [event] ->
@@ -395,6 +479,7 @@ module Session =
             let handlerEnv =
                 bindVars (newEnv [std])
                     (("jern/host-llm-call", AgentEnv.applicative hostLlmCall)
+                     :: ("jern/host-hard-token-check", AgentEnv.applicative hostHardTokenCheck)
                      :: ("jern/host-tool-call", AgentEnv.applicative hostToolCall)
                      :: ("jern/host-trace", AgentEnv.applicative hostTrace)
                      :: ("jern/host-approve", AgentEnv.applicative hostApprove)
@@ -643,6 +728,7 @@ module Session =
           agentConfig = Nil
           mcpServers = []
           budget = Nil
+          hardTokenBudget = None
           interrupted = fun () -> false
           policyTrust = fun _ _ -> true
           policySources = []

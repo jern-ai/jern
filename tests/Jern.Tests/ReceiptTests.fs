@@ -26,7 +26,7 @@ let private ts (event: string) = sprintf """{"ts":"2026-08-24T10:15:%02dZ",%s"""
 /// A small but complete run: envelope, a model call with usage, a policed
 /// read, an approved edit, a denied write, and a commit.
 let private canned =
-    [ ts """"event":"run-started","schema_version":1,"run_id":"20260824-101530","jern_version":"0.12.0","command":"run","task":"fix the parser","model":"anthropic/claude-opus-5","agent":"default","budget":{"llm_calls":20,"tokens":null},"policy":[{"source":"jern.json","digest":"abc123def4567890","protected":false}]}"""
+    [ ts """"event":"run-started","schema_version":1,"run_id":"20260824-101530","jern_version":"0.12.0","command":"run","task":"fix the parser","model":"anthropic/claude-opus-5","agent":"default","budget":{"llm_calls":20,"tokens":null},"cloud":{"run_id":"20260824-101530","token_cap":50000},"policy":[{"source":"jern.json","digest":"abc123def4567890","protected":false}]}"""
       ts """"event":"policy-layer","source":"jern.json","digest":"abc123def4567890","grants":true,"protected":false}"""
       ts """"event":"llm-call","request":{"model":"anthropic/claude-opus-5"}}"""
       ts """"event":"llm-response","response":{"usage":{"input_tokens":18200,"output_tokens":2100}}}"""
@@ -53,6 +53,7 @@ let ``a receipt reports what the run actually did`` () =
     Assert.Equal(18200L, s.inputTokens)
     Assert.Equal(2100L, s.outputTokens)
     Assert.Equal(Some 20, s.budgetLlmCalls)
+    Assert.Equal(Some 50000L, s.cloudTokenCap)
     Assert.Equal<(string * int) list>([ "edit_file", 1; "read_file", 1 ], s.tools)
     Assert.Equal<string list>([ "src/parser.py" ], s.filesTouched)
     Assert.Equal(1, s.commits)
@@ -75,6 +76,7 @@ let ``every rendering carries the same facts`` () =
     Assert.Contains("1 (anthropic/claude-opus-5)", text)
     Assert.Contains("18.2k in / 2.1k out", text)
     Assert.Contains("budget 1/20", text)
+    Assert.Contains("cloud cap 20.3k/50.0k", text)
     Assert.Contains("read_file ×1", text)
     Assert.Contains("src/parser.py", text)
     Assert.Contains("1 allowed · 1 approved by you · 1 denied", text)
@@ -91,6 +93,8 @@ let ``every rendering carries the same facts`` () =
     let doc = Text.Json.Nodes.JsonNode.Parse(json).AsObject()
     Assert.Equal(1, doc.["llm_calls"].GetValue<int>())
     Assert.Equal(18200L, doc.["input_tokens"].GetValue<int64>())
+    Assert.Equal(50000L, doc.["cloud_token_cap"].GetValue<int64>())
+    Assert.False(doc.["hard_token_budget_denied"].GetValue<bool>())
     Assert.Equal("ok", doc.["status"].GetValue<string>())
     Assert.Equal("src/parser.py", doc.["files_touched"].AsArray().[0].GetValue<string>())
     Assert.Equal(1, doc.["policy"].AsObject().["denied_by_rule"].GetValue<int>())
@@ -262,6 +266,7 @@ let ``a receipt of a real run matches the run`` () =
                    agent = "default"
                    budgetLlmCalls = Some 20
                    budgetTokens = None
+                   cloudTokenCap = None
                    policy = [] }
          let session =
              match Session.createWith

@@ -113,3 +113,41 @@ let ``an unknown agent name is an error result`` () =
         Assert.StartsWith("refused: agent 'no-such-agent'", finalText (Session.runAgent session "go"))
     finally
         Directory.Delete(root, true)
+
+[<Fact>]
+let ``spawned agents share the hard token budget`` () =
+    let root = makeRoot ()
+    try
+        let calls = ref 0
+        let bridge: AnthropicBridge.LlmBridge =
+            fun _ ->
+                calls.Value <- calls.Value + 1
+                Choice2Of2(
+                    Jern.Host.Json.deserialize
+                        """{"role":"assistant","stop_reason":"end_turn","content":[],"usage":{"input_tokens":20,"output_tokens":10}}""")
+        let agentDir =
+            writeAgent root "parent"
+                (String.concat "\n"
+                    [ "(define run-agent"
+                      "  (lambda (task)"
+                      "    (if (equal? task \"child\")"
+                      "        (sequence (perform jern/llm-call (list :messages (vector))) \"child-done\")"
+                      "        (sequence"
+                      "          (perform jern/llm-call (list :messages (vector)))"
+                      "          (plist-get (spawn-agent \"child\") :content)))))"
+                      "" ])
+        let hardBudget = Session.HardTokenBudget 30L
+        let config =
+            { Session.configIn root bridge with
+                agentSources = Session.agentPackageSources agentDir
+                hardTokenBudget = Some hardBudget }
+        let session =
+            match Session.createWith config with
+            | Choice1Of2 error -> failwith (showError error)
+            | Choice2Of2 created -> created
+        let result = finalText (Session.runAgent session "parent")
+        Assert.Contains("hard token budget of 30 exhausted", result)
+        Assert.Equal(1, calls.Value)
+        Assert.Equal(30L, hardBudget.Spent)
+    finally
+        Directory.Delete(root, true)

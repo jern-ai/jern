@@ -41,6 +41,8 @@ module Receipt =
           outputTokens: int64
           budgetLlmCalls: int option
           budgetTokens: int option
+          cloudTokenCap: int64 option
+          hardTokenBudgetDenied: bool
           budgetExtended: int
           budgetDenied: bool
           /// Tool name → invocations, most-used first.
@@ -64,7 +66,8 @@ module Receipt =
           unreadableLines = 0; runId = None; jernVersion = None; command = None; task = None
           model = None; agent = None; status = None; statusReason = None; duration = None
           llmCalls = 0; inputTokens = 0L; outputTokens = 0L
-          budgetLlmCalls = None; budgetTokens = None; budgetExtended = 0; budgetDenied = false
+          budgetLlmCalls = None; budgetTokens = None; cloudTokenCap = None
+          hardTokenBudgetDenied = false; budgetExtended = 0; budgetDenied = false
           tools = []; filesTouched = []; commits = 0
           policyAllowed = 0; policyAsked = 0; policyDeniedByRule = 0; approvalsDenied = 0
           denialReasons = []; spawns = 0; programs = 0; policyLayers = []
@@ -142,6 +145,7 @@ module Receipt =
                                           v AgentEnv.version Trace.schemaVersion)
                          | _ -> ())
                         let budget = child doc "budget"
+                        let cloud = child doc "cloud"
                         s <-
                             { s with
                                 hasEnvelope = true
@@ -153,7 +157,8 @@ module Receipt =
                                 model = str doc "model"
                                 agent = str doc "agent"
                                 budgetLlmCalls = budget |> Option.bind (fun b -> intOf b "llm_calls")
-                                budgetTokens = budget |> Option.bind (fun b -> intOf b "tokens") }
+                                budgetTokens = budget |> Option.bind (fun b -> intOf b "tokens")
+                                cloudTokenCap = cloud |> Option.bind (fun c -> int64Of c "token_cap") }
                         match field doc "policy" with
                         | Some (:? JsonArray as array) ->
                             for item in array do
@@ -232,6 +237,7 @@ module Receipt =
                     | "spawn" -> s <- { s with spawns = s.spawns + 1 }
                     | "budget-extended" -> s <- { s with budgetExtended = s.budgetExtended + 1 }
                     | "budget-denied" -> s <- { s with budgetDenied = true }
+                    | "hard-token-budget-denied" -> s <- { s with hardTokenBudgetDenied = true }
                     | "memory-recall" -> s <- { s with memoryReads = s.memoryReads + 1 }
                     | "memory-remember" -> s <- { s with memoryWrites = s.memoryWrites + 1 }
                     | "log" ->
@@ -316,9 +322,15 @@ module Receipt =
               match s.budgetLlmCalls with
               | Some limit -> sprintf " · budget %d/%d" s.llmCalls limit
               | None -> ""
+          let cloudCap =
+              match s.cloudTokenCap with
+              | Some limit ->
+                  sprintf " · cloud cap %s/%s"
+                      (compactCount (s.inputTokens + s.outputTokens)) (compactCount limit)
+              | None -> ""
           yield "model calls",
-                sprintf "%d (%s) · %s in / %s out%s"
-                    s.llmCalls model (compactCount s.inputTokens) (compactCount s.outputTokens) budget
+                sprintf "%d (%s) · %s in / %s out%s%s"
+                    s.llmCalls model (compactCount s.inputTokens) (compactCount s.outputTokens) budget cloudCap
 
           if not s.tools.IsEmpty then
               yield "tools",
@@ -466,6 +478,9 @@ module Receipt =
             (match s.budgetLlmCalls with Some n -> JsonValue.Create n :> JsonNode | None -> null)
         doc.["budget_tokens"] <-
             (match s.budgetTokens with Some n -> JsonValue.Create n :> JsonNode | None -> null)
+        doc.["cloud_token_cap"] <-
+            (match s.cloudTokenCap with Some n -> JsonValue.Create n :> JsonNode | None -> null)
+        doc.["hard_token_budget_denied"] <- JsonValue.Create s.hardTokenBudgetDenied
         doc.["budget_extended"] <- JsonValue.Create s.budgetExtended
         doc.["budget_denied"] <- JsonValue.Create s.budgetDenied
         let tools = JsonObject()

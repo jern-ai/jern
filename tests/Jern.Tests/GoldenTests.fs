@@ -37,7 +37,7 @@ let private recordGolden root slug task (bridge: AnthropicBridge.LlmBridge) asse
          Trace.openRun writer.WriteLine
              { runId = slug; command = "golden"; task = Some task
                model = "test/model"; agent = "default"
-               budgetLlmCalls = None; budgetTokens = None; policy = [] }
+               budgetLlmCalls = None; budgetTokens = None; cloudTokenCap = None; policy = [] }
      let session =
          match Session.createWith
                    { Session.configIn root bridge with

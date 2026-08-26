@@ -45,6 +45,19 @@ let private sessionWith budget approver bridge =
     | Choice1Of2 error -> failwith (showError error)
     | Choice2Of2 s -> s
 
+let private sessionWithHardBudget limit approver bridge trace =
+    let root = Path.Combine(Path.GetTempPath(), "jern-hard-budget-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory root |> ignore
+    let hardBudget = Session.HardTokenBudget limit
+    let config =
+        { Session.configIn root bridge with
+            approver = approver
+            traceSink = trace
+            hardTokenBudget = Some hardBudget }
+    match Session.createWith config with
+    | Choice1Of2 error -> failwith (showError error)
+    | Choice2Of2 session -> session, hardBudget
+
 [<Fact>]
 let ``an exhausted budget with approval denied ends the run`` () =
     let calls = ref 0
@@ -99,6 +112,65 @@ let ``token budgets account response usage`` () =
         // call 3 finds 80 >= 50 and must ask.
         Assert.Equal(2, calls.Value)
         Assert.Contains("80 tokens", showError error)
+
+[<Fact>]
+let ``hard token budget cannot be renewed by approval`` () =
+    let calls = ref 0
+    let asked = ref 0
+    let trace = ResizeArray<string>()
+    let session, hardBudget =
+        sessionWithHardBudget 50L
+            (Some(fun _ -> asked.Value <- asked.Value + 1; true))
+            (fixedBridge (Some """{"input_tokens":20,"output_tokens":10}""") calls)
+            (Some trace.Add)
+    let source =
+        """(sequence
+              (perform jern/llm-call (list :messages (vector)))
+              (perform jern/llm-call (list :messages (vector)))
+              (perform jern/log (list :event "after-hard-cap"))
+              "done")"""
+    match Session.runSource session "hard-budget-test" source with
+    | Choice2Of2 value -> failwith ("expected the run to end, got " + showVal value)
+    | Choice1Of2 error ->
+        Assert.Contains("hard token budget of 50 exceeded with 60 tokens", showError error)
+        Assert.Equal(2, calls.Value)
+        Assert.Equal(60L, hardBudget.Spent)
+        Assert.Equal(0, asked.Value)
+        Assert.Contains(trace, fun line -> line.Contains "\"event\":\"llm-response\"")
+        Assert.Contains(trace, fun line -> line.Contains "\"event\":\"hard-token-budget-denied\"")
+        Assert.DoesNotContain(trace, fun line -> line.Contains "\"event\":\"after-hard-cap\"")
+        let crossingResponse =
+            trace
+            |> Seq.mapi (fun index line -> index, line)
+            |> Seq.filter (fun (_, line) -> line.Contains "\"event\":\"llm-response\"")
+            |> Seq.last
+            |> fst
+        let denial =
+            trace |> Seq.findIndex (fun line -> line.Contains "\"event\":\"hard-token-budget-denied\"")
+        Assert.True(crossingResponse < denial)
+        let tracePath = Path.Combine(Path.GetTempPath(), "jern-hard-budget-receipt-" + Guid.NewGuid().ToString("N") + ".jsonl")
+        try
+            File.WriteAllLines(tracePath, trace)
+            match Receipt.ofTrace tracePath with
+            | Error message -> failwith message
+            | Ok receipt ->
+                Assert.Equal(40L, receipt.inputTokens)
+                Assert.Equal(20L, receipt.outputTokens)
+                Assert.True receipt.hardTokenBudgetDenied
+        finally
+            File.Delete tracePath
+
+[<Fact>]
+let ``hard token budget fails closed without provider usage`` () =
+    let calls = ref 0
+    let session, hardBudget =
+        sessionWithHardBudget 50L (Some(fun _ -> true)) (fixedBridge None calls) None
+    match Session.runSource session "hard-budget-test" (callLoop 1) with
+    | Choice2Of2 value -> failwith ("expected the run to end, got " + showVal value)
+    | Choice1Of2 error ->
+        Assert.Contains("hard token budget cannot verify usage", showError error)
+        Assert.Equal(1, calls.Value)
+        Assert.Equal(0L, hardBudget.Spent)
 
 [<Fact>]
 let ``no configured budget means no interference`` () =

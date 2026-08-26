@@ -210,6 +210,28 @@ let private sessionBudget (providers: Providers.Config) (cliBudget: int option) 
     | Some calls -> Providers.budget { providers with budgetLlmCalls = Some calls }
     | None -> Providers.budget providers
 
+type private CloudRunContext =
+    { runId: string
+      tokenBudget: Session.HardTokenBudget }
+
+let private cloudRunContext () =
+    let variable name =
+        match Environment.GetEnvironmentVariable name with
+        | null | "" -> None
+        | value -> Some value
+    match variable "JERN_CLOUD_RUN_ID", variable "JERN_CLOUD_TOKEN_CAP" with
+    | None, None -> Ok None
+    | Some _, None | None, Some _ ->
+        Error "JERN_CLOUD_RUN_ID and JERN_CLOUD_TOKEN_CAP must be set together"
+    | Some runId, Some rawCap ->
+        if not (Text.RegularExpressions.Regex.IsMatch(runId, "^run_[0-9a-f]{32}$")) then
+            Error "JERN_CLOUD_RUN_ID must have the form run_<32 lowercase hex characters>"
+        else
+            match Int64.TryParse rawCap with
+            | true, cap when cap > 0L ->
+                Ok(Some { runId = runId; tokenBudget = Session.HardTokenBudget cap })
+            | _ -> Error "JERN_CLOUD_TOKEN_CAP must be a positive 64-bit integer"
+
 /// The protected policy baseline (`--policy-baseline <file>`): rules this
 /// checkout may tighten but never weaken. CI points it at base-branch or
 /// workflow-owned data — never at the pull request's own tree, which is the
@@ -286,7 +308,7 @@ let private ttyPolicyGrantTrust (identity: string) (canonical: string) =
 /// has to infer it from the effects that followed.
 let private openRun (sink: string -> unit) (providers: Providers.Config) (runId: string)
                     (command: string) (task: string option) (model: string option)
-                    (agent: string) (cliBudget: int option) =
+                    (agent: string) (cliBudget: int option) (cloudTokenCap: int64 option) =
     Trace.openRun sink
         { runId = runId
           command = command
@@ -295,6 +317,7 @@ let private openRun (sink: string -> unit) (providers: Providers.Config) (runId:
           agent = agent
           budgetLlmCalls = (match cliBudget with Some n -> Some n | None -> providers.budgetLlmCalls)
           budgetTokens = providers.budgetTokens
+          cloudTokenCap = cloudTokenCap
           policy =
             policySources providers
             |> List.map (fun source ->
@@ -361,10 +384,10 @@ let private runTests (dirArg: string option) (record: bool) (model: string optio
         if summary.Failed.IsEmpty then 0 else 1
 
 /// A JSONL trace sink under <workspace>/.jern/.
-let private newTraceSink (root: string) =
+let private newTraceSink (root: string) (requestedRunId: string option) =
     let dir = IO.Path.Combine(root, ".jern")
     IO.Directory.CreateDirectory dir |> ignore
-    let runId = DateTime.Now.ToString("yyyyMMdd-HHmmss")
+    let runId = defaultArg requestedRunId (DateTime.Now.ToString("yyyyMMdd-HHmmss"))
     let path = IO.Path.Combine(dir, sprintf "trace-%s.jsonl" runId)
     let writer = new IO.StreamWriter(path, append = true, AutoFlush = true)
     writer, path, runId
@@ -453,11 +476,11 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
     Console.CancelKeyPress.Add(fun e ->
         e.Cancel <- true
         interrupted.Value <- true)
-    let writer, tracePath, runId = newTraceSink root
+    let writer, tracePath, runId = newTraceSink root None
     let mutable currentModel = model
     let finishRun =
         openRun writer.WriteLine providers runId "chat" None model
-            (Session.defaultAgentDir ()) cliBudget
+            (Session.defaultAgentDir ()) cliBudget None
 
     let makeSession () =
         let bridge =
@@ -564,7 +587,8 @@ let private runChat (resumeId: string option) (model: string option) (cliBudget:
 /// ordinary run whose trace is kept and committed.
 let private runTaskTo (writer: IO.StreamWriter) (tracePath: string) (runId: string) (command: string)
                       (autoApprove: bool) (agentDir: string option) (model: string option)
-                      (cliBudget: int option) (task: string) =
+                      (cliBudget: int option) (cloudTokenBudget: Session.HardTokenBudget option)
+                      (task: string) =
     let root = Environment.CurrentDirectory
     let providers = loadProviders ()
     let stream = ConsoleStream()
@@ -576,6 +600,7 @@ let private runTaskTo (writer: IO.StreamWriter) (tracePath: string) (runId: stri
         | None -> Session.defaultAgentDir ()
     let finishRun =
         openRun writer.WriteLine providers runId command (Some task) model agent cliBudget
+            (cloudTokenBudget |> Option.map _.Limit)
     let config =
         { Session.configIn root bridge with
             traceSink = Some writer.WriteLine
@@ -584,6 +609,7 @@ let private runTaskTo (writer: IO.StreamWriter) (tracePath: string) (runId: stri
             agentConfig = Providers.agentConfig providers
             mcpServers = providers.mcpServers
             budget = sessionBudget providers cliBudget
+            hardTokenBudget = cloudTokenBudget
             policyTrust = ttyPolicyTrust
             policySources = policySources providers
             policyGrantTrust = ttyPolicyGrantTrust }
@@ -612,8 +638,15 @@ let private runTaskTo (writer: IO.StreamWriter) (tracePath: string) (runId: stri
 
 let private runTask (autoApprove: bool) (agentDir: string option) (model: string option)
                     (cliBudget: int option) (task: string) =
-    let writer, tracePath, runId = newTraceSink Environment.CurrentDirectory
-    runTaskTo writer tracePath runId "run" autoApprove agentDir model cliBudget task
+    match cloudRunContext () with
+    | Error message ->
+        eprintfn "jern: %s" message
+        2
+    | Ok context ->
+        let writer, tracePath, runId =
+            newTraceSink Environment.CurrentDirectory (context |> Option.map _.runId)
+        runTaskTo writer tracePath runId "run" autoApprove agentDir model cliBudget
+            (context |> Option.map _.tokenBudget) task
 
 /// `jern replay` — re-run a recorded trace offline, optionally with a
 /// swapped policy or agent, and report the first divergence.
@@ -750,7 +783,7 @@ let private runGoldenRecord (task: string) (slug: string option) (autoApprove: b
         else Golden.noAssertions
     if rerecording then IO.File.Delete tracePath
     let writer = new IO.StreamWriter(tracePath, append = false, AutoFlush = true)
-    let code = runTaskTo writer tracePath slug "golden" autoApprove agentDir model cliBudget task
+    let code = runTaskTo writer tracePath slug "golden" autoApprove agentDir model cliBudget None task
     if code = 0 then
         IO.File.WriteAllText(
             metadataPath,
