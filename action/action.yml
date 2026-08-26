@@ -415,7 +415,9 @@ runs:
         for trace in "${traces[@]}"; do
           run_response="$(curl --fail --silent --show-error \
             -X POST "${audience}/v1/runs" \
-            -H "Authorization: Bearer $oidc_token")" \
+            -H "Authorization: Bearer $oidc_token" \
+            -H 'Content-Type: application/json' \
+            --data '{"token_budget":0}')" \
             || fail_or_warn "Jern Cloud rejected run authorization."
           run_id="$(jq -er '.run_id' <<< "$run_response")" \
             || fail_or_warn "Jern Cloud returned an invalid run credential."

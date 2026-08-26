@@ -66,6 +66,11 @@ Jern Cloud GitHub App installation. The API returns a one-hour, single-run
 upload credential; only its SHA-256 digest is stored, and the trace is encrypted
 before PostgreSQL persistence.
 
+This check-only action explicitly requests a zero-token reservation because its
+replays make no live model calls. Positive reservations belong to the later live
+runner flow, where the returned cloud cap must also be applied to Jern's local
+hard token budget before execution begins.
+
 Cloud upload never needs a repository or organization secret. To require cloud
 retention rather than treating it as best-effort, set `cloud-upload: "true"`.
 Committed `.jern/golden/*.jsonl` fixtures are not sent to the cloud; only traces
