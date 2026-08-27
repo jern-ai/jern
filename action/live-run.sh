@@ -15,11 +15,27 @@ fi
 if [ "${CLOUD_MODE:-}" != "true" ]; then
   fail "live-task requires cloud-upload: 'true'."
 fi
+if [ -n "${LIVE_TASK:-}" ] && [ -n "${LIVE_ISSUE:-}" ]; then
+  fail "set exactly one of live-task or live-issue."
+fi
+if [ -z "${LIVE_TASK:-}" ] && [ -z "${LIVE_ISSUE:-}" ]; then
+  fail "set exactly one of live-task or live-issue."
+fi
+if [ -n "${LIVE_ISSUE:-}" ] && [[ ! "$LIVE_ISSUE" =~ ^[1-9][0-9]*$ ]]; then
+  fail "live-issue must be a positive GitHub issue number."
+fi
 if [ -z "${BASELINE_FILE:-}" ] || [ ! -f "$BASELINE_FILE" ]; then
   fail "live-task requires baseline-path from the default branch."
 fi
 if [[ ! "${LIVE_TOKEN_BUDGET:-}" =~ ^[1-9][0-9]*$ ]]; then
   fail "live-token-budget must be a positive integer."
+fi
+case "${LIVE_DELIVERY:-none}" in
+  none|pull-request) ;;
+  *) fail "live-delivery must be 'none' or 'pull-request'." ;;
+esac
+if { [ "${LIVE_DELIVERY:-none}" = "pull-request" ] || [ -n "${LIVE_ISSUE:-}" ]; } && [ -z "${GH_TOKEN:-}" ]; then
+  fail "live issue delivery requires github-token."
 fi
 if [[ ! "${JERN_VERSION:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
   fail "live-task requires an exact stable jern version."
@@ -37,6 +53,29 @@ fi
 for command in curl jq sha256sum jern; do
   command -v "$command" >/dev/null 2>&1 || fail "live-task requires '$command' on the runner."
 done
+if [ "${LIVE_DELIVERY:-none}" = "pull-request" ] || [ -n "${LIVE_ISSUE:-}" ]; then
+  for command in git gh; do
+    command -v "$command" >/dev/null 2>&1 || fail "live issue delivery requires '$command' on the runner."
+  done
+fi
+
+if [ -n "${LIVE_ISSUE:-}" ]; then
+  issue_json="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${LIVE_ISSUE}")" \
+    || fail "could not read GitHub issue #${LIVE_ISSUE}."
+  if jq -e 'has("pull_request")' <<< "$issue_json" >/dev/null; then
+    fail "#${LIVE_ISSUE} is a pull request, not an issue."
+  fi
+  issue_title="$(jq -er '.title | select(type == "string" and length > 0)' <<< "$issue_json")" \
+    || fail "GitHub issue #${LIVE_ISSUE} has no valid title."
+  issue_body="$(jq -er '.body // "" | select(type == "string")' <<< "$issue_json")" \
+    || fail "GitHub issue #${LIVE_ISSUE} has an invalid body."
+  LIVE_TASK="Resolve GitHub issue #${LIVE_ISSUE}: ${issue_title}"
+  if [ -n "$issue_body" ]; then
+    LIVE_TASK="${LIVE_TASK}
+
+${issue_body}"
+  fi
+fi
 installed_version="$(jern --version)"
 if [ "$installed_version" != "$JERN_VERSION" ]; then
   fail "live-task installed jern $installed_version, expected $JERN_VERSION."
@@ -80,7 +119,8 @@ echo "::add-mask::$run_token"
 echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
 
 set +e
-JERN_CLOUD_RUN_ID="$run_id" JERN_CLOUD_TOKEN_CAP="$token_cap" \
+env -u GH_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL -u ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+  JERN_CLOUD_RUN_ID="$run_id" JERN_CLOUD_TOKEN_CAP="$token_cap" \
   jern run ${flags[@]+"${flags[@]}"} "$LIVE_TASK"
 run_exit=$?
 set -e
@@ -127,5 +167,44 @@ curl --fail --silent --show-error \
 
 sha256sum "$trace" >> "$TRACE_BASELINE"
 echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
+echo "pull_request_url=" >> "$GITHUB_OUTPUT"
+
+if [ "$run_exit" -eq 0 ] && [ "${LIVE_DELIVERY:-none}" = "pull-request" ]; then
+  if git diff --quiet "$GITHUB_SHA" HEAD --; then
+    echo "::notice::Jern completed without repository changes; no pull request was opened."
+  else
+    branch="jern/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+    title="$(printf '%s' "$LIVE_TASK" | tr '\r\n' '  ' | cut -c1-68)"
+    body_file="${RUNNER_TEMP}/jern-live-pr-${run_id}.md"
+    {
+      echo "## Governed Jern task"
+      echo
+      printf '%s\n' "$LIVE_TASK"
+      echo
+      echo "- Jern Cloud run: \`$run_id\`"
+      echo "- GitHub Actions run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+      echo "- Receipt outcome: \`$outcome\`"
+      if [ -n "${LIVE_ISSUE:-}" ]; then
+        echo "- Source issue: #${LIVE_ISSUE}"
+        echo
+        echo "Closes #${LIVE_ISSUE}"
+      fi
+      echo
+      echo "Each file change was committed by Jern under the repository's protected policy. Review and merge this branch through the repository's normal controls."
+    } > "$body_file"
+    git switch -c "$branch"
+    gh auth setup-git
+    git push origin "HEAD:refs/heads/$branch"
+    pull_request_url="$(gh pr create \
+      --repo "$GITHUB_REPOSITORY" \
+      --base "$DEFAULT_BRANCH" \
+      --head "$branch" \
+      --title "Jern: $title" \
+      --body-file "$body_file")"
+    echo "pull_request_url=$pull_request_url" >> "$GITHUB_OUTPUT"
+    echo "::notice::Opened governed pull request $pull_request_url"
+  fi
+fi
+
 echo "::notice::Completed live task as Jern Cloud run $run_id ($outcome)."
 exit "$run_exit"

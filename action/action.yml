@@ -71,9 +71,17 @@ inputs:
     default: https://api.jern.ai
   live-task:
     description: >-
-      Optional live task. This secure pilot runs only on workflow_dispatch of
-      the repository's default branch and requires baseline-path,
-      cloud-upload: "true", and jern 0.14.5 or newer.
+      Optional live task text. Set exactly one of live-task or live-issue. This
+      secure pilot runs only on workflow_dispatch of the repository's default
+      branch and requires baseline-path, cloud-upload: "true", and jern 0.14.5
+      or newer.
+    required: false
+    default: ""
+  live-issue:
+    description: >-
+      Optional GitHub issue number to use as the live task. The issue is read
+      only after manual dispatch and any configured environment approval. Set
+      exactly one of live-task or live-issue.
     required: false
     default: ""
   live-token-budget:
@@ -82,6 +90,13 @@ inputs:
       token_budget returned by Cloud, not this untrusted request value.
     required: false
     default: ""
+  live-delivery:
+    description: >-
+      What to do with successful live-task changes. "none" leaves Jern's
+      commits on the runner; "pull-request" pushes an isolated jern/run-*
+      branch and opens a pull request against the default branch.
+    required: false
+    default: "none"
 
 outputs:
   outcome:
@@ -96,6 +111,9 @@ outputs:
   live-outcome:
     description: Live receipt outcome, or empty when live-task was not set.
     value: ${{ steps.live.outputs.outcome }}
+  live-pull-request:
+    description: Pull request URL created for a successful live task, if any.
+    value: ${{ steps.live.outputs.pull_request_url }}
 
 runs:
   using: composite
@@ -311,11 +329,12 @@ runs:
 
     - name: Run cloud-authorized live task
       id: live
-      if: ${{ inputs.live-task != '' }}
+      if: ${{ inputs.live-task != '' || inputs.live-issue != '' }}
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
         LIVE_TASK: ${{ inputs.live-task }}
+        LIVE_ISSUE: ${{ inputs.live-issue }}
         LIVE_TOKEN_BUDGET: ${{ inputs.live-token-budget }}
         BASELINE_FILE: ${{ steps.baseline.outputs.file }}
         POLICY_TRUST: ${{ inputs.policy-trust }}
@@ -324,6 +343,8 @@ runs:
         TRACE_BASELINE: ${{ steps.trace-baseline.outputs.file }}
         JERN_VERSION: ${{ inputs.version }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        LIVE_DELIVERY: ${{ inputs.live-delivery }}
+        GH_TOKEN: ${{ inputs.github-token }}
       run: bash "${{ github.action_path }}/live-run.sh"
 
     - name: Record behavioral check trace

@@ -44,6 +44,9 @@ case "$command" in
   run)
     test "$JERN_CLOUD_RUN_ID" = "run_0123456789abcdef0123456789abcdef"
     test "$JERN_CLOUD_TOKEN_CAP" = "123"
+    test -z "${GH_TOKEN+x}"
+    test -z "${ACTIONS_ID_TOKEN_REQUEST_URL+x}"
+    test -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN+x}"
     printf '%s\n' "$*" > "$FAKE_JERN_ARGS"
     mkdir -p .jern
     status="ok"
@@ -57,6 +60,12 @@ case "$command" in
       '{"event":"llm-response","response":{"usage":{"input_tokens":40,"output_tokens":2}}}' \
       "{\"event\":\"run-finished\",\"status\":\"$status\"$reason}" \
       > .jern/trace-run_0123456789abcdef0123456789abcdef.jsonl
+    if [ "${FAKE_MAKE_COMMIT:-0}" = "1" ]; then
+      mkdir -p src
+      printf '%s\n' 'governed change' > src/fix.txt
+      git add src/fix.txt
+      git -c user.name=jern -c user.email=jern@localhost commit -m 'jern: fix the parser' >/dev/null
+    fi
     exit "${FAKE_RUN_EXIT:-0}"
     ;;
   receipt)
@@ -72,9 +81,40 @@ esac
 EOF
 chmod +x "$temp/bin/curl" "$temp/bin/jern"
 
+cat > "$temp/bin/gh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$FAKE_GH_LOG"
+if [ "$1" = "api" ]; then
+  printf '%s\n' '{"number":17,"title":"Fix the parser","body":"Preserve escaped delimiters."}'
+elif [ "$1" = "auth" ]; then
+  exit 0
+else
+  previous=""
+  for argument in "$@"; do
+    if [ "$previous" = "--body-file" ]; then cp "$argument" "$FAKE_PR_BODY"; fi
+    previous="$argument"
+  done
+  printf '%s\n' 'https://github.com/acme/example/pull/17'
+fi
+EOF
+chmod +x "$temp/bin/gh"
+
+git init --bare "$temp/remote.git" >/dev/null
+(
+  cd "$temp/work"
+  git init >/dev/null
+  git checkout -b main >/dev/null
+  git -c user.name=test -c user.email=test@example.com commit --allow-empty -m initial >/dev/null
+  git remote add origin "$temp/remote.git"
+  git push -u origin main >/dev/null
+)
+
 touch "$temp/baseline.json" "$temp/trace-baseline.sha256" "$temp/github-output"
 export PATH="$temp/bin:$PATH"
 export FAKE_CURL_LOG="$temp/curl.log"
+export FAKE_GH_LOG="$temp/gh.log"
+export FAKE_PR_BODY="$temp/pr-body.md"
 export FAKE_JERN_ARGS="$temp/jern-args"
 export GITHUB_EVENT_NAME=workflow_dispatch
 export GITHUB_REF=refs/heads/main
@@ -91,6 +131,12 @@ export ACTIONS_ID_TOKEN_REQUEST_URL="https://oidc.example/token?request=1"
 export ACTIONS_ID_TOKEN_REQUEST_TOKEN=oidc-request-token
 export RUNNER_TEMP="$temp/runner"
 export GITHUB_OUTPUT="$temp/github-output"
+export GITHUB_REPOSITORY=acme/example
+export GITHUB_RUN_ID=42
+export GITHUB_RUN_ATTEMPT=3
+export GITHUB_SHA="$(git -C "$temp/work" rev-parse HEAD)"
+export GH_TOKEN=test-github-token
+export LIVE_DELIVERY=none
 
 run_success() {
   : > "$FAKE_CURL_LOG"
@@ -132,6 +178,77 @@ run_failure_uploads_evidence() {
   grep -Fq -- '/complete' "$FAKE_CURL_LOG"
 }
 
+run_success_opens_pull_request() {
+  : > "$FAKE_CURL_LOG"
+  : > "$FAKE_GH_LOG"
+  : > "$GITHUB_OUTPUT"
+  : > "$TRACE_BASELINE"
+  git -C "$temp/work" switch -C main "$GITHUB_SHA" >/dev/null
+  rm -rf "$temp/work/.jern" "$temp/work/src"
+  (
+    cd "$temp/work"
+    LIVE_DELIVERY=pull-request FAKE_MAKE_COMMIT=1 FAKE_RUN_EXIT=0 bash "$repo_root/action/live-run.sh"
+  )
+  test "$(git --git-dir="$temp/remote.git" rev-parse refs/heads/jern/run-42-3^)" = "$GITHUB_SHA"
+  grep -Fq -- 'pr create --repo acme/example --base main --head jern/run-42-3' "$FAKE_GH_LOG"
+  grep -Fxq 'pull_request_url=https://github.com/acme/example/pull/17' "$GITHUB_OUTPUT"
+}
+
+run_issue_opens_linked_pull_request() {
+  : > "$FAKE_CURL_LOG"
+  : > "$FAKE_GH_LOG"
+  : > "$GITHUB_OUTPUT"
+  : > "$TRACE_BASELINE"
+  git -C "$temp/work" switch -C main "$GITHUB_SHA" >/dev/null
+  rm -rf "$temp/work/.jern" "$temp/work/src"
+  (
+    cd "$temp/work"
+    GITHUB_RUN_ATTEMPT=4 LIVE_TASK= LIVE_ISSUE=17 LIVE_DELIVERY=pull-request \
+      FAKE_MAKE_COMMIT=1 FAKE_RUN_EXIT=0 bash "$repo_root/action/live-run.sh"
+  )
+  test "$(git --git-dir="$temp/remote.git" rev-parse refs/heads/jern/run-42-4^)" = "$GITHUB_SHA"
+  grep -Fq 'Resolve GitHub issue #17: Fix the parser' "$FAKE_JERN_ARGS"
+  grep -Fq 'Preserve escaped delimiters.' "$FAKE_JERN_ARGS"
+  grep -Fxq 'Closes #17' "$FAKE_PR_BODY"
+}
+
+run_failure_does_not_publish() {
+  : > "$FAKE_CURL_LOG"
+  : > "$FAKE_GH_LOG"
+  : > "$GITHUB_OUTPUT"
+  : > "$TRACE_BASELINE"
+  git -C "$temp/work" switch -C main "$GITHUB_SHA" >/dev/null
+  rm -rf "$temp/work/.jern" "$temp/work/src"
+  set +e
+  (
+    cd "$temp/work"
+    GITHUB_RUN_ATTEMPT=5 LIVE_DELIVERY=pull-request FAKE_MAKE_COMMIT=1 \
+      FAKE_RUN_EXIT=1 bash "$repo_root/action/live-run.sh"
+  )
+  code=$?
+  set -e
+  test "$code" -eq 1
+  ! git --git-dir="$temp/remote.git" show-ref --verify --quiet refs/heads/jern/run-42-5
+  test ! -s "$FAKE_GH_LOG"
+}
+
+run_no_change_does_not_publish() {
+  : > "$FAKE_CURL_LOG"
+  : > "$FAKE_GH_LOG"
+  : > "$GITHUB_OUTPUT"
+  : > "$TRACE_BASELINE"
+  git -C "$temp/work" switch -C main "$GITHUB_SHA" >/dev/null
+  rm -rf "$temp/work/.jern" "$temp/work/src"
+  (
+    cd "$temp/work"
+    GITHUB_RUN_ATTEMPT=6 LIVE_DELIVERY=pull-request FAKE_MAKE_COMMIT=0 \
+      FAKE_RUN_EXIT=0 bash "$repo_root/action/live-run.sh"
+  )
+  ! git --git-dir="$temp/remote.git" show-ref --verify --quiet refs/heads/jern/run-42-6
+  test ! -s "$FAKE_GH_LOG"
+  grep -Fxq 'pull_request_url=' "$GITHUB_OUTPUT"
+}
+
 rejects_unsafe_context() {
   set +e
   GITHUB_EVENT_NAME=push bash "$repo_root/action/live-run.sh" > "$temp/unsafe.out" 2>&1
@@ -154,5 +271,9 @@ rejects_unsafe_context() {
 
 run_success
 run_failure_uploads_evidence
+run_success_opens_pull_request
+run_issue_opens_linked_pull_request
+run_failure_does_not_publish
+run_no_change_does_not_publish
 rejects_unsafe_context
 printf '%s\n' "live Action contract tests passed"
