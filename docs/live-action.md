@@ -21,7 +21,7 @@ on:
       issue_number:
         description: GitHub issue to resolve (set this or task)
         required: false
-        type: number
+        type: string
 
 permissions:
   contents: write
