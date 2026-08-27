@@ -16,12 +16,17 @@ on:
   workflow_dispatch:
     inputs:
       task:
-        description: Task for the agent
-        required: true
+        description: Task for the agent (set this or issue_number)
+        required: false
+      issue_number:
+        description: GitHub issue to resolve (set this or task)
+        required: false
+        type: number
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
+  pull-requests: write
 
 jobs:
   run:
@@ -30,10 +35,14 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: jern-ai/jern/action@main
         with:
           version: "0.14.5"
           live-task: ${{ inputs.task }}
+          live-issue: ${{ inputs.issue_number }}
+          live-delivery: "pull-request"
           live-token-budget: "100000"
           baseline-path: .jern/baseline.json
           policy-trust: <full SHA-256 digest for any required grants>
@@ -57,6 +66,21 @@ After execution, including a failed execution, the Action uploads the trace,
 derives a receipt, verifies that its cap matches the authorization, and posts
 completion evidence. The Action then returns the original `jern run` exit code.
 
-The current pilot does not commit changes, push a branch, or open a pull
-request. Those capabilities require a separate destination-branch policy and
-GitHub permission design.
+Set exactly one of `task` or `issue_number`. Issue content is not an automatic
+trigger: a maintainer must dispatch the workflow, and any required reviewers on
+the `governed-live` environment approve before the issue is read and executed.
+
+Jern commits each governed file edit separately during the run. After a
+successful run, `live-delivery: "pull-request"` preserves those commits, pushes
+them to `jern/run-<workflow run>-<attempt>`, and opens a pull request against the
+default branch. A failed run still uploads evidence but never publishes code;
+a successful no-change run opens no pull request. The Action never pushes or
+merges the default branch.
+
+Pull-request delivery requires `contents: write` and `pull-requests: write` on
+the workflow token. Keep the workflow and baseline behind CODEOWNERS, require
+review on the `governed-live` environment, and retain ordinary branch protection
+on the destination branch. The model has no GitHub API tool: write authority is
+used only by the Action after the governed run succeeds. Checkout credentials
+are not persisted, and the Action removes `GH_TOKEN` and GitHub's OIDC request
+credentials from the Jern process environment before model execution.

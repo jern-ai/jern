@@ -53,7 +53,7 @@ log → approval → memory → spawn → provider → budget → tool-executor 
 handler first and, if allowed, re-performs outward through git into the
 executor; `jern/approve` questions raised by policy, budget, or memory travel
 outward to the approval handler, which therefore sits outside them all. A
-`kernel_eval` program and a `jern/spawn` child each get a *fresh copy* of
+`kernel_eval` program and a `jern/spawn` child each get a _fresh copy_ of
 this whole stack, so their effects are governed exactly like the parent's.)
 
 - The **policy handler** sees every `jern/tool-call` first and decides
@@ -112,7 +112,7 @@ The two halves are trusted differently, because they carry different risk:
 - **Grants** (`shell_allow`, `allow`, `memory: allow`) can loosen approvals —
   the same power a workspace policy file has — so a repository-supplied grant
   is confirmed once, exactly like `.jern/policy.ikr`. Trust is keyed by the
-  source's identity plus the SHA-256 of its *canonical* JSON (UTF-8, keys
+  source's identity plus the SHA-256 of its _canonical_ JSON (UTF-8, keys
   sorted ordinally, arrays order-preserving, no insignificant whitespace), so
   a reordered or reformatted file is the same policy and an edited one asks
   again. Declining — or having no terminal — drops the grants and keeps the
@@ -123,7 +123,7 @@ meant to restrict must not look like it applied.
 
 ### Protected baselines, for unattended and CI runs
 
-A policy checked out *from* a pull request cannot govern that pull request:
+A policy checked out _from_ a pull request cannot govern that pull request:
 the same diff can loosen `jern.json`, replace `.jern/policy.ikr`, or bless a
 changed recording. `--policy-baseline <file>` supplies rules from outside the
 checkout — the base branch, or data the workflow owns — that the checkout may
@@ -139,12 +139,14 @@ and it is documented as such.
 
 ### Live Action pilot
 
-The Action's optional `live-task` mode is deliberately narrower than its
-offline checks. It accepts live work only for `workflow_dispatch` on the
-repository's default branch, requires a protected `baseline-path`, requires
-mandatory Jern Cloud upload, and requires jern 0.14.5 or newer. Pull requests,
-scheduled runs, arbitrary branches, best-effort cloud mode, and runs without
-GitHub OIDC are rejected before a cloud reservation or provider call.
+The Action's optional live mode is deliberately narrower than its offline
+checks. A maintainer supplies exactly one `live-task` or `live-issue`; issue
+content is read only after manual dispatch and any environment approval. It
+accepts live work only for `workflow_dispatch` on the repository's default
+branch, requires a protected `baseline-path`, requires mandatory Jern Cloud
+upload, and requires jern 0.14.5 or newer. Pull requests, scheduled runs,
+arbitrary branches, best-effort cloud mode, and runs without GitHub OIDC are
+rejected before a cloud reservation or provider call.
 
 The Action does not pass `--auto`. A headless task may perform only operations
 the effective policy allows without an approval prompt; grants from the
@@ -157,7 +159,16 @@ Provider credentials are ordinary runner environment secrets and are never
 Action inputs or cloud request fields. The runner requests a token reservation
 with GitHub OIDC, then gives `jern run` the server-returned cap. It uploads the
 trace and receipt even when the task fails before propagating that failure to
-the job. This pilot does not push branches or open pull requests.
+the job. With `live-delivery: "pull-request"`, a successful changed run pushes
+Jern's existing per-file commits to a unique `jern/run-*` branch and opens a
+pull request against the default branch. Failed runs never publish code and
+successful no-change runs open no pull request. The workflow token therefore
+needs `contents: write` and `pull-requests: write`, but the model receives no
+GitHub API tool. Checkout credentials are not persisted, and `GH_TOKEN` plus
+GitHub's OIDC request credentials are removed from the Jern process environment.
+The Action configures Git authentication only after a successful run. It never
+pushes or merges the default branch; branch protection, CODEOWNERS, and required
+review remain repository controls.
 
 ### Workspace policy loads on first-use trust
 
@@ -229,7 +240,7 @@ nothing that process does. jern's honest posture:
 
 ## What this model does not defend against
 
-- A malicious *host* binary or a modified handler stack — the handlers are
+- A malicious _host_ binary or a modified handler stack — the handlers are
   the trusted computing base, on purpose (they're also ~100 lines of Kernel
   you can read).
 - Prompt injection convincing the model to request harmful tool calls that

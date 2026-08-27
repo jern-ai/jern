@@ -480,8 +480,12 @@
   traces, and posts one pull-request comment. Its policy baseline is read
   from the <b>base commit</b>, never from the pull request's own checkout, so
   a diff cannot weaken the rules that judge it — and a baseline that exists
-  only in the pull request is refused. It is check-only: live unattended runs
-  wait for their threat model. Full notes, including what it does
+  only in the pull request is refused.</p>
+  <p>For live work, a maintainer can manually dispatch task text or an issue
+  number under a protected baseline and Cloud-returned hard token cap. On
+  success, the Action can preserve Jern's commits on an isolated branch and
+  open a pull request; failed runs upload evidence but publish no code. Full
+  notes, including the required workflow permissions and what this does
   <em>not</em> protect against, are in
   <a href="https://github.com/jern-ai/jern/blob/main/action/README.md">action/README.md</a>.</p>
 

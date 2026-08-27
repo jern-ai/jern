@@ -250,16 +250,14 @@ action):
 - The workflow supplies the M21 protected baseline from base-branch or
   workflow-owned data. The Action refuses a configuration that sources its
   purported baseline only from the head checkout.
-- **Live runs are phase 2 of the Action and ship after check-only M23**: a
-  `task` input that does `jern run --auto` with an API-key secret and
-  commits to a branch is the true "unattended agent in CI," but the
-  security story (untrusted-PR triggers + secrets + auto-approval) must be
-  designed, not defaulted. Gate to `workflow_dispatch`/same-repo branches
-  only, require the protected M21 baseline and a destination branch that
-  cannot directly update protected branches, and document the threat model
-  in `security-model.md` before it ships. Check and receipts alone are
-  enough for the M23 release, but not enough evidence for a hosted-cloud
-  decision.
+- **Live runs shipped after check-only M23**: exactly one task or issue is
+  accepted after `workflow_dispatch` on the default branch, under a protected
+  baseline, pinned grants, mandatory Cloud evidence, and the Cloud-returned
+  hard token cap. Successful work can preserve Jern's commits on an isolated
+  `jern/run-*` branch and open a pull request; failed work uploads evidence but
+  publishes no code. The model has no GitHub API tool and the Action never
+  pushes or merges the default branch. See `security-model.md` and
+  `live-action.md` for the remaining repository controls.
 
 **Tests:** golden record/check round-trip in a temp repo; check catches a
 prompt edit (reuse the tamper pattern from `TestRunnerTests`); declarative
@@ -284,8 +282,9 @@ a receipt — screencast-able in under a minute, zero Lisp on screen.
 Order is fixed by dependencies: receipts feed the action's PR comments, and
 CI needs protected, headless policy rather than interactive approval. Each
 milestone is independently shippable and independently demoable; none
-blocks the normal parity/bugfix stream. The live Action pilot follows M23
-and precedes any hosted-cloud commitment.
+blocks the normal parity/bugfix stream. The live Action pilot follows M23 and
+precedes any hosted-cloud commitment; issue-to-PR delivery is its first
+complete customer outcome.
 
 ## 6. Messaging migration
 
