@@ -174,7 +174,8 @@ if [ "$run_exit" -eq 0 ] && [ "${LIVE_DELIVERY:-none}" = "pull-request" ]; then
     echo "::notice::Jern completed without repository changes; no pull request was opened."
   else
     branch="jern/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-    title="$(printf '%s' "$LIVE_TASK" | tr '\r\n' '  ' | cut -c1-68)"
+    title_source="${issue_title:-$LIVE_TASK}"
+    title="$(printf '%s' "$title_source" | tr '\r\n' '  ' | cut -c1-68)"
     body_file="${RUNNER_TEMP}/jern-live-pr-${run_id}.md"
     {
       echo "## Governed Jern task"

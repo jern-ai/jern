@@ -213,6 +213,7 @@ run_issue_opens_linked_pull_request() {
   test "$(git --git-dir="$temp/remote.git" rev-parse refs/heads/jern/run-42-4^)" = "$GITHUB_SHA"
   grep -Fq 'Resolve GitHub issue #17: Fix the parser' "$FAKE_JERN_ARGS"
   grep -Fq 'Preserve escaped delimiters.' "$FAKE_JERN_ARGS"
+  grep -Fq -- '--title Jern: Fix the parser' "$FAKE_GH_LOG"
   grep -Fxq 'Closes #17' "$FAKE_PR_BODY"
 }
 
