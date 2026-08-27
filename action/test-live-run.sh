@@ -95,6 +95,10 @@ else
     if [ "$previous" = "--body-file" ]; then cp "$argument" "$FAKE_PR_BODY"; fi
     previous="$argument"
   done
+  if [ "${FAKE_GH_FAIL_CREATE:-0}" = "1" ]; then
+    echo "scripted pull request rejection" >&2
+    exit 1
+  fi
   printf '%s\n' 'https://github.com/acme/example/pull/17'
 fi
 EOF
@@ -249,6 +253,25 @@ run_no_change_does_not_publish() {
   grep -Fxq 'pull_request_url=' "$GITHUB_OUTPUT"
 }
 
+run_pull_request_failure_removes_branch() {
+  : > "$FAKE_CURL_LOG"
+  : > "$FAKE_GH_LOG"
+  : > "$GITHUB_OUTPUT"
+  : > "$TRACE_BASELINE"
+  git -C "$temp/work" switch -C main "$GITHUB_SHA" >/dev/null
+  rm -rf "$temp/work/.jern" "$temp/work/src"
+  set +e
+  (
+    cd "$temp/work"
+    GITHUB_RUN_ATTEMPT=7 LIVE_DELIVERY=pull-request FAKE_MAKE_COMMIT=1 \
+      FAKE_GH_FAIL_CREATE=1 FAKE_RUN_EXIT=0 bash "$repo_root/action/live-run.sh"
+  )
+  code=$?
+  set -e
+  test "$code" -eq 1
+  ! git --git-dir="$temp/remote.git" show-ref --verify --quiet refs/heads/jern/run-42-7
+}
+
 rejects_unsafe_context() {
   set +e
   GITHUB_EVENT_NAME=push bash "$repo_root/action/live-run.sh" > "$temp/unsafe.out" 2>&1
@@ -275,5 +298,6 @@ run_success_opens_pull_request
 run_issue_opens_linked_pull_request
 run_failure_does_not_publish
 run_no_change_does_not_publish
+run_pull_request_failure_removes_branch
 rejects_unsafe_context
 printf '%s\n' "live Action contract tests passed"

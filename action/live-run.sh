@@ -195,12 +195,16 @@ if [ "$run_exit" -eq 0 ] && [ "${LIVE_DELIVERY:-none}" = "pull-request" ]; then
     git switch -c "$branch"
     gh auth setup-git
     git push origin "HEAD:refs/heads/$branch"
-    pull_request_url="$(gh pr create \
+    if ! pull_request_url="$(gh pr create \
       --repo "$GITHUB_REPOSITORY" \
       --base "$DEFAULT_BRANCH" \
       --head "$branch" \
       --title "Jern: $title" \
-      --body-file "$body_file")"
+      --body-file "$body_file")"; then
+      git push origin --delete "$branch" >/dev/null 2>&1 \
+        || echo "::warning::Pull request creation failed and branch cleanup also failed: $branch"
+      fail "GitHub rejected pull request creation; the delivery branch was removed."
+    fi
     echo "pull_request_url=$pull_request_url" >> "$GITHUB_OUTPUT"
     echo "::notice::Opened governed pull request $pull_request_url"
   fi
