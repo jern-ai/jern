@@ -53,12 +53,13 @@ Traces are uploaded as a `jern-traces` artifact for 14 days.
 | `tests`             | `auto`                | `auto` \| `true` \| `false`.                                                                                                            |
 | `comment`           | `true`                | Post/update one PR comment; falls back to the job summary.                                                                              |
 | `working-directory` | `.`                   |                                                                                                                                         |
-| `github-token`      | `github.token`        | Used for PR comments and optional live pull-request delivery.                                                                            |
+| `github-token`      | `github.token`        | Used for PR comments and optional live pull-request delivery.                                                                           |
 | `cloud-upload`      | `auto`                | `auto` uploads when `id-token: write` is available and warns on failure; `true` requires success; `false` disables cloud access.        |
 | `cloud-url`         | `https://api.jern.ai` | Cloud API origin and OIDC audience.                                                                                                     |
-| `live-task`         | `""`                  | Live task text; set exactly one of this or `live-issue`.                                                                                 |
+| `live-task`         | `""`                  | Live task text; set exactly one of this or `live-issue`.                                                                                |
 | `live-issue`        | `""`                  | GitHub issue number resolved after manual dispatch and environment approval.                                                            |
 | `live-token-budget` | `""`                  | Positive Cloud reservation for a live run.                                                                                              |
+| `live-task-id`      | `""`                  | Cloud task identity carried through OIDC authorization to correlate execution, evidence, and delivery.                                  |
 | `live-delivery`     | `none`                | `none` \| `pull-request`; the latter publishes successful Jern commits to an isolated branch and PR.                                    |
 
 ## Jern Cloud upload

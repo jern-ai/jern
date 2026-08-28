@@ -22,6 +22,10 @@ on:
         description: GitHub issue to resolve (set this or task)
         required: false
         type: string
+      task_id:
+        description: Jern Cloud task identity
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -42,6 +46,7 @@ jobs:
           version: "0.14.5"
           live-task: ${{ inputs.task }}
           live-issue: ${{ inputs.issue_number }}
+          live-task-id: ${{ inputs.task_id }}
           live-delivery: "pull-request"
           live-token-budget: "100000"
           baseline-path: .jern/baseline.json

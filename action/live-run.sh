@@ -30,6 +30,9 @@ fi
 if [[ ! "${LIVE_TOKEN_BUDGET:-}" =~ ^[1-9][0-9]*$ ]]; then
   fail "live-token-budget must be a positive integer."
 fi
+if [ -n "${LIVE_TASK_ID:-}" ] && [[ ! "$LIVE_TASK_ID" =~ ^task_[0-9a-f]{32}$ ]]; then
+  fail "live-task-id must have the form task_<32 lowercase hex characters>."
+fi
 case "${LIVE_DELIVERY:-none}" in
   none|pull-request) ;;
   *) fail "live-delivery must be 'none' or 'pull-request'." ;;
@@ -100,11 +103,15 @@ oidc_token="$(jq -er '.value' <<< "$oidc_response")" \
   || fail "GitHub returned an invalid OIDC response for live-task."
 echo "::add-mask::$oidc_token"
 
+run_request="$(jq -cn \
+  --argjson token_budget "$LIVE_TOKEN_BUDGET" \
+  --arg task_id "${LIVE_TASK_ID:-}" \
+  'if $task_id == "" then {token_budget:$token_budget} else {token_budget:$token_budget,task_id:$task_id} end')"
 run_response="$(curl --fail --silent --show-error \
   -X POST "${audience}/v1/runs" \
   -H "Authorization: Bearer $oidc_token" \
   -H 'Content-Type: application/json' \
-  --data "$(jq -cn --argjson token_budget "$LIVE_TOKEN_BUDGET" '{token_budget:$token_budget}')")" \
+  --data "$run_request")" \
   || fail "Jern Cloud rejected live-task authorization."
 run_id="$(jq -er '.run_id | select(test("^run_[0-9a-f]{32}$"))' <<< "$run_response")" \
   || fail "Jern Cloud returned an invalid live run ID."
@@ -152,25 +159,49 @@ input_tokens="$(jq -er '.input_tokens | select(type == "number" and . >= 0 and f
   || fail "Jern returned invalid live input-token usage for ${run_id}."
 output_tokens="$(jq -er '.output_tokens | select(type == "number" and . >= 0 and floor == .)' "$receipt_file")" \
   || fail "Jern returned invalid live output-token usage for ${run_id}."
-completion="$(jq -cn \
-  --arg outcome "$outcome" \
-  --argjson input_tokens "$input_tokens" \
-  --argjson output_tokens "$output_tokens" \
-  --arg receipt_digest "$receipt_digest" \
-  '{outcome:$outcome,input_tokens:$input_tokens,output_tokens:$output_tokens,receipt_digest:$receipt_digest}')"
-curl --fail --silent --show-error \
-  -X POST "${audience}/v1/runs/${run_id}/complete" \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $run_token" \
-  --data "$completion" >/dev/null \
-  || fail "Jern Cloud live completion failed for ${run_id}."
-
 sha256sum "$trace" >> "$TRACE_BASELINE"
 echo "outcome=$outcome" >> "$GITHUB_OUTPUT"
 echo "pull_request_url=" >> "$GITHUB_OUTPUT"
 
+branch=""
+pull_request_url=""
+failure_reason=""
+if [ "$run_exit" -eq 0 ]; then
+  task_status="succeeded"
+else
+  task_status="failed"
+  failure_reason="agent_failed"
+fi
+
+report_completion() {
+  completion="$(jq -cn \
+    --arg outcome "$outcome" \
+    --argjson input_tokens "$input_tokens" \
+    --argjson output_tokens "$output_tokens" \
+    --arg receipt_digest "$receipt_digest" \
+    --arg task_id "${LIVE_TASK_ID:-}" \
+    --arg task_status "$task_status" \
+    --arg branch "$branch" \
+    --arg pull_request_url "$pull_request_url" \
+    --arg failure_reason "$failure_reason" \
+    '{outcome:$outcome,input_tokens:$input_tokens,output_tokens:$output_tokens,receipt_digest:$receipt_digest}
+     + if $task_id == "" then {} else {
+         task_status:$task_status,
+         branch:(if $branch == "" then null else $branch end),
+         pull_request_url:(if $pull_request_url == "" then null else $pull_request_url end),
+         failure_reason:(if $failure_reason == "" then null else $failure_reason end)
+       } end')"
+  curl --fail --silent --show-error \
+    -X POST "${audience}/v1/runs/${run_id}/complete" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer $run_token" \
+    --data "$completion" >/dev/null \
+    || fail "Jern Cloud live completion failed for ${run_id}."
+}
+
 if [ "$run_exit" -eq 0 ] && [ "${LIVE_DELIVERY:-none}" = "pull-request" ]; then
   if git diff --quiet "$GITHUB_SHA" HEAD --; then
+    task_status="no_change"
     echo "::notice::Jern completed without repository changes; no pull request was opened."
   else
     branch="jern/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -204,12 +235,17 @@ if [ "$run_exit" -eq 0 ] && [ "${LIVE_DELIVERY:-none}" = "pull-request" ]; then
       --body-file "$body_file")"; then
       git push origin --delete "$branch" >/dev/null 2>&1 \
         || echo "::warning::Pull request creation failed and branch cleanup also failed: $branch"
+      task_status="failed"
+      failure_reason="pull_request_failed"
+      report_completion
       fail "GitHub rejected pull request creation; the delivery branch was removed."
     fi
+    task_status="pr_ready"
     echo "pull_request_url=$pull_request_url" >> "$GITHUB_OUTPUT"
     echo "::notice::Opened governed pull request $pull_request_url"
   fi
 fi
 
+report_completion
 echo "::notice::Completed live task as Jern Cloud run $run_id ($outcome)."
 exit "$run_exit"

@@ -90,6 +90,13 @@ inputs:
       token_budget returned by Cloud, not this untrusted request value.
     required: false
     default: ""
+  live-task-id:
+    description: >-
+      Optional Jern Cloud task identity. Cloud-dispatched workflows pass this
+      value back during OIDC run authorization to bind the execution attempt,
+      evidence, and delivery result to the authorized task.
+    required: false
+    default: ""
   live-delivery:
     description: >-
       What to do with successful live-task changes. "none" leaves Jern's
@@ -336,6 +343,7 @@ runs:
         LIVE_TASK: ${{ inputs.live-task }}
         LIVE_ISSUE: ${{ inputs.live-issue }}
         LIVE_TOKEN_BUDGET: ${{ inputs.live-token-budget }}
+        LIVE_TASK_ID: ${{ inputs.live-task-id }}
         BASELINE_FILE: ${{ steps.baseline.outputs.file }}
         POLICY_TRUST: ${{ inputs.policy-trust }}
         CLOUD_MODE: ${{ inputs.cloud-upload }}

@@ -126,6 +126,7 @@ export DEFAULT_BRANCH=main
 export CLOUD_MODE=true
 export CLOUD_URL=https://cloud.example
 export LIVE_TASK="fix the parser"
+export LIVE_TASK_ID=task_0123456789abcdef0123456789abcdef
 export LIVE_TOKEN_BUDGET=123
 export BASELINE_FILE="$temp/baseline.json"
 export POLICY_TRUST="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -158,9 +159,10 @@ run_success() {
   grep -Fq -- '--policy-trust' "$FAKE_JERN_ARGS"
   grep -Fq -- 'fix the parser' "$FAKE_JERN_ARGS"
   grep -Fq -- 'https://oidc.example/token?request=1&audience=https%3A%2F%2Fcloud.example' "$FAKE_CURL_LOG"
-  grep -Fq -- '--data {"token_budget":123}' "$FAKE_CURL_LOG"
+  grep -Fq -- '--data {"token_budget":123,"task_id":"task_0123456789abcdef0123456789abcdef"}' "$FAKE_CURL_LOG"
   grep -Fq -- '/trace' "$FAKE_CURL_LOG"
   grep -Fq -- '/complete' "$FAKE_CURL_LOG"
+  grep -Fq -- '"task_status":"succeeded"' "$FAKE_CURL_LOG"
   test "$(wc -l < "$TRACE_BASELINE")" -eq 1
 }
 
@@ -180,6 +182,8 @@ run_failure_uploads_evidence() {
   grep -Fxq 'outcome=failure' "$GITHUB_OUTPUT"
   grep -Fq -- '/trace' "$FAKE_CURL_LOG"
   grep -Fq -- '/complete' "$FAKE_CURL_LOG"
+  grep -Fq -- '"task_status":"failed"' "$FAKE_CURL_LOG"
+  grep -Fq -- '"failure_reason":"agent_failed"' "$FAKE_CURL_LOG"
 }
 
 run_success_opens_pull_request() {
@@ -196,6 +200,8 @@ run_success_opens_pull_request() {
   test "$(git --git-dir="$temp/remote.git" rev-parse refs/heads/jern/run-42-3^)" = "$GITHUB_SHA"
   grep -Fq -- 'pr create --repo acme/example --base main --head jern/run-42-3' "$FAKE_GH_LOG"
   grep -Fxq 'pull_request_url=https://github.com/acme/example/pull/17' "$GITHUB_OUTPUT"
+  grep -Fq -- '"task_status":"pr_ready"' "$FAKE_CURL_LOG"
+  grep -Fq -- '"pull_request_url":"https://github.com/acme/example/pull/17"' "$FAKE_CURL_LOG"
 }
 
 run_issue_opens_linked_pull_request() {
@@ -252,6 +258,7 @@ run_no_change_does_not_publish() {
   ! git --git-dir="$temp/remote.git" show-ref --verify --quiet refs/heads/jern/run-42-6
   test ! -s "$FAKE_GH_LOG"
   grep -Fxq 'pull_request_url=' "$GITHUB_OUTPUT"
+  grep -Fq -- '"task_status":"no_change"' "$FAKE_CURL_LOG"
 }
 
 run_pull_request_failure_removes_branch() {
@@ -271,6 +278,7 @@ run_pull_request_failure_removes_branch() {
   set -e
   test "$code" -eq 1
   ! git --git-dir="$temp/remote.git" show-ref --verify --quiet refs/heads/jern/run-42-7
+  grep -Fq -- '"failure_reason":"pull_request_failed"' "$FAKE_CURL_LOG"
 }
 
 rejects_unsafe_context() {
