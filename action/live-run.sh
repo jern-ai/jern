@@ -175,7 +175,7 @@ else
     env -i PATH="$PATH" HOME="$RUNNER_TEMP/jern-codex-home" LANG="${LANG:-C.UTF-8}" \
       OPENAI_API_KEY="$OPENAI_API_KEY" CODEX_HOME="$RUNNER_TEMP/jern-codex-home" \
       codex exec --json --ephemeral --ignore-user-config --strict-config \
-        --sandbox workspace-write --approve-for-me -c 'web_search="disabled"' "$LIVE_TASK" \
+        --approve-for-me -c 'web_search="disabled"' "$LIVE_TASK" \
         > "$codex_stdout" 2> "$codex_stderr"
   run_exit=$?
   set -e
