@@ -33,6 +33,19 @@ fi
 if [ -n "${LIVE_TASK_ID:-}" ] && [[ ! "$LIVE_TASK_ID" =~ ^task_[0-9a-f]{32}$ ]]; then
   fail "live-task-id must have the form task_<32 lowercase hex characters>."
 fi
+case "${LIVE_AGENT:-jern-native}" in
+  jern-native|codex) ;;
+  *) fail "live-agent must be 'jern-native' or 'codex'." ;;
+esac
+if [[ ! "${LIVE_TIMEOUT_MINUTES:-30}" =~ ^[1-9][0-9]*$ ]] || [ "$LIVE_TIMEOUT_MINUTES" -gt 60 ]; then
+  fail "live-timeout-minutes must be an integer from 1 to 60."
+fi
+if [ "${LIVE_AGENT:-jern-native}" = "codex" ] && [[ ! "${LIVE_AGENT_VERSION:-}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]]; then
+  fail "the codex adapter requires an exact live-agent-version."
+fi
+if [ "${LIVE_AGENT:-jern-native}" = "codex" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
+  fail "the codex adapter requires OPENAI_API_KEY."
+fi
 case "${LIVE_DELIVERY:-none}" in
   none|pull-request) ;;
   *) fail "live-delivery must be 'none' or 'pull-request'." ;;
@@ -56,6 +69,15 @@ fi
 for command in curl jq sha256sum jern; do
   command -v "$command" >/dev/null 2>&1 || fail "live-task requires '$command' on the runner."
 done
+if [ "${LIVE_AGENT:-jern-native}" = "codex" ]; then
+  for command in codex timeout git; do
+    command -v "$command" >/dev/null 2>&1 || fail "the codex adapter requires '$command' on the runner."
+  done
+  installed_agent_version="$(codex --version | awk '{print $NF}')"
+  if [ "$installed_agent_version" != "$LIVE_AGENT_VERSION" ]; then
+    fail "the codex adapter found version $installed_agent_version, expected $LIVE_AGENT_VERSION."
+  fi
+fi
 if [ "${LIVE_DELIVERY:-none}" = "pull-request" ] || [ -n "${LIVE_ISSUE:-}" ]; then
   for command in git gh; do
     command -v "$command" >/dev/null 2>&1 || fail "live issue delivery requires '$command' on the runner."
@@ -106,7 +128,8 @@ echo "::add-mask::$oidc_token"
 run_request="$(jq -cn \
   --argjson token_budget "$LIVE_TOKEN_BUDGET" \
   --arg task_id "${LIVE_TASK_ID:-}" \
-  'if $task_id == "" then {token_budget:$token_budget} else {token_budget:$token_budget,task_id:$task_id} end')"
+  --arg agent_kind "${LIVE_AGENT:-jern-native}" \
+  'if $task_id == "" then {token_budget:$token_budget,agent_kind:$agent_kind} else {token_budget:$token_budget,task_id:$task_id,agent_kind:$agent_kind} end')"
 run_response="$(curl --fail --silent --show-error \
   -X POST "${audience}/v1/runs" \
   -H "Authorization: Bearer $oidc_token" \
@@ -125,16 +148,98 @@ fi
 echo "::add-mask::$run_token"
 echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
 
-set +e
-env -u GH_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL -u ACTIONS_ID_TOKEN_REQUEST_TOKEN \
-  JERN_CLOUD_RUN_ID="$run_id" JERN_CLOUD_TOKEN_CAP="$token_cap" \
-  jern run ${flags[@]+"${flags[@]}"} "$LIVE_TASK"
-run_exit=$?
-set -e
-
 trace=".jern/trace-${run_id}.jsonl"
-if [ ! -f "$trace" ]; then
-  fail "jern did not create the authorized live trace for $run_id."
+if [ "${LIVE_AGENT:-jern-native}" = "jern-native" ]; then
+  set +e
+  env -u GH_TOKEN -u GITHUB_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL -u ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+    -u ACTIONS_RUNTIME_TOKEN -u ACTIONS_CACHE_URL -u ACTIONS_RESULTS_URL -u ACTIONS_RUNTIME_URL \
+    JERN_CLOUD_RUN_ID="$run_id" JERN_CLOUD_TOKEN_CAP="$token_cap" \
+    jern run ${flags[@]+"${flags[@]}"} "$LIVE_TASK"
+  run_exit=$?
+  set -e
+  if [ ! -f "$trace" ]; then
+    fail "jern did not create the authorized live trace for $run_id."
+  fi
+else
+  mkdir -p .jern "$RUNNER_TEMP/jern-codex-home"
+  codex_stdout="$RUNNER_TEMP/jern-codex-${run_id}.jsonl"
+  codex_stderr="$RUNNER_TEMP/jern-codex-${run_id}.stderr"
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+  jq -cn \
+    --arg ts "$started_at" --arg run_id "$run_id" --arg version "$LIVE_AGENT_VERSION" \
+    --argjson reservation "$token_cap" \
+    '{ts:$ts,event:"run-started",schema_version:1,run_id:$run_id,command:"run",model:"foreign/codex",agent:"codex",budget:{llm_calls:null,tokens:null},cloud:{run_id:$run_id,reservation:$reservation},assurance:{level:"supervised",filesystem:"codex-workspace-write",network:"agent-sandbox",credentials:"provider-only",publish:"jern-wrapper",token_enforcement:"unavailable"},foreign_agent:{name:"codex",version:$version}}' \
+    > "$trace"
+  set +e
+  timeout --signal=TERM --kill-after=30s "${LIVE_TIMEOUT_MINUTES}m" \
+    env -i PATH="$PATH" HOME="$RUNNER_TEMP/jern-codex-home" LANG="${LANG:-C.UTF-8}" \
+      OPENAI_API_KEY="$OPENAI_API_KEY" CODEX_HOME="$RUNNER_TEMP/jern-codex-home" \
+      codex exec --json --ephemeral --ignore-user-config --strict-config \
+        --sandbox workspace-write --ask-for-approval never -c 'web_search="disabled"' "$LIVE_TASK" \
+        > "$codex_stdout" 2> "$codex_stderr"
+  run_exit=$?
+  set -e
+  jq -R -c '{event:"foreign-agent-log",stream:"stdout",line:.}' "$codex_stdout" >> "$trace"
+  jq -R -c '{event:"foreign-agent-log",stream:"stderr",line:.}' "$codex_stderr" >> "$trace"
+
+  changed_paths="$RUNNER_TEMP/jern-codex-${run_id}.paths"
+  changed_paths_nul="$RUNNER_TEMP/jern-codex-${run_id}.paths0"
+  { git diff --name-only -z "$GITHUB_SHA" --; git ls-files -z --others --exclude-standard -- ':!.jern'; } > "$changed_paths_nul"
+  : > "$changed_paths"
+  policy_json="$(jq -c '.policy // .' "$BASELINE_FILE")" || fail "the protected baseline is not valid JSON."
+  : > "$RUNNER_TEMP/jern-codex-${run_id}.violations"
+  if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+    printf '%s\n' 'agent_modified_git_history' >> "$RUNNER_TEMP/jern-codex-${run_id}.violations"
+  fi
+  while IFS= read -r -d '' path; do
+    [ -z "$path" ] && continue
+    printf '%q\n' "$path" >> "$changed_paths"
+    allowed=false
+    while IFS= read -r prefix; do
+      prefix="${prefix#./}"
+      if [ "$prefix" = "." ] || [ "$path" = "$prefix" ] || { [[ "$prefix" = */ ]] && [[ "$path" = "$prefix"* ]]; }; then
+        allowed=true
+        break
+      fi
+    done < <(jq -r '.edits_within[]?' <<< "$policy_json")
+    if [[ "$path" == *[$'\n\r\t']* ]] || [[ "$path" = .github/* ]] || [ -L "$path" ] || [ "$allowed" != "true" ]; then
+      printf '%q\n' "$path" >> "$RUNNER_TEMP/jern-codex-${run_id}.violations"
+    fi
+  done < "$changed_paths_nul"
+  if [ -s "$RUNNER_TEMP/jern-codex-${run_id}.violations" ]; then
+    run_exit=1
+    jq -Rn -c '[inputs] | {event:"supervision-check",status:"denied",reason:"edits_outside_protected_paths",paths:.}' < "$RUNNER_TEMP/jern-codex-${run_id}.violations" >> "$trace"
+  elif [ "$run_exit" -eq 0 ]; then
+    tests_failed=0
+    while IFS= read -r test_command; do
+      [ -z "$test_command" ] && continue
+      set +e
+      env -u OPENAI_API_KEY -u GH_TOKEN -u GITHUB_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_URL -u ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+        -u ACTIONS_RUNTIME_TOKEN -u ACTIONS_CACHE_URL -u ACTIONS_RESULTS_URL -u ACTIONS_RUNTIME_URL \
+        bash -lc "$test_command" >> "$codex_stderr" 2>&1
+      test_exit=$?
+      set -e
+      if [ "$test_exit" -ne 0 ]; then tests_failed=1; fi
+    done < <(jq -r '.shell_allow[]?' <<< "$policy_json")
+    if [ "$tests_failed" -ne 0 ]; then
+      run_exit=1
+      jq -cn '{event:"supervision-check",status:"denied",reason:"protected_tests_failed"}' >> "$trace"
+    else
+      jq -cn --argjson paths "$(jq -Rn '[inputs]' < "$changed_paths")" '{event:"supervision-check",status:"passed",paths:$paths}' >> "$trace"
+      if [ -s "$changed_paths_nul" ]; then
+        xargs -0 git add -A -- < "$changed_paths_nul"
+        git -c user.name=jern -c user.email=jern@localhost commit -m "jern: supervised codex task" >/dev/null
+      fi
+    fi
+  fi
+  if [ "$run_exit" -eq 124 ]; then
+    jq -cn '{event:"supervision-check",status:"denied",reason:"agent_timeout"}' >> "$trace"
+  fi
+  if [ "$run_exit" -eq 0 ]; then
+    jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" '{ts:$ts,event:"run-finished",status:"ok",duration_ms:0}' >> "$trace"
+  else
+    jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)" --arg reason "supervised agent failed with exit code $run_exit" '{ts:$ts,event:"run-finished",status:"error",reason:$reason,duration_ms:0}' >> "$trace"
+  fi
 fi
 
 curl --fail --silent --show-error \
@@ -147,10 +252,12 @@ curl --fail --silent --show-error \
 receipt_file="${RUNNER_TEMP}/jern-live-receipt-${run_id}.json"
 jern receipt "$trace" --json > "$receipt_file" \
   || fail "Jern could not derive the live receipt for ${run_id}."
-receipt_cap="$(jq -er '.cloud_token_cap | select(type == "number" and . > 0 and floor == .)' "$receipt_file")" \
-  || fail "The live receipt did not record its cloud token cap."
-if [ "$receipt_cap" -ne "$token_cap" ]; then
-  fail "The live receipt token cap does not match its authorization."
+if [ "${LIVE_AGENT:-jern-native}" = "jern-native" ]; then
+  receipt_cap="$(jq -er '.cloud_token_cap | select(type == "number" and . > 0 and floor == .)' "$receipt_file")" \
+    || fail "The live receipt did not record its cloud token cap."
+  if [ "$receipt_cap" -ne "$token_cap" ]; then
+    fail "The live receipt token cap does not match its authorization."
+  fi
 fi
 receipt_digest="$(sha256sum "$receipt_file" | cut -d ' ' -f 1)"
 outcome="$(jq -er 'if .complete then (if .status == "ok" then "success" elif .status == "interrupted" then "interrupted" else "failure" end) else "abandoned" end' "$receipt_file")" \
@@ -170,7 +277,7 @@ if [ "$run_exit" -eq 0 ]; then
   task_status="succeeded"
 else
   task_status="failed"
-  failure_reason="agent_failed"
+  if [ "${LIVE_AGENT:-jern-native}" = "codex" ]; then failure_reason="supervised_agent_failed"; else failure_reason="agent_failed"; fi
 fi
 
 report_completion() {
@@ -178,13 +285,14 @@ report_completion() {
     --arg outcome "$outcome" \
     --argjson input_tokens "$input_tokens" \
     --argjson output_tokens "$output_tokens" \
+    --argjson usage_reported "$([ "${LIVE_AGENT:-jern-native}" = "jern-native" ] && echo true || echo false)" \
     --arg receipt_digest "$receipt_digest" \
     --arg task_id "${LIVE_TASK_ID:-}" \
     --arg task_status "$task_status" \
     --arg branch "$branch" \
     --arg pull_request_url "$pull_request_url" \
     --arg failure_reason "$failure_reason" \
-    '{outcome:$outcome,input_tokens:$input_tokens,output_tokens:$output_tokens,receipt_digest:$receipt_digest}
+    '{outcome:$outcome,input_tokens:$input_tokens,output_tokens:$output_tokens,usage_reported:$usage_reported,receipt_digest:$receipt_digest}
      + if $task_id == "" then {} else {
          task_status:$task_status,
          branch:(if $branch == "" then null else $branch end),
@@ -209,7 +317,7 @@ if [ "$run_exit" -eq 0 ] && [ "${LIVE_DELIVERY:-none}" = "pull-request" ]; then
     title="$(printf '%s' "$title_source" | tr '\r\n' '  ' | cut -c1-68)"
     body_file="${RUNNER_TEMP}/jern-live-pr-${run_id}.md"
     {
-      echo "## Governed Jern task"
+      if [ "${LIVE_AGENT:-jern-native}" = "jern-native" ]; then echo "## Governed Jern task"; else echo "## Supervised Codex task"; fi
       echo
       printf '%s\n' "$LIVE_TASK"
       echo
@@ -222,7 +330,11 @@ if [ "$run_exit" -eq 0 ] && [ "${LIVE_DELIVERY:-none}" = "pull-request" ]; then
         echo "Closes #${LIVE_ISSUE}"
       fi
       echo
-      echo "Each file change was committed by Jern under the repository's protected policy. Review and merge this branch through the repository's normal controls."
+      if [ "${LIVE_AGENT:-jern-native}" = "jern-native" ]; then
+        echo "Each file change was committed by Jern under the repository's protected policy. Review and merge this branch through the repository's normal controls."
+      else
+        echo "Codex ran with workspace-write sandboxing and no GitHub credentials. Jern validated changed paths and tests after execution, then published this branch. This supervised mode does not enforce Codex tool calls or model-token usage."
+      fi
     } > "$body_file"
     git switch -c "$branch"
     gh auth setup-git

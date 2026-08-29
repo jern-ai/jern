@@ -97,6 +97,24 @@ inputs:
       evidence, and delivery result to the authorized task.
     required: false
     default: ""
+  live-agent:
+    description: >-
+      Execution engine for the live task. "jern-native" provides full Jern
+      policy, trace, receipt, and hard token-cap enforcement. "codex" is a
+      supervised foreign process with workspace sandboxing, a wall-clock
+      limit, post-run path validation, and no independently enforced token cap.
+    required: false
+    default: "jern-native"
+  live-agent-version:
+    description: >-
+      Exact version required for a foreign live agent. The caller must install
+      that version before this Action runs. Ignored for jern-native.
+    required: false
+    default: ""
+  live-timeout-minutes:
+    description: Wall-clock limit for a supervised foreign-agent process (1-60).
+    required: false
+    default: "30"
   live-delivery:
     description: >-
       What to do with successful live-task changes. "none" leaves Jern's
@@ -344,6 +362,9 @@ runs:
         LIVE_ISSUE: ${{ inputs.live-issue }}
         LIVE_TOKEN_BUDGET: ${{ inputs.live-token-budget }}
         LIVE_TASK_ID: ${{ inputs.live-task-id }}
+        LIVE_AGENT: ${{ inputs.live-agent }}
+        LIVE_AGENT_VERSION: ${{ inputs.live-agent-version }}
+        LIVE_TIMEOUT_MINUTES: ${{ inputs.live-timeout-minutes }}
         BASELINE_FILE: ${{ steps.baseline.outputs.file }}
         POLICY_TRUST: ${{ inputs.policy-trust }}
         CLOUD_MODE: ${{ inputs.cloud-upload }}

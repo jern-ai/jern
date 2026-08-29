@@ -60,6 +60,9 @@ Traces are uploaded as a `jern-traces` artifact for 14 days.
 | `live-issue`        | `""`                  | GitHub issue number resolved after manual dispatch and environment approval.                                                            |
 | `live-token-budget` | `""`                  | Positive Cloud reservation for a live run.                                                                                              |
 | `live-task-id`      | `""`                  | Cloud task identity carried through OIDC authorization to correlate execution, evidence, and delivery.                                  |
+| `live-agent`        | `jern-native`          | `jern-native` \| `codex`. Codex runs at the narrower `supervised` assurance level described below.                                      |
+| `live-agent-version` | `""`                 | Exact installed foreign-agent version. Required for Codex and rejected when it does not match `codex --version`.                         |
+| `live-timeout-minutes` | `30`                | Wall-clock limit from 1 to 60 minutes for a supervised foreign-agent process.                                                           |
 | `live-delivery`     | `none`                | `none` \| `pull-request`; the latter publishes successful Jern commits to an isolated branch and PR.                                    |
 
 ## Jern Cloud upload
@@ -136,6 +139,33 @@ no-change success opens no pull request. This mode requires `contents: write`
 and `pull-requests: write`; protect the workflow, baseline, live environment,
 and default branch. The agent itself receives no GitHub API tool and the Action
 never pushes or merges the default branch.
+
+### Agent assurance levels
+
+Jern records an assurance level separately from the selected model or agent.
+The levels are not interchangeable:
+
+| Level | Current support | Guarantees |
+| --- | --- | --- |
+| **Jern native** | `live-agent: jern-native` | Jern controls tool calls and policy decisions and records an exact trace, receipt, deterministic replay data, and hard model-token cap. |
+| **Instrumented** | Contract only | Reserved for agents that expose complete calls to Jern policy and evidence hooks. No adapter is currently shipped. |
+| **Supervised** | `live-agent: codex` | The wrapper pins Codex, applies its `workspace-write` sandbox, limits wall-clock duration, gives the child only its provider credential, blocks agent-authored commits, validates changed paths and protected test commands, and retains sole publication authority. |
+| **Evidence only** | Contract only | Reserved for imported evidence without execution controls. No adapter is currently shipped. |
+
+The Codex adapter does **not** claim Jern-native enforcement. Jern cannot
+independently control or replay Codex's internal tool calls, and without a
+model gateway it cannot enforce or report a hard model-token cap. The positive
+Cloud budget remains an admission reservation; completion evidence records
+`usage_reported: false`. Codex receives no GitHub, Actions OIDC, Cloud run, or
+publication credential. Its JSONL output, process result, sandbox/version
+metadata, post-run path decision, and protected-test result are retained in the
+supervised trace.
+
+Install the exact version named by `live-agent-version` before invoking the
+Action and provide `OPENAI_API_KEY` in the protected live environment. Do not
+use Codex's dangerous sandbox-bypass flags. The repository workflow generated
+by Jern Cloud pins the supported Codex package and selects provider secrets
+conditionally.
 
 See the complete workflow and threat boundary in
 [docs/live-action.md](https://github.com/jern-ai/jern/blob/main/docs/live-action.md).

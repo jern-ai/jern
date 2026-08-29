@@ -104,6 +104,29 @@ fi
 EOF
 chmod +x "$temp/bin/gh"
 
+cat > "$temp/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "$1" = "--version" ]; then
+  printf '%s\n' 'codex-cli 1.2.3'
+  exit 0
+fi
+test "$1" = "exec"
+test -z "${GH_TOKEN+x}${GITHUB_TOKEN+x}${ACTIONS_ID_TOKEN_REQUEST_URL+x}${ACTIONS_ID_TOKEN_REQUEST_TOKEN+x}"
+test -z "${JERN_TEST_SECRET+x}"
+test "${OPENAI_API_KEY:-}" = "test-provider-key"
+printf '%s\n' "$*" > "$CODEX_HOME/args"
+if [[ "$*" = *"make unsafe change"* ]]; then
+  mkdir -p .github/workflows
+  printf '%s\n' 'unsafe' > .github/workflows/unsafe.yml
+else
+  mkdir -p src
+  printf '%s\n' 'supervised change' > src/codex.txt
+fi
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}'
+EOF
+chmod +x "$temp/bin/codex"
+
 git init --bare "$temp/remote.git" >/dev/null
 (
   cd "$temp/work"
@@ -114,7 +137,8 @@ git init --bare "$temp/remote.git" >/dev/null
   git push -u origin main >/dev/null
 )
 
-touch "$temp/baseline.json" "$temp/trace-baseline.sha256" "$temp/github-output"
+printf '%s\n' '{"policy":{"edits_within":["src/"],"shell_allow":["true"],"allow":[],"deny":[],"memory":"deny"}}' > "$temp/baseline.json"
+touch "$temp/trace-baseline.sha256" "$temp/github-output"
 export PATH="$temp/bin:$PATH"
 export FAKE_CURL_LOG="$temp/curl.log"
 export FAKE_GH_LOG="$temp/gh.log"
@@ -142,6 +166,10 @@ export GITHUB_RUN_ATTEMPT=3
 export GITHUB_SHA="$(git -C "$temp/work" rev-parse HEAD)"
 export GH_TOKEN=test-github-token
 export LIVE_DELIVERY=none
+export LIVE_AGENT=jern-native
+export LIVE_AGENT_VERSION=
+export LIVE_TIMEOUT_MINUTES=5
+export JERN_TEST_SECRET=must-not-reach-codex
 
 run_success() {
   : > "$FAKE_CURL_LOG"
@@ -159,7 +187,7 @@ run_success() {
   grep -Fq -- '--policy-trust' "$FAKE_JERN_ARGS"
   grep -Fq -- 'fix the parser' "$FAKE_JERN_ARGS"
   grep -Fq -- 'https://oidc.example/token?request=1&audience=https%3A%2F%2Fcloud.example' "$FAKE_CURL_LOG"
-  grep -Fq -- '--data {"token_budget":123,"task_id":"task_0123456789abcdef0123456789abcdef"}' "$FAKE_CURL_LOG"
+  grep -Fq -- '--data {"token_budget":123,"task_id":"task_0123456789abcdef0123456789abcdef","agent_kind":"jern-native"}' "$FAKE_CURL_LOG"
   grep -Fq -- '/trace' "$FAKE_CURL_LOG"
   grep -Fq -- '/complete' "$FAKE_CURL_LOG"
   grep -Fq -- '"task_status":"succeeded"' "$FAKE_CURL_LOG"
@@ -281,6 +309,48 @@ run_pull_request_failure_removes_branch() {
   grep -Fq -- '"failure_reason":"pull_request_failed"' "$FAKE_CURL_LOG"
 }
 
+run_supervised_codex_opens_pull_request() {
+  : > "$FAKE_CURL_LOG"
+  : > "$FAKE_GH_LOG"
+  : > "$GITHUB_OUTPUT"
+  : > "$TRACE_BASELINE"
+  git -C "$temp/work" switch -C main "$GITHUB_SHA" >/dev/null
+  rm -rf "$temp/work/.jern" "$temp/work/src" "$temp/work/.github"
+  (
+    cd "$temp/work"
+    OPENAI_API_KEY=test-provider-key LIVE_AGENT=codex LIVE_AGENT_VERSION=1.2.3 \
+      LIVE_DELIVERY=pull-request GITHUB_RUN_ATTEMPT=8 bash "$repo_root/action/live-run.sh"
+  )
+  grep -Fq -- 'exec --json --ephemeral --ignore-user-config --strict-config --sandbox workspace-write --ask-for-approval never' "$RUNNER_TEMP/jern-codex-home/args"
+  test "$(git --git-dir="$temp/remote.git" show refs/heads/jern/run-42-8:src/codex.txt)" = "supervised change"
+  grep -Fq -- 'Supervised Codex task' "$FAKE_PR_BODY"
+  grep -Fq -- 'does not enforce Codex tool calls or model-token usage' "$FAKE_PR_BODY"
+  grep -Fq -- '"failure_reason":null' "$FAKE_CURL_LOG"
+  grep -Fq -- '"usage_reported":false' "$FAKE_CURL_LOG"
+}
+
+run_supervised_codex_rejects_protected_path() {
+  : > "$FAKE_CURL_LOG"
+  : > "$FAKE_GH_LOG"
+  : > "$GITHUB_OUTPUT"
+  : > "$TRACE_BASELINE"
+  git -C "$temp/work" switch -C main "$GITHUB_SHA" >/dev/null
+  rm -rf "$temp/work/.jern" "$temp/work/src" "$temp/work/.github"
+  set +e
+  (
+    cd "$temp/work"
+    OPENAI_API_KEY=test-provider-key LIVE_AGENT=codex LIVE_AGENT_VERSION=1.2.3 LIVE_TASK="make unsafe change" \
+      LIVE_DELIVERY=pull-request GITHUB_RUN_ATTEMPT=9 \
+      bash "$repo_root/action/live-run.sh"
+  )
+  code=$?
+  set -e
+  test "$code" -eq 1
+  test ! -s "$FAKE_GH_LOG"
+  ! git --git-dir="$temp/remote.git" show-ref --verify --quiet refs/heads/jern/run-42-9
+  grep -Fq -- '"failure_reason":"supervised_agent_failed"' "$FAKE_CURL_LOG"
+}
+
 rejects_unsafe_context() {
   set +e
   GITHUB_EVENT_NAME=push bash "$repo_root/action/live-run.sh" > "$temp/unsafe.out" 2>&1
@@ -302,11 +372,14 @@ rejects_unsafe_context() {
 }
 
 run_success
+grep -Fq -- '"usage_reported":true' "$FAKE_CURL_LOG"
 run_failure_uploads_evidence
 run_success_opens_pull_request
 run_issue_opens_linked_pull_request
 run_failure_does_not_publish
 run_no_change_does_not_publish
 run_pull_request_failure_removes_branch
+run_supervised_codex_opens_pull_request
+run_supervised_codex_rejects_protected_path
 rejects_unsafe_context
 printf '%s\n' "live Action contract tests passed"
