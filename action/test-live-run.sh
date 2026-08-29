@@ -111,10 +111,18 @@ if [ "$1" = "--version" ]; then
   printf '%s\n' 'codex-cli 1.2.3'
   exit 0
 fi
+if [ "$1" = "login" ]; then
+  test "$2" = "--with-api-key"
+  test -z "${OPENAI_API_KEY+x}${GH_TOKEN+x}${GITHUB_TOKEN+x}${ACTIONS_ID_TOKEN_REQUEST_URL+x}${ACTIONS_ID_TOKEN_REQUEST_TOKEN+x}"
+  test "$(cat)" = "test-provider-key"
+  printf '%s\n' authenticated > "$CODEX_HOME/authenticated"
+  exit 0
+fi
 test "$1" = "exec"
 test -z "${GH_TOKEN+x}${GITHUB_TOKEN+x}${ACTIONS_ID_TOKEN_REQUEST_URL+x}${ACTIONS_ID_TOKEN_REQUEST_TOKEN+x}"
 test -z "${JERN_TEST_SECRET+x}"
-test "${OPENAI_API_KEY:-}" = "test-provider-key"
+test -z "${OPENAI_API_KEY+x}"
+test -f "$CODEX_HOME/authenticated"
 printf '%s\n' "$*" > "$CODEX_HOME/args"
 if [[ "$*" = *"make unsafe change"* ]]; then
   mkdir -p .github/workflows

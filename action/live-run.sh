@@ -162,6 +162,7 @@ if [ "${LIVE_AGENT:-jern-native}" = "jern-native" ]; then
   fi
 else
   mkdir -p .jern "$RUNNER_TEMP/jern-codex-home"
+  chmod 700 "$RUNNER_TEMP/jern-codex-home"
   codex_stdout="$RUNNER_TEMP/jern-codex-${run_id}.jsonl"
   codex_stderr="$RUNNER_TEMP/jern-codex-${run_id}.stderr"
   started_at="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
@@ -171,13 +172,22 @@ else
     '{ts:$ts,event:"run-started",schema_version:1,run_id:$run_id,command:"run",model:"foreign/codex",agent:"codex",budget:{llm_calls:null,tokens:null},cloud:{run_id:$run_id,reservation:$reservation},assurance:{level:"supervised",filesystem:"codex-workspace-write",network:"agent-sandbox",credentials:"provider-only",publish:"jern-wrapper",token_enforcement:"unavailable"},foreign_agent:{name:"codex",version:$version}}' \
     > "$trace"
   set +e
-  timeout --signal=TERM --kill-after=30s "${LIVE_TIMEOUT_MINUTES}m" \
+  printf '%s' "$OPENAI_API_KEY" | env -i PATH="$PATH" HOME="$RUNNER_TEMP/jern-codex-home" LANG="${LANG:-C.UTF-8}" \
+    CODEX_HOME="$RUNNER_TEMP/jern-codex-home" codex login --with-api-key \
+    > /dev/null 2> "$codex_stderr"
+  login_exit=${PIPESTATUS[1]}
+  if [ "$login_exit" -eq 0 ]; then
+    timeout --signal=TERM --kill-after=30s "${LIVE_TIMEOUT_MINUTES}m" \
     env -i PATH="$PATH" HOME="$RUNNER_TEMP/jern-codex-home" LANG="${LANG:-C.UTF-8}" \
-      OPENAI_API_KEY="$OPENAI_API_KEY" CODEX_HOME="$RUNNER_TEMP/jern-codex-home" \
+      CODEX_HOME="$RUNNER_TEMP/jern-codex-home" \
       codex exec --json --ephemeral --ignore-user-config --strict-config \
         --approve-for-me -c 'web_search="disabled"' "$LIVE_TASK" \
-        > "$codex_stdout" 2> "$codex_stderr"
-  run_exit=$?
+        > "$codex_stdout" 2>> "$codex_stderr"
+    run_exit=$?
+  else
+    : > "$codex_stdout"
+    run_exit=$login_exit
+  fi
   set -e
   jq -R -c '{event:"foreign-agent-log",stream:"stdout",line:.}' "$codex_stdout" >> "$trace"
   jq -R -c '{event:"foreign-agent-log",stream:"stderr",line:.}' "$codex_stderr" >> "$trace"
