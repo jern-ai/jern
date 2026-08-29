@@ -321,7 +321,7 @@ run_supervised_codex_opens_pull_request() {
     OPENAI_API_KEY=test-provider-key LIVE_AGENT=codex LIVE_AGENT_VERSION=1.2.3 \
       LIVE_DELIVERY=pull-request GITHUB_RUN_ATTEMPT=8 bash "$repo_root/action/live-run.sh"
   )
-  grep -Fq -- 'exec --json --ephemeral --ignore-user-config --strict-config --sandbox workspace-write --ask-for-approval never' "$RUNNER_TEMP/jern-codex-home/args"
+  grep -Fq -- 'exec --json --ephemeral --ignore-user-config --strict-config --sandbox workspace-write --approve-for-me' "$RUNNER_TEMP/jern-codex-home/args"
   test "$(git --git-dir="$temp/remote.git" show refs/heads/jern/run-42-8:src/codex.txt)" = "supervised change"
   grep -Fq -- 'Supervised Codex task' "$FAKE_PR_BODY"
   grep -Fq -- 'does not enforce Codex tool calls or model-token usage' "$FAKE_PR_BODY"
