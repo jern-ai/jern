@@ -2,6 +2,8 @@ module Jern.Tests.ProviderTests
 
 open System
 open System.IO
+open System.Text
+open System.Threading
 open System.Text.Json.Nodes
 open Xunit
 open IronKernel.Ast
@@ -129,6 +131,38 @@ let ``anthropic stream events accumulate into the final message`` () =
         Assert.Equal("tool_use", message.["stop_reason"].GetValue<string>())
         Assert.Equal(11, message.["usage"].["input_tokens"].GetValue<int>())
         Assert.Equal(42, message.["usage"].["output_tokens"].GetValue<int>())
+
+[<Fact>]
+let ``anthropic raw stream preserves content shapes outside typed SDK models`` () =
+    let body =
+        """event: message_start
+data: {"type":"message_start","message":{"id":"msg_future","type":"message","role":"assistant","model":"claude-opus-5","content":[],"stop_reason":null,"usage":{"input_tokens":3,"output_tokens":1}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_future","name":"future_tool","input":"opaque"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+"""
+    use stream = new MemoryStream(Encoding.UTF8.GetBytes body)
+    let message = AnthropicBridge.accumulateRawStream stream CancellationToken.None ignore
+    let block = message.["content"].AsArray().[0]
+    Assert.Equal("opaque", block.["input"].GetValue<string>())
+    Assert.Equal("tool_use", message.["stop_reason"].GetValue<string>())
+
+[<Fact>]
+let ``anthropic raw stream surfaces provider error events`` () =
+    let body = "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}\n\n"
+    use stream = new MemoryStream(Encoding.UTF8.GetBytes body)
+    let error = Assert.ThrowsAny<Exception>(fun () -> AnthropicBridge.accumulateRawStream stream CancellationToken.None ignore |> ignore)
+    Assert.Contains("overloaded_error: busy", error.Message)
 
 // ── Routing and configuration ──────────────────────────────────────────────
 

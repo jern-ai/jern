@@ -2,6 +2,8 @@ namespace Jern.Host
 
 open System
 open System.Collections.Generic
+open System.IO
+open System.Net.ServerSentEvents
 open System.Text
 open System.Text.Json
 open System.Text.Json.Nodes
@@ -16,9 +18,9 @@ open Anthropic.Models.Messages
 /// The bridge is a pure passthrough. The agent authors the request as Kernel
 /// data in the exact wire shape of the Messages API (`:model`, `:max_tokens`,
 /// `:messages`, `:tools`, …); we convert it to JSON, hand it to the official
-/// SDK as a raw body (typed views still validate it), and convert the wire
-/// response back. Any field the API grows is immediately expressible from
-/// agent source with no host change — the handler seam is the abstraction,
+/// SDK as a raw body, and convert the raw wire response back without generated
+/// response models narrowing its shape. Any field the API grows is immediately
+/// expressible from agent source with no host change — the handler seam is the abstraction,
 /// not a request-shape mapping layer.
 module AnthropicBridge =
 
@@ -183,33 +185,65 @@ module AnthropicBridge =
         MessageCreateParams.FromRawUnchecked(empty, empty, body)
 
     let private complete (parameters: MessageCreateParams) (ct: System.Threading.CancellationToken) =
-        (client ()).Messages.Create(parameters, ct)
+        let response =
+            (client ()).Messages.WithRawResponse.Create(parameters, ct)
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        use response = response
+        response.ReadAsString(ct)
         |> Async.AwaitTask
         |> Async.RunSynchronously
-        |> fun message -> JsonNode.Parse(JsonSerializer.Serialize(message))
+        |> JsonNode.Parse
 
-    let private streamCompletion (parameters: MessageCreateParams)
-                                 (ct: System.Threading.CancellationToken) (onText: string -> unit) =
+    let internal accumulateRawStream (stream: Stream) (ct: System.Threading.CancellationToken)
+                                     (onText: string -> unit) =
         let accumulator = StreamAccumulator(onText)
-        let events = (client ()).Messages.CreateStreaming(parameters, ct)
         let consume =
             task {
-                let enumerator = events.GetAsyncEnumerator()
+                let events = SseParser.Create(stream).EnumerateAsync(ct)
+                let enumerator = events.GetAsyncEnumerator(ct)
                 try
                     let mutable go = true
                     while go do
                         let! hasNext = enumerator.MoveNextAsync().AsTask()
                         if hasNext then
-                            accumulator.Apply(JsonNode.Parse(JsonSerializer.Serialize(enumerator.Current)).AsObject())
+                            let event = JsonNode.Parse(enumerator.Current.Data).AsObject()
+                            match event.["type"] |> Option.ofObj |> Option.map _.GetValue<string>() with
+                            | Some "error" ->
+                                let providerError =
+                                    match event.["error"] with
+                                    | :? JsonObject as error ->
+                                        [ "type"; "message" ]
+                                        |> List.choose (fun field ->
+                                            match error.[field] with
+                                            | :? JsonValue as value when value.GetValueKind() = JsonValueKind.String ->
+                                                Some(value.GetValue<string>())
+                                            | _ -> None)
+                                        |> String.concat ": "
+                                    | _ -> ""
+                                failwith
+                                    (if providerError = "" then "Anthropic stream returned an error event"
+                                     else "Anthropic stream error: " + providerError)
+                            | _ -> accumulator.Apply event
                         else
                             go <- false
                 finally
-                    enumerator.DisposeAsync().AsTask().Wait()
+                    enumerator.DisposeAsync().AsTask().GetAwaiter().GetResult()
             }
         consume.GetAwaiter().GetResult()
         match accumulator.Final() with
-        | Ok message -> message :> JsonNode
-        | Error e -> failwith e
+        | Ok message -> message
+        | Error error -> failwith error
+
+    let private streamCompletion (parameters: MessageCreateParams)
+                                 (ct: System.Threading.CancellationToken) (onText: string -> unit) =
+        let response =
+            (client ()).Messages.WithRawResponse.CreateStreaming(parameters, ct)
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
+        use response = response
+        use stream = response.ReadAsStream(ct) |> Async.AwaitTask |> Async.RunSynchronously
+        accumulateRawStream stream ct onText :> JsonNode
 
     /// The bridge, parameterized by provider routing (`model` override), an
     /// optional live-text callback, and an interrupt probe. With a callback
