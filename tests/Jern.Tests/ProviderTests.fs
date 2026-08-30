@@ -144,6 +144,9 @@ data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use"
 event: content_block_stop
 data: {"type":"content_block_stop","index":0}
 
+event: ping
+data: "ping"
+
 event: message_delta
 data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}
 

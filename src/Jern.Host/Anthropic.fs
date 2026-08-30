@@ -207,24 +207,26 @@ module AnthropicBridge =
                     while go do
                         let! hasNext = enumerator.MoveNextAsync().AsTask()
                         if hasNext then
-                            let event = JsonNode.Parse(enumerator.Current.Data).AsObject()
-                            match event.["type"] |> Option.ofObj |> Option.map _.GetValue<string>() with
-                            | Some "error" ->
-                                let providerError =
-                                    match event.["error"] with
-                                    | :? JsonObject as error ->
-                                        [ "type"; "message" ]
-                                        |> List.choose (fun field ->
-                                            match error.[field] with
-                                            | :? JsonValue as value when value.GetValueKind() = JsonValueKind.String ->
-                                                Some(value.GetValue<string>())
-                                            | _ -> None)
-                                        |> String.concat ": "
-                                    | _ -> ""
-                                failwith
-                                    (if providerError = "" then "Anthropic stream returned an error event"
-                                     else "Anthropic stream error: " + providerError)
-                            | _ -> accumulator.Apply event
+                            match JsonNode.Parse(enumerator.Current.Data) with
+                            | :? JsonObject as event ->
+                                match event.["type"] |> Option.ofObj |> Option.map _.GetValue<string>() with
+                                | Some "error" ->
+                                    let providerError =
+                                        match event.["error"] with
+                                        | :? JsonObject as error ->
+                                            [ "type"; "message" ]
+                                            |> List.choose (fun field ->
+                                                match error.[field] with
+                                                | :? JsonValue as value when value.GetValueKind() = JsonValueKind.String ->
+                                                    Some(value.GetValue<string>())
+                                                | _ -> None)
+                                            |> String.concat ": "
+                                        | _ -> ""
+                                    failwith
+                                        (if providerError = "" then "Anthropic stream returned an error event"
+                                         else "Anthropic stream error: " + providerError)
+                                | _ -> accumulator.Apply event
+                            | _ -> ()
                         else
                             go <- false
                 finally
