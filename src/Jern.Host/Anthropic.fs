@@ -247,6 +247,14 @@ module AnthropicBridge =
         use stream = response.ReadAsStream(ct) |> Async.AwaitTask |> Async.RunSynchronously
         accumulateRawStream stream ct onText :> JsonNode
 
+    let internal fallbackAfterStreamFailure (streamError: exn) (fallback: unit -> 'T) =
+        try fallback ()
+        with fallbackError ->
+            raise
+                (Exception(
+                    $"streaming failed: {streamError.Message}; non-streaming fallback failed: {fallbackError.Message}",
+                    fallbackError))
+
     /// The bridge, parameterized by provider routing (`model` override), an
     /// optional live-text callback, and an interrupt probe. With a callback
     /// the response streams; if streaming fails, we fall back to a plain call
@@ -271,19 +279,20 @@ module AnthropicBridge =
                         with
                         | e when isInterrupt e -> raise Interrupted
                         | e when isCanceled e && interrupted () -> raise Interrupted
-                        | _ ->
-                            let node = complete (toParams (prepareBody model request)) cts.Token
-                            match node.["content"] with
-                            | :? JsonArray as blocks ->
-                                for block in blocks do
-                                    match block with
-                                    | :? JsonObject as b when
-                                        not (isNull b.["type"])
-                                        && b.["type"].GetValue<string>() = "text" ->
-                                        emit (b.["text"].GetValue<string>())
-                                    | _ -> ()
-                            | _ -> ()
-                            node
+                        | streamError ->
+                            fallbackAfterStreamFailure streamError (fun () ->
+                                let node = complete (toParams (prepareBody model request)) cts.Token
+                                match node.["content"] with
+                                | :? JsonArray as blocks ->
+                                    for block in blocks do
+                                        match block with
+                                        | :? JsonObject as b when
+                                            not (isNull b.["type"])
+                                            && b.["type"].GetValue<string>() = "text" ->
+                                            emit (b.["text"].GetValue<string>())
+                                        | _ -> ()
+                                | _ -> ()
+                                node)
                 Choice2Of2 (Json.toLispVal responseNode)
             with
             | e when isInterrupt e ->

@@ -167,6 +167,16 @@ let ``anthropic raw stream surfaces provider error events`` () =
     let error = Assert.ThrowsAny<Exception>(fun () -> AnthropicBridge.accumulateRawStream stream CancellationToken.None ignore |> ignore)
     Assert.Contains("overloaded_error: busy", error.Message)
 
+[<Fact>]
+let ``anthropic fallback preserves streaming and plain failures`` () =
+    let streamError = InvalidOperationException("stream response was malformed")
+    let error =
+        Assert.ThrowsAny<Exception>(fun () ->
+            AnthropicBridge.fallbackAfterStreamFailure streamError (fun () -> failwith "plain response was malformed")
+            |> ignore)
+    Assert.Contains("streaming failed: stream response was malformed", error.Message)
+    Assert.Contains("non-streaming fallback failed: plain response was malformed", error.Message)
+
 // ── Routing and configuration ──────────────────────────────────────────────
 
 [<Fact>]
