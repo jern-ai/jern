@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.14.10 — 2026-09-02
+
+- **Gemini thought signatures survive the tool loop.** Gemini's
+  OpenAI-compatible endpoint attaches a thought signature to each function
+  call as `extra_content` and rejects the next request when the replayed
+  call lacks it. The OpenAI bridge now keeps `extra_content` on every tool
+  call and on the message, in both streamed and plain responses, and sends
+  it back verbatim with the assistant turn. Other providers never set it
+  and are unaffected.
+
 ## 0.14.9 — 2026-09-02
 
 - **Hosts that confine jern can say so.** `JERN_SANDBOX=external` tells jern

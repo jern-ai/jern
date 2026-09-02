@@ -290,6 +290,56 @@ let ``reasoning effort maps to chat completions and moves the token cap`` () =
     Assert.Equal(8192, out2.["max_tokens"].GetValue<int>())
     Assert.Null(out2.["reasoning_effort"])
 
+/// Gemini's OpenAI-compatible endpoint attaches thought signatures as
+/// extra_content and rejects a later request whose function calls lack
+/// them, so whatever a call arrived with goes back with it verbatim.
+[<Fact>]
+let ``provider extra content on tool calls survives the round trip`` () =
+    let response =
+        JsonNode.Parse("""{"model":"gemini-3.8-flash","choices":[{"finish_reason":"tool_calls","message":{
+            "role":"assistant","content":null,
+            "extra_content":{"google":{"thought_signature":"msg-sig"}},
+            "tool_calls":[{"id":"call_a","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"a\"}"},
+                           "extra_content":{"google":{"thought_signature":"sig-a"}}},
+                          {"id":"call_b","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"b\"}"}}]}}]}""").AsObject()
+    let canonical =
+        match OpenAIBridge.translateResponse response with
+        | Ok c -> c
+        | Error e -> failwith e
+    let content = canonical.["content"].AsArray()
+    Assert.Equal("sig-a", content.[0].["extra_content"].["google"].["thought_signature"].GetValue<string>())
+    Assert.Equal("msg-sig", content.[0].["message_extra_content"].["google"].["thought_signature"].GetValue<string>())
+    Assert.Null(content.[1].["extra_content"])
+    let history = JsonObject()
+    let messages = JsonArray()
+    let assistant = JsonObject()
+    assistant.["role"] <- JsonValue.Create "assistant"
+    assistant.["content"] <- content.DeepClone()
+    messages.Add assistant
+    history.["messages"] <- messages
+    let request = OpenAIBridge.translateRequest "gemini-3.8-flash" history
+    let sent = request.["messages"].AsArray().[0].AsObject()
+    Assert.Equal("msg-sig", sent.["extra_content"].["google"].["thought_signature"].GetValue<string>())
+    let calls = sent.["tool_calls"].AsArray()
+    Assert.Equal("sig-a", calls.[0].["extra_content"].["google"].["thought_signature"].GetValue<string>())
+    Assert.Null(calls.[1].["extra_content"])
+
+[<Fact>]
+let ``streamed extra content is kept per tool call and per message`` () =
+    let accumulator = OpenAIBridge.StreamAccumulator(ignore)
+    let chunks =
+        [ """{"model":"gemini-3.8-flash","choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_s","function":{"name":"read_file","arguments":""},"extra_content":{"google":{"thought_signature":"sig-s"}}}]}}]}"""
+          """{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":\"s\"}"}}]}}]}"""
+          """{"choices":[{"delta":{"extra_content":{"google":{"thought_signature":"msg-s"}}},"finish_reason":"tool_calls"}]}""" ]
+    for chunk in chunks do
+        accumulator.Apply(JsonNode.Parse(chunk).AsObject())
+    let final = accumulator.Final()
+    let block = final.["content"].AsArray().[0]
+    Assert.Equal("sig-s", block.["extra_content"].["google"].["thought_signature"].GetValue<string>())
+    Assert.Equal("msg-s", block.["message_extra_content"].["google"].["thought_signature"].GetValue<string>())
+    Assert.Equal("s", block.["input"].["path"].GetValue<string>())
+    Assert.Equal("msg-s", final.["extra_content"].["google"].["thought_signature"].GetValue<string>())
+
 [<Fact>]
 let ``reasoning content becomes a canonical thinking block`` () =
     let response = JsonNode.Parse("""{"model":"deepseek-reasoner","choices":[{"message":{"content":"answer","reasoning_content":"chain of thought"},"finish_reason":"stop"}]}""").AsObject()
