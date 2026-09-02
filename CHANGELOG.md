@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.9 — 2026-09-02
+
+- **Hosts that confine jern can say so.** `JERN_SANDBOX=external` tells jern
+  that the whole process already runs inside an outer sandbox, as Jern
+  Cloud's managed runner does with its own namespaces. Shell commands then
+  run directly, the "no OS sandbox" warning is not printed, and the run
+  envelope records `"sandbox"` (`sandbox-exec`, `bubblewrap`, `external`,
+  or `none`) so every receipt states which boundary held.
+
 ## 0.14.5 — 2026-08-26
 
 - **Cloud-authorized runs enforce their reserved token cap locally.** A

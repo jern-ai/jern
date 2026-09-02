@@ -404,6 +404,23 @@ module Tools =
     let internal linuxSandboxActive () =
         OperatingSystem.IsLinux() && (bwrapPath.Value |> Option.isSome)
 
+    /// A host that already confines the whole jern process (a managed
+    /// runner with its own mount and network namespaces, for instance) says
+    /// so with `JERN_SANDBOX=external`. jern then runs shell commands
+    /// directly, records the fact in the trace, and does not warn: the
+    /// outer boundary holds, and a nested sandbox would need namespaces the
+    /// outer one deliberately denies.
+    let externalSandbox () =
+        String.Equals(Environment.GetEnvironmentVariable "JERN_SANDBOX", "external", StringComparison.OrdinalIgnoreCase)
+
+    /// What confines shell commands for this process, as the run envelope
+    /// records it: `sandbox-exec`, `bubblewrap`, `external`, or `none`.
+    let sandboxMode () =
+        if externalSandbox () then "external"
+        elif OperatingSystem.IsMacOS() && File.Exists "/usr/bin/sandbox-exec" then "sandbox-exec"
+        elif linuxSandboxActive () then "bubblewrap"
+        else "none"
+
     let private sandboxProfile (root: string) =
         let quote (p: string) = "\"" + p.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\""
         String.concat "\n"
@@ -421,7 +438,11 @@ module Tools =
         | Ok command ->
             use proc = new Process()
             let sandboxExec = "/usr/bin/sandbox-exec"
-            if OperatingSystem.IsMacOS() && File.Exists sandboxExec then
+            if externalSandbox () then
+                // The host confines the whole process; see externalSandbox.
+                proc.StartInfo.FileName <- "/bin/sh"
+                proc.StartInfo.ArgumentList.Add "-c"
+            elif OperatingSystem.IsMacOS() && File.Exists sandboxExec then
                 proc.StartInfo.FileName <- sandboxExec
                 proc.StartInfo.ArgumentList.Add "-p"
                 proc.StartInfo.ArgumentList.Add(sandboxProfile root)

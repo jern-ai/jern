@@ -42,6 +42,9 @@ module Receipt =
           budgetLlmCalls: int option
           budgetTokens: int option
           cloudTokenCap: int64 option
+          /// What confined shell commands, as run-started recorded it; None
+          /// for traces written before the field existed.
+          sandbox: string option
           hardTokenBudgetDenied: bool
           budgetExtended: int
           budgetDenied: bool
@@ -66,7 +69,7 @@ module Receipt =
           unreadableLines = 0; runId = None; jernVersion = None; command = None; task = None
           model = None; agent = None; status = None; statusReason = None; duration = None
           llmCalls = 0; inputTokens = 0L; outputTokens = 0L
-          budgetLlmCalls = None; budgetTokens = None; cloudTokenCap = None
+          budgetLlmCalls = None; budgetTokens = None; cloudTokenCap = None; sandbox = None
           hardTokenBudgetDenied = false; budgetExtended = 0; budgetDenied = false
           tools = []; filesTouched = []; commits = 0
           policyAllowed = 0; policyAsked = 0; policyDeniedByRule = 0; approvalsDenied = 0
@@ -158,7 +161,8 @@ module Receipt =
                                 agent = str doc "agent"
                                 budgetLlmCalls = budget |> Option.bind (fun b -> intOf b "llm_calls")
                                 budgetTokens = budget |> Option.bind (fun b -> intOf b "tokens")
-                                cloudTokenCap = cloud |> Option.bind (fun c -> int64Of c "token_cap") }
+                                cloudTokenCap = cloud |> Option.bind (fun c -> int64Of c "token_cap")
+                                sandbox = str doc "sandbox" }
                         match field doc "policy" with
                         | Some (:? JsonArray as array) ->
                             for item in array do
@@ -385,6 +389,12 @@ module Receipt =
 
           if s.budgetExtended > 0 then
               yield "budget", sprintf "extended %s by you" (plural s.budgetExtended "time")
+
+          match s.sandbox with
+          | Some "external" -> yield "sandbox", "external (the host confines the whole process)"
+          | Some "none" -> yield "sandbox", "none (approval is the only gate for shell commands)"
+          | Some mode -> yield "sandbox", mode
+          | None -> ()
 
           yield "trace", shortPath s.tracePath ]
 

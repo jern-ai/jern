@@ -139,6 +139,26 @@ let ``bubblewrap confines shell writes on linux`` () =
             Assert.True(isErrorOf outside)
             Assert.False(File.Exists "/jern-sandbox-escape"))
 
+/// A host that already confines jern says so; jern then runs commands
+/// directly and reports the external sandbox instead of warning.
+[<Fact>]
+let ``an external sandbox is honoured and reported`` () =
+    let previous = Environment.GetEnvironmentVariable "JERN_SANDBOX"
+    try
+        Environment.SetEnvironmentVariable("JERN_SANDBOX", "external")
+        Assert.True(Tools.externalSandbox ())
+        Assert.Equal("external", Tools.sandboxMode ())
+        withWorkspace (fun root ->
+            let session = newSession root
+            let result = run session """(call-tool "shell" (list :command "echo confined-elsewhere"))"""
+            Assert.False(isErrorOf result)
+            Assert.Equal("confined-elsewhere\n", contentOf result))
+        Environment.SetEnvironmentVariable("JERN_SANDBOX", "")
+        Assert.False(Tools.externalSandbox ())
+        Assert.NotEqual<string>("external", Tools.sandboxMode ())
+    finally
+        Environment.SetEnvironmentVariable("JERN_SANDBOX", previous)
+
 [<Fact>]
 let ``paths outside the workspace are refused`` () =
     withWorkspace (fun root ->
