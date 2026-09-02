@@ -205,7 +205,7 @@ jobs:
           mkdir -p release-assets
           find artifacts -type f \( -name '*.tar.gz' -o -name '*.nupkg' \) -exec cp {} release-assets/ \;
           ls -la release-assets
-      # Checksums for the curl|sh install path: website/install.sh verifies
+      # Checksums for the curl|sh install path: install.sh in jern-ai/website verifies
       # the tarball it downloads against this file.
       - name: Generate SHA256SUMS
         run: |
