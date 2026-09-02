@@ -104,6 +104,15 @@ module OpenAIBridge =
                             f.["name"] <- block.["name"].DeepClone()
                             f.["arguments"] <- str (block.["input"].ToJsonString())
                             call.["function"] <- f
+                            // Provider-opaque data the call arrived with goes
+                            // back exactly where it came from: Gemini's thought
+                            // signatures live here and are required on replay.
+                            (match block.["extra_content"] with
+                             | :? JsonObject as extra -> call.["extra_content"] <- extra.DeepClone()
+                             | _ -> ())
+                            (match block.["message_extra_content"] with
+                             | :? JsonObject as extra when isNull m.["extra_content"] -> m.["extra_content"] <- extra.DeepClone()
+                             | _ -> ())
                             toolCalls.Add call
                     if toolCalls.Count > 0 then m.["tool_calls"] <- toolCalls
                     messages.Add m
@@ -156,8 +165,16 @@ module OpenAIBridge =
 
     /// Build a canonical response from the pieces a completion (streamed or
     /// not) yields.
+    /// One tool call as the provider returned it: id, name, JSON arguments,
+    /// and any provider-opaque `extra_content` that must travel back with it.
+    type ToolCall =
+        { id: string
+          name: string
+          arguments: string
+          extra: JsonObject option }
+
     let private buildCanonical (model: string) (reasoning: string) (text: string)
-                               (toolCalls: (string * string * string) list)
+                               (toolCalls: ToolCall list) (messageExtra: JsonObject option)
                                (finishReason: string option) (usage: JsonObject option) : JsonObject =
         let response = JsonObject()
         response.["role"] <- str "assistant"
@@ -175,16 +192,28 @@ module OpenAIBridge =
             block.["type"] <- str "text"
             block.["text"] <- str text
             content.Add block
-        for (id, name, arguments) in toolCalls do
+        toolCalls
+        |> List.iteri (fun index call ->
             let block = JsonObject()
             block.["type"] <- str "tool_use"
-            block.["id"] <- str id
-            block.["name"] <- str name
+            block.["id"] <- str call.id
+            block.["name"] <- str call.name
             block.["input"] <-
-                (try JsonNode.Parse(if arguments.Trim() = "" then "{}" else arguments)
+                (try JsonNode.Parse(if call.arguments.Trim() = "" then "{}" else call.arguments)
                  with _ -> JsonNode.Parse "{}")
-            content.Add block
+            (match call.extra with
+             | Some extra -> block.["extra_content"] <- extra.DeepClone()
+             | None -> ())
+            // History keeps only content blocks, so message-level extra
+            // content rides on the first tool call and is restored from there.
+            (match messageExtra with
+             | Some extra when index = 0 -> block.["message_extra_content"] <- extra.DeepClone()
+             | _ -> ())
+            content.Add block)
         response.["content"] <- content
+        (match messageExtra with
+         | Some extra -> response.["extra_content"] <- extra.DeepClone()
+         | None -> ())
         response.["stop_reason"] <-
             str (match finishReason with
                  | Some "tool_calls" -> "tool_use"
@@ -226,10 +255,17 @@ module OpenAIBridge =
                     [ for call in calls do
                         let call = call.AsObject()
                         let f = call.["function"].AsObject()
-                        yield call.["id"].GetValue<string>(),
-                              f.["name"].GetValue<string>(),
-                              (match f.["arguments"] with null -> "{}" | a -> a.GetValue<string>()) ]
+                        yield { id = call.["id"].GetValue<string>()
+                                name = f.["name"].GetValue<string>()
+                                arguments = (match f.["arguments"] with null -> "{}" | a -> a.GetValue<string>())
+                                extra = (match call.["extra_content"] with
+                                         | :? JsonObject as extra -> Some(extra.DeepClone().AsObject())
+                                         | _ -> None) } ]
                 | _ -> []
+            let messageExtra =
+                match message.["extra_content"] with
+                | :? JsonObject as extra -> Some(extra.DeepClone().AsObject())
+                | _ -> None
             let finish =
                 match choice.["finish_reason"] with
                 | null -> None
@@ -242,7 +278,7 @@ module OpenAIBridge =
                 match openai.["model"] with
                 | null -> ""
                 | m -> m.GetValue<string>()
-            Ok(buildCanonical model reasoning text toolCalls finish usage)
+            Ok(buildCanonical model reasoning text toolCalls messageExtra finish usage)
         | _ ->
             Error("provider returned no choices: " + openai.ToJsonString())
 
@@ -250,7 +286,8 @@ module OpenAIBridge =
     type StreamAccumulator(onText: string -> unit) =
         let text = StringBuilder()
         let reasoning = StringBuilder()
-        let calls = SortedDictionary<int, string * string * StringBuilder>()
+        let calls = SortedDictionary<int, string * string * StringBuilder * JsonObject option>()
+        let mutable messageExtra: JsonObject option = None
         let mutable finishReason: string option = None
         let mutable usage: JsonObject option = None
         let mutable model = ""
@@ -272,6 +309,9 @@ module OpenAIBridge =
                 | _ -> ()
                 match choice.["delta"] with
                 | :? JsonObject as delta ->
+                    (match delta.["extra_content"] with
+                     | :? JsonObject as extra -> messageExtra <- Some(extra.DeepClone().AsObject())
+                     | _ -> ())
                     match delta.["content"] with
                     | null -> ()
                     | c when c.GetValueKind() = JsonValueKind.String ->
@@ -293,13 +333,17 @@ module OpenAIBridge =
                                 match deltaCall.["index"] with
                                 | null -> 0
                                 | i -> i.GetValue<int>()
-                            let id0, name0, arguments =
+                            let id0, name0, arguments, extra0 =
                                 match calls.TryGetValue index with
                                 | true, entry -> entry
                                 | _ ->
-                                    let entry = "", "", StringBuilder()
+                                    let entry = "", "", StringBuilder(), None
                                     calls.[index] <- entry
                                     entry
+                            let extra =
+                                match deltaCall.["extra_content"] with
+                                | :? JsonObject as e -> Some(e.DeepClone().AsObject())
+                                | _ -> extra0
                             let id =
                                 match deltaCall.["id"] with
                                 | null -> id0
@@ -317,15 +361,17 @@ module OpenAIBridge =
                                 | null -> ()
                                 | a -> arguments.Append(a.GetValue<string>()) |> ignore
                             | _ -> ()
-                            calls.[index] <- (id, name, arguments)
+                            calls.[index] <- (id, name, arguments, extra)
                     | _ -> ()
                 | _ -> ()
             | _ -> ()
 
         member _.Final() : JsonObject =
             let toolCalls =
-                [ for kv in calls -> let (id, name, arguments) = kv.Value in id, name, arguments.ToString() ]
-            buildCanonical model (reasoning.ToString()) (text.ToString()) toolCalls finishReason usage
+                [ for kv in calls ->
+                    let (id, name, arguments, extra) = kv.Value
+                    { id = id; name = name; arguments = arguments.ToString(); extra = extra } ]
+            buildCanonical model (reasoning.ToString()) (text.ToString()) toolCalls messageExtra finishReason usage
 
     // ── HTTP ────────────────────────────────────────────────────────────────
 
