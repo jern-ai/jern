@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Jern Cloud — turn GitHub issues into governed pull requests</title>
-<meta name="description" content="Run the open-source Jern agent on your GitHub runners to turn approved issues into pull requests under repository-owned policy, hard run limits, and encrypted evidence.">
+<title>Jern Cloud — a coding agent your team can approve once</title>
+<meta name="description" content="Open a session on a connected repository. A governed agent works on an isolated machine under a pinned policy, a hard token cap, and encrypted evidence, and hands back a pull request you review.">
 <link rel="icon" type="image/svg+xml" href="/icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="stylesheet" href="/site.css">
-<meta property="og:title" content="Jern Cloud — turn GitHub issues into governed pull requests">
-<meta property="og:description" content="Run the open-source Jern agent under repository-owned policy and hard limits on your GitHub runners.">
+<meta property="og:title" content="Jern Cloud — a coding agent your team can approve once">
+<meta property="og:description" content="Sessions on isolated machines under a pinned policy, a hard token cap, and encrypted evidence. Every session ends in a pull request you review.">
 <meta property="og:image" content="https://jern.ai/demo-poster.png">
 <meta property="og:url" content="https://jern.ai">
 <meta name="twitter:card" content="summary_large_image">
@@ -18,73 +18,101 @@
 <body>
 <header class="site-header">
   <a class="brand-lockup" href="/" aria-label="Jern Cloud home"><img src="/icon.svg" alt="" width="32" height="32"><strong>Jern</strong><span></span><em>Cloud</em></a>
-  <nav aria-label="Primary navigation"><a href="#product">Product</a><a href="/security/">Security</a><a href="/open-source/">Open source</a><a href="/docs/">Docs</a><a href="#pricing">Pricing</a></nav>
+  <nav aria-label="Primary navigation"><a href="#product">Product</a><a href="#guarantees">Guarantees</a><a href="/security/">Security</a><a href="/open-source/">Open source</a><a href="#pricing">Pricing</a></nav>
   <a class="nav-action" href="https://cloud.jern.ai/auth/github?source=jern-ai-home">Start with GitHub</a>
 </header>
 <main>
   <section class="hero" aria-labelledby="hero-title">
-    <div class="hero-media" aria-hidden="true"></div>
     <div class="hero-copy">
-      <p class="kicker">Governed agent operations</p>
-      <h1 id="hero-title">Turn GitHub issues into governed pull requests.</h1>
-      <p>The open-source Jern agent works on your GitHub runner under repository-owned policy and a hard run limit, then opens a branch for review. Your code, model keys, and compute stay in your environment.</p>
-      <div class="hero-actions"><a class="button primary" href="https://cloud.jern.ai/auth/github?source=jern-ai-home">Start with GitHub <span aria-hidden="true">→</span></a><a class="button quiet" href="#evidence">See a governed run</a></div>
+      <p class="kicker">Governed cloud coding agent</p>
+      <h1 id="hero-title">A coding agent your team can approve once.</h1>
+      <p>Connect a repository and open a session. A governed agent works on an isolated machine under a policy pinned for the whole session, a hard token cap, and encrypted evidence, then hands back a pull request you review. Nothing runs on your laptop and no credential reaches the agent.</p>
+      <div class="hero-actions"><a class="button primary" href="https://cloud.jern.ai/auth/github?source=jern-ai-home">Start with GitHub <span aria-hidden="true">→</span></a><a class="button quiet" href="#evidence">See a real session</a></div>
+      <p class="hero-fine">Free for 30 days on your own repositories. Open-source runtime, Apache-2.0.</p>
     </div>
-    <div class="hero-proof" aria-label="Trust summary"><span>Open-source runtime</span><span>Customer-controlled runners</span><span>Bring your own model</span><span>GitHub OIDC</span><span>Encrypted evidence</span></div>
+    <div class="session-mock" aria-label="A Jern Cloud session, as shown in the product">
+      <div class="mock-head"><span class="mock-title">add functions to convert from Celsius to Kelvin and back</span><span class="mock-chip">Pull request ready</span></div>
+      <dl class="mock-guarantees">
+        <div><dt>Repository</dt><dd>jern-ai/jern-demo <small>main @ <code>f2d3a1c</code></small></dd></div>
+        <div><dt>Policy</dt><dd>Repository-owned baseline <small>digest <code>b2b19437</code> · pinned for the session</small><small>edits within src/, tests/</small></dd></div>
+        <div><dt>Environment</dt><dd>python · rev 2 <small>immutable image and setup, pinned</small></dd></div>
+        <div><dt>Model</dt><dd>claude-opus-5 <small>cap 200k tokens per attempt, metered by the gateway</small></dd></div>
+        <div><dt>Credentials in agent</dt><dd>None <small>checkout, evidence, inference, and publication are separate short-lived credentials</small></dd></div>
+        <div><dt>Delivery</dt><dd><code>jern/session-953b71f3…</code> <small>open pull request #20 · Jern never merges</small></dd></div>
+      </dl>
+      <div class="mock-turns">
+        <div class="mock-turn user"><span>You</span><p>add functions to convert from Celsius to Kelvin and back</p></div>
+        <div class="mock-turn agent"><span>Attempt 1 · 6,913 tokens · evidence sealed</span><p>Added <code>celsius_to_kelvin</code> and <code>kelvin_to_celsius</code> to <code>src/temperature.py</code> with tests. Pushed to the session branch and opened pull request #20.</p></div>
+        <div class="mock-turn user"><span>You</span><p>reject values below absolute zero</p></div>
+        <div class="mock-turn agent"><span>Attempt 2 · 4,210 tokens · evidence sealed</span><p>Both functions now raise <code>ValueError</code> below 0 K. Pull request #20 updated on the same branch.</p></div>
+      </div>
+    </div>
   </section>
 
   <section class="evidence-band" id="evidence" aria-labelledby="evidence-title">
-    <div class="section-heading"><p class="kicker">A real governed run</p><h2 id="evidence-title">The evidence arrives with the work.</h2><p>Public issue <a href="https://github.com/jern-ai/jern-demo/issues/4">#4</a> became pull request <a href="https://github.com/jern-ai/jern-demo/pull/6">#6</a> under repository-owned policy, authorized by GitHub identity and retained by Jern Cloud.</p></div>
+    <div class="section-heading"><p class="kicker">A real session</p><h2 id="evidence-title">The pull request arrives with its evidence.</h2><p>The session above ran on Jern Cloud against the public <a href="https://github.com/jern-ai/jern-demo">jern-demo</a> repository. Two messages, two attempts, one pull request: <a href="https://github.com/jern-ai/jern-demo/pull/20">#20</a>, on a branch owned by the session.</p></div>
     <div class="evidence-ledger">
-      <div class="ledger-head"><div><span class="live-dot"></span><strong>Run completed</strong></div><a href="https://github.com/jern-ai/jern-demo/actions/runs/33110077394">Open GitHub run ↗</a></div>
+      <div class="ledger-head"><div><span class="live-dot"></span><strong>Session · pull request ready</strong></div><a href="https://github.com/jern-ai/jern-demo/pull/20">Open the pull request ↗</a></div>
       <div class="ledger-grid">
-        <dl><dt>Repository</dt><dd>jern-ai/jern-demo</dd></dl><dl><dt>Issue</dt><dd><a href="https://github.com/jern-ai/jern-demo/issues/4">#4 · Conversion bug</a></dd></dl><dl><dt>Workflow</dt><dd>governed issue delivery</dd></dl><dl><dt>GitHub run</dt><dd><a href="https://github.com/jern-ai/jern-demo/actions/runs/33110077394">33110077394</a></dd></dl>
-        <dl><dt>Pull request</dt><dd><a href="https://github.com/jern-ai/jern-demo/pull/6">#6 · Open for review</a></dd></dl><dl><dt>Branch</dt><dd><code>jern/run-33110077394-1</code></dd></dl><dl><dt>Jern commit</dt><dd><a href="https://github.com/jern-ai/jern-demo/commit/5fbdc0ca865c11b485b95ce16738e8bbcbd2922f"><code>5fbdc0c</code></a></dd></dl><dl><dt>Cloud run</dt><dd><code title="run_12763d6172ce40a8a909a639d32e9e6c">12763d6172 · Completed</code></dd></dl>
+        <dl><dt>Repository</dt><dd>jern-ai/jern-demo</dd></dl><dl><dt>Policy</dt><dd>Repository baseline, digest <code>b2b19437</code></dd></dl><dl><dt>Attempts</dt><dd>2 · both within cap</dd></dl><dl><dt>Changed</dt><dd><code>src/temperature.py</code> +17 −2</dd></dl>
+        <dl><dt>Branch</dt><dd><code>jern/session-953b71f31b5e…</code></dd></dl><dl><dt>Pull request</dt><dd><a href="https://github.com/jern-ai/jern-demo/pull/20">#20 · Open for review</a></dd></dl><dl><dt>Evidence run</dt><dd><code title="run_7395bd05f6c9467c869f201f559414d0">run_7395bd05…</code></dd></dl><dl><dt>Credentials in agent</dt><dd>None</dd></dl>
       </div>
-      <div class="receipt-strip"><span>Repository identity bound with GitHub OIDC</span><span>Run cap applied at the provider boundary</span><span>Receipt derived from the exact trace</span></div>
+      <div class="receipt-strip"><span>Policy verified by digest before the agent started</span><span>Tokens metered by the gateway, not self-reported</span><span>Trace encrypted before it touched a database</span></div>
     </div>
   </section>
 
   <section class="steps-band" id="product" aria-labelledby="steps-title">
-    <div class="section-heading compact"><p class="kicker">From issue to governed pull request</p><h2 id="steps-title">Four deliberate steps. No hosted runner required.</h2></div>
+    <div class="section-heading compact"><p class="kicker">How a session works</p><h2 id="steps-title">Four steps. Nothing to install.</h2></div>
     <ol class="steps">
-      <li><span>01</span><h3>Connect</h3><p>Select only the repositories Jern Cloud may inspect through the GitHub App.</p></li>
-      <li><span>02</span><h3>Review</h3><p>Cloud opens a setup pull request with a pinned Action and least-authority baseline. It never merges it.</p></li>
-      <li><span>03</span><h3>Run</h3><p>A maintainer dispatches an issue or task. GitHub Actions executes Jern with your provider secret under the protected policy.</p></li>
-      <li><span>04</span><h3>Review</h3><p>Successful changes arrive on an isolated branch as a pull request, linked to encrypted run evidence and normal repository controls.</p></li>
+      <li><span>01</span><h3>Connect</h3><p>Install the GitHub App on the repositories you choose. A protected baseline in the repository is preferred; an organization default works until one exists.</p></li>
+      <li><span>02</span><h3>Open a session</h3><p>Pick a repository and describe the work. The session pins the revision, the policy, the environment, the model, and the token cap. None of them can change afterwards.</p></li>
+      <li><span>03</span><h3>Watch it work</h3><p>Each message becomes one attempt on a fresh isolated machine. Live activity, budget, and evidence show in the session as it runs. Interrupt at any time.</p></li>
+      <li><span>04</span><h3>Review the pull request</h3><p>Changes land on the session's branch as one pull request that follow-up messages keep updating. Your branch protection and reviewers apply. Jern never merges.</p></li>
     </ol>
   </section>
 
+  <section class="guarantees-band" id="guarantees" aria-labelledby="guarantees-title">
+    <div class="section-heading compact"><p class="kicker">What is different</p><h2 id="guarantees-title">Guarantees you approve once, not actions you supervise all day.</h2><p>Every one of these is enforced by the runtime or the control plane and shown inside the session, where a reviewer forms trust.</p></div>
+    <div class="guarantee-grid">
+      <div><h3>Policy pinned by digest</h3><p>The repository's baseline decides which paths can change and which commands run without asking. The runner verifies its digest before the agent starts, and it cannot change for the life of the session.</p></div>
+      <div><h3>No credential in the agent</h3><p>Checkout, evidence upload, model inference, and publication each use a separate short-lived credential held by the runner. The agent process has none, and its only network route is the inference gateway.</p></div>
+      <div><h3>Hard caps, metered where it counts</h3><p>Tokens are counted by the gateway from the provider's own response, not by the agent. Wall clock, process count, output size, and attempts per task are capped too.</p></div>
+      <div><h3>Encrypted evidence for every attempt</h3><p>The exact trace is encrypted with AES-256-GCM before it reaches a database. Open it from any assistant turn. Retention is yours to set and is enforced automatically.</p></div>
+      <div><h3>Immutable environment</h3><p>The image and setup command are pinned by revision per session. A change to the environment is a new revision, never a surprise mid-session.</p></div>
+      <div><h3>Review is the only exit</h3><p>Work ends on an isolated branch as a pull request, or as a labelled failure. Optionally, every attempt waits for a human approval before it runs.</p></div>
+    </div>
+  </section>
+
   <section class="boundary-band" aria-labelledby="boundary-title">
-    <div class="boundary-copy"><p class="kicker">The boundary is the product</p><h2 id="boundary-title">Keep execution close. Centralize control.</h2><p>Jern Cloud is a control plane around the open-source Jern runtime. Enforcement happens where the code runs. Cloud authorizes the run, reserves its cap, and retains its evidence without receiving your model credential.</p><a class="text-link" href="/security/">Read the data flow and honest limits →</a></div>
+    <div class="boundary-copy"><p class="kicker">The boundary is the product</p><h2 id="boundary-title">Isolate execution. Centralize control.</h2><p>Each attempt runs on a machine created for it and destroyed afterwards. The agent lives in a private network namespace with one route: the Jern gateway, which holds the provider key, enforces the cap, and meters usage. Publication happens outside the agent, after policy and secret checks.</p><a class="text-link" href="/security/">Read the data flow and honest limits →</a></div>
     <div class="boundary-map" aria-label="Jern Cloud data boundary">
-      <div class="zone customer-zone"><strong>Your environment</strong><span>Source code</span><span>GitHub runner</span><span>Model key</span><span>Jern runtime</span></div>
-      <div class="flow" aria-hidden="true"><span>OIDC authorization</span><b>→</b><span>encrypted evidence</span></div>
-      <div class="zone cloud-zone"><strong>Jern Cloud</strong><span>Repository identity</span><span>Run authorization</span><span>Budget reservation</span><span>Encrypted trace</span></div>
+      <div class="zone customer-zone"><strong>Your repository</strong><span>Source at a pinned revision</span><span>Protected policy baseline</span><span>Branch protection and reviewers</span><span>The pull request</span></div>
+      <div class="flow" aria-hidden="true"><span>read-only checkout</span><b>→</b><span>publication after checks</span></div>
+      <div class="zone cloud-zone"><strong>Isolated machine + Jern Cloud</strong><span>Agent with no credentials</span><span>Gateway holds the model key</span><span>Cap enforced and metered</span><span>Evidence encrypted, then the machine is destroyed</span></div>
     </div>
   </section>
 
   <section class="foundation-band" aria-labelledby="foundation-title">
-    <div class="section-heading compact"><p class="kicker">An inspectable foundation</p><h2 id="foundation-title">Trust starts in the open.</h2><p>Policy enforcement, receipt derivation, trace formats, replay, and the GitHub Action live in the Apache-2.0 Jern repository. The control plane does not reinterpret what the runtime recorded.</p></div>
+    <div class="section-heading compact"><p class="kicker">An inspectable foundation</p><h2 id="foundation-title">Trust starts in the open.</h2><p>Policy enforcement, receipt derivation, trace formats, and replay live in the Apache-2.0 Jern repository. The control plane does not reinterpret what the runtime recorded, and the same runtime runs on your laptop.</p></div>
     <div class="foundation-links">
-      <a href="/open-source/"><strong>Open-source runtime</strong><span>Use, govern, edit, and test the agent.</span></a>
-      <a href="https://github.com/jern-ai/jern/blob/main/docs/security-model.md"><strong>Security model</strong><span>The claim, the boundary, and what it does not defend against.</span></a>
-      <a href="https://github.com/jern-ai/jern/tree/main/action"><strong>GitHub Action</strong><span>Pinned setup and customer-runner execution.</span></a>
+      <a href="/open-source/"><strong>Open-source runtime</strong><span>Use, govern, edit, and test the agent locally.</span></a>
+      <a href="/security/"><strong>Security and data flow</strong><span>What runs where, what is encrypted, and what we do not defend against.</span></a>
+      <a href="https://github.com/jern-ai/jern/blob/main/docs/security-model.md"><strong>Runtime security model</strong><span>The claim, the boundary, and its limits, in the code's own words.</span></a>
     </div>
   </section>
 
   <section class="pricing-band" id="pricing" aria-labelledby="pricing-title">
-    <div class="pricing-copy"><p class="kicker">Founding Team pilot</p><h2 id="pricing-title">Start with one governed workspace.</h2><p>For teams ready to put a real repository under governed agent operations, with direct onboarding and a clear conversion decision.</p></div>
+    <div class="pricing-copy"><p class="kicker">Trial, then a Founding Team pilot</p><h2 id="pricing-title">Start on your own repositories today.</h2><p>Every new workspace gets 30 days free with the full product. When the trial ends, sessions stay readable and new work pauses until you talk to us. Pilot pricing is one flat number per workspace.</p></div>
     <div class="price">
-      <div><strong>$250</strong><span>per workspace / month</span></div>
-      <ul><li>Up to 10 governed repositories</li><li>Up to 10 team members</li><li>30-day evidence retention</li><li>Setup and issue-to-PR delivery</li><li>Direct onboarding support</li></ul>
+      <div><strong>$250</strong><span>per workspace / month<br>after a 30-day free trial</span></div>
+      <ul><li>Up to 10 governed repositories</li><li>Up to 10 team members</li><li>Isolated machines for every attempt</li><li>30-day evidence retention, enforced automatically</li><li>Anthropic usage included up to a monthly allowance, or bring your own key</li><li>Direct onboarding support</li></ul>
       <a class="button primary" href="https://cloud.jern.ai/auth/github?source=jern-ai-pricing">Start with GitHub <span aria-hidden="true">→</span></a>
-      <small>Pilot access is reviewed with each team. Model and runner costs are not included.</small>
+      <small>Pilot access is reviewed with each team. The included allowance and any usage above it are set in your pilot order.</small>
     </div>
   </section>
 
-  <section class="final-band"><p class="kicker">The next issue can arrive with evidence</p><h2>Put the Jern agent to work without giving up control.</h2><div class="hero-actions"><a class="button primary" href="https://cloud.jern.ai/auth/github?source=jern-ai-final">Start with GitHub <span aria-hidden="true">→</span></a><a class="button quiet" href="/security/">Review security first</a></div></section>
+  <section class="final-band"><p class="kicker">Your next pull request can arrive with evidence</p><h2>Put a coding agent to work without giving up control.</h2><div class="hero-actions"><a class="button primary" href="https://cloud.jern.ai/auth/github?source=jern-ai-final">Start with GitHub <span aria-hidden="true">→</span></a><a class="button quiet" href="/security/">Review security first</a></div></section>
 </main>
-<footer class="site-footer"><a class="brand-lockup" href="/"><img src="/icon.svg" alt="" width="28" height="28"><strong>Jern</strong><span></span><em>Cloud</em></a><p>Governed Jern agent work on infrastructure you control.</p><nav aria-label="Footer navigation"><a href="/open-source/">Open source</a><a href="/docs/">Docs</a><a href="/security/">Security</a><a href="/privacy/">Privacy</a><a href="/terms/">Pilot terms</a><a href="https://github.com/jern-ai/jern">GitHub</a></nav></footer>
+<footer class="site-footer"><a class="brand-lockup" href="/"><img src="/icon.svg" alt="" width="28" height="28"><strong>Jern</strong><span></span><em>Cloud</em></a><p>Governed coding-agent sessions that end in pull requests you review.</p><nav aria-label="Footer navigation"><a href="/open-source/">Open source</a><a href="/docs/">CLI docs</a><a href="/security/">Security</a><a href="/privacy/">Privacy</a><a href="/terms/">Terms</a><a href="https://github.com/jern-ai/jern">GitHub</a><a href="mailto:hello@jern.ai">hello@jern.ai</a></nav></footer>
 </body>
 </html>
