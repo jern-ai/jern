@@ -26,7 +26,7 @@ let private ts (event: string) = sprintf """{"ts":"2026-08-24T10:15:%02dZ",%s"""
 /// A small but complete run: envelope, a model call with usage, a policed
 /// read, an approved edit, a denied write, and a commit.
 let private canned =
-    [ ts """"event":"run-started","schema_version":1,"run_id":"20260824-101530","jern_version":"0.12.0","command":"run","task":"fix the parser","model":"anthropic/claude-opus-5","agent":"default","budget":{"llm_calls":20,"tokens":null},"cloud":{"run_id":"20260824-101530","token_cap":50000},"policy":[{"source":"jern.json","digest":"abc123def4567890","protected":false}]}"""
+    [ ts """"event":"run-started","schema_version":1,"run_id":"20260824-101530","jern_version":"0.12.0","command":"run","task":"fix the parser","model":"anthropic/claude-opus-5","agent":"default","budget":{"llm_calls":20,"tokens":null},"sandbox":"external","cloud":{"run_id":"20260824-101530","token_cap":50000},"policy":[{"source":"jern.json","digest":"abc123def4567890","protected":false}]}"""
       ts """"event":"policy-layer","source":"jern.json","digest":"abc123def4567890","grants":true,"protected":false}"""
       ts """"event":"llm-call","request":{"model":"anthropic/claude-opus-5"}}"""
       ts """"event":"llm-response","response":{"usage":{"input_tokens":18200,"output_tokens":2100}}}"""
@@ -54,6 +54,7 @@ let ``a receipt reports what the run actually did`` () =
     Assert.Equal(2100L, s.outputTokens)
     Assert.Equal(Some 20, s.budgetLlmCalls)
     Assert.Equal(Some 50000L, s.cloudTokenCap)
+    Assert.Equal(Some "external", s.sandbox)
     Assert.Equal<(string * int) list>([ "edit_file", 1; "read_file", 1 ], s.tools)
     Assert.Equal<string list>([ "src/parser.py" ], s.filesTouched)
     Assert.Equal(1, s.commits)
@@ -71,6 +72,7 @@ let ``every rendering carries the same facts`` () =
     let s = summarize canned
     let text = Receipt.render Receipt.plain s
     Assert.Contains("receipt", text)
+    Assert.Contains("external (the host confines the whole process)", text)
     Assert.Contains("run 20260824-101530", text)
     Assert.Contains("2m 14s", text)
     Assert.Contains("1 (anthropic/claude-opus-5)", text)
@@ -267,6 +269,7 @@ let ``a receipt of a real run matches the run`` () =
                    budgetLlmCalls = Some 20
                    budgetTokens = None
                    cloudTokenCap = None
+                   sandbox = "none"
                    policy = [] }
          let session =
              match Session.createWith

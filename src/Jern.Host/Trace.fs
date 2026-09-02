@@ -63,6 +63,9 @@ module Trace =
           budgetLlmCalls: int option
           budgetTokens: int option
           cloudTokenCap: int64 option
+          /// What confined shell commands: sandbox-exec, bubblewrap, external
+          /// (the host confines the whole process), or none.
+          sandbox: string
           policy: PolicyLayer list }
 
     /// Write `run-started` and return the function that closes the run with
@@ -86,6 +89,7 @@ module Trace =
         budget.["tokens"] <-
             (match start.budgetTokens with Some n -> JsonValue.Create n :> JsonNode | None -> null)
         doc.["budget"] <- budget
+        doc.["sandbox"] <- JsonValue.Create start.sandbox
         (match start.cloudTokenCap with
          | Some cap ->
              let cloud = JsonObject()

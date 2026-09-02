@@ -291,6 +291,7 @@ module Ui =
                   budgetLlmCalls = config.providers.budgetLlmCalls
                   budgetTokens = config.providers.budgetTokens
                   cloudTokenCap = None
+                  sandbox = Tools.sandboxMode ()
                   policy =
                     config.policySources
                     |> List.map (fun source ->

@@ -232,6 +232,12 @@ nothing that process does. jern's honest posture:
   restricted). bwrap needs user namespaces, which some kernels and containers
   deny, so jern probes once with a no-op; where bwrap is missing or unusable
   it warns once and relies on the approval gate alone.
+- **A host that already confines jern** (Jern Cloud's managed runner, which
+  puts the whole process in its own mount and network namespaces and denies
+  nested namespaces) sets `JERN_SANDBOX=external`. jern then runs shell
+  commands directly without the warning and records `"sandbox": "external"`
+  in the run envelope, so a receipt says which boundary held. Set it only
+  when something outside jern really does confine the process.
 - **Windows:** shell commands run via `cmd.exe /c` with **no OS sandbox**,
   same as Linux — jern warns once and the approval gate is the only
   confinement for what an approved command does.

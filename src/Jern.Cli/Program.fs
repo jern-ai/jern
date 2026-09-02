@@ -318,6 +318,7 @@ let private openRun (sink: string -> unit) (providers: Providers.Config) (runId:
           budgetLlmCalls = (match cliBudget with Some n -> Some n | None -> providers.budgetLlmCalls)
           budgetTokens = providers.budgetTokens
           cloudTokenCap = cloudTokenCap
+          sandbox = Tools.sandboxMode ()
           policy =
             policySources providers
             |> List.map (fun source ->
