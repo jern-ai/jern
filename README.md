@@ -86,6 +86,11 @@ $ jern test agents/default               # deterministic replay against
   `--policy-trust <sha256>` blesses grants where jern must not prompt.
   `jern policy` shows every rule with provenance and trust status;
   `jern policy --show-compiled` prints the Kernel it all compiles to.
+  Beside `"policy"`, an `"environment"` object declares what a hosting
+  runner must provide around the agent, such as
+  `"services": ["postgres:16"]`; jern validates it the same way, rejecting
+  unknown keys, and applies none of it, since a laptop has its own
+  network and a hosted runner provisions its own.
 - **M20 — programmatic tool calling** (v0.12): the model writes a
   whole IronKernel program instead of one tool call per round-trip — the
   new `kernel_eval` tool evaluates it in a persistent sandbox child of

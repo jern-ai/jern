@@ -322,3 +322,22 @@ let ``policy layers announce their provenance in the trace`` () =
         Assert.Contains("jern.json edits_within", decision)
     finally
         Directory.Delete(root, true)
+
+[<Fact>]
+let ``an environment object is recognised and validated but never applied here`` () =
+    match PolicyConfig.parseEnvironment (JsonNode.Parse("""{"services":["postgres:16","redis:7"]}""": string)) with
+    | Ok environment -> Assert.Equal<string list>([ "postgres:16"; "redis:7" ], environment.services)
+    | Error message -> failwith message
+    match PolicyConfig.parseEnvironment (JsonNode.Parse("""{}""": string)) with
+    | Ok environment -> Assert.True(PolicyConfig.environmentIsEmpty environment)
+    | Error message -> failwith message
+    let rejected (json: string) =
+        match PolicyConfig.parseEnvironment (JsonNode.Parse(json: string)) with
+        | Error _ -> true
+        | Ok _ -> false
+    // A misspelt key must not pass silently, exactly as in "policy".
+    Assert.True(rejected """{"servcies":["postgres:16"]}""")
+    Assert.True(rejected """{"services":"postgres:16"}""")
+    Assert.True(rejected """{"services":["Postgres 16"]}""")
+    Assert.True(rejected """["postgres:16"]""")
+    Assert.Equal("services postgres:16", PolicyConfig.describeEnvironment { PolicyConfig.services = [ "postgres:16" ] })

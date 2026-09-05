@@ -103,6 +103,9 @@ Policy:
   weaken (CI points this at base-branch data, never at the PR's own tree);
   --policy-trust <sha256> blesses a policy's grants in an unattended run,
   where jern never prompts. See jern policy.
+  An "environment" object beside "policy" declares what a hosting runner
+  must provide around the agent, such as "services": ["postgres:16"];
+  jern validates it and applies none of it.
 
 MCP:
   Add servers in jern.json — their tools join the agent's toolset as
@@ -248,7 +251,21 @@ let private baselineSource () =
             try
                 let doc = Text.Json.Nodes.JsonNode.Parse(IO.File.ReadAllText file: string)
                 match doc with
-                | :? Text.Json.Nodes.JsonObject as o when not (isNull o.["policy"]) -> o.["policy"]
+                | :? Text.Json.Nodes.JsonObject as o when not (isNull o.["policy"]) ->
+                    // A baseline may also carry an "environment" object for the
+                    // host; it is validated here and applied by the host alone.
+                    match o.["environment"] with
+                    | null -> ()
+                    | environmentNode ->
+                        match PolicyConfig.parseEnvironment environmentNode with
+                        | Error message ->
+                            eprintfn "jern: --policy-baseline '%s': %s" file message
+                            exit 2
+                        | Ok environment ->
+                            if not (PolicyConfig.environmentIsEmpty environment) && not (PolicyConfig.hostProvidesEnvironment ()) then
+                                eprintfn "jern: --policy-baseline '%s' declares an environment (%s) that a hosting runner provides; not applied here"
+                                    file (PolicyConfig.describeEnvironment environment)
+                    o.["policy"]
                 | other -> other
             with ex ->
                 eprintfn "jern: --policy-baseline '%s' is not readable JSON: %s" file ex.Message

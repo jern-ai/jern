@@ -213,6 +213,17 @@ module Providers =
                         if PolicyConfig.isEmpty policy then config.policySources
                         else config.policySources @ [ { PolicyConfig.origin = origin path
                                                         PolicyConfig.policy = policy } ]
+            // An "environment" object is validated like "policy" and applied
+            // by the host, never here; outside a host it earns one notice.
+            match doc.["environment"] with
+            | null -> ()
+            | node ->
+                match PolicyConfig.parseEnvironment node with
+                | Error message -> failwithf "%s: %s" path message
+                | Ok environment ->
+                    if not (PolicyConfig.environmentIsEmpty environment) && not (PolicyConfig.hostProvidesEnvironment ()) then
+                        eprintfn "jern: %s declares an environment (%s) that a hosting runner provides; not applied here"
+                            path (PolicyConfig.describeEnvironment environment)
             { defaultModel = defaultModel
               aliases = aliases
               providers = providers
