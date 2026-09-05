@@ -134,6 +134,55 @@ module PolicyConfig =
     /// arrays order-preserving, empty fields omitted, no insignificant
     /// whitespace. These exact bytes feed the trust hash, the compiled
     /// source's identity, and the trace — so they must not drift.
+    // ---------------------------------------------------------------------
+    // The "environment" object
+
+    /// The parsed `"environment"` object: what a hosting runner must provide
+    /// around the agent, as opposed to `"policy"`, which this runtime enforces
+    /// on the agent itself. jern recognises the object so a misspelt key
+    /// cannot pass silently, and applies none of it; a host such as Jern
+    /// Cloud grants it from a catalog. Every field is optional.
+    type Environment =
+        { /// Services the attempt needs beside it, as `name:version`
+          /// declarations such as `postgres:16`.
+          services: string list }
+
+    let emptyEnvironment = { services = [] }
+
+    let environmentIsEmpty (environment: Environment) = environment = emptyEnvironment
+
+    /// Parse an `"environment"` object. Unknown keys are an error for the
+    /// same reason they are in `"policy"`: a typo must not look applied.
+    let parseEnvironment (node: JsonNode) : Result<Environment, string> =
+        match node with
+        | :? JsonObject as o ->
+            let known = set [ "services" ]
+            let unknown = o |> Seq.map (fun kv -> kv.Key) |> Seq.filter (known.Contains >> not) |> List.ofSeq
+            if not unknown.IsEmpty then
+                Error(sprintf "unknown environment key(s): %s (known: %s)"
+                          (String.Join(", ", unknown)) (String.Join(", ", known)))
+            else
+                match o.["services"] with
+                | null -> Ok emptyEnvironment
+                | servicesNode ->
+                    match stringArray "services" servicesNode with
+                    | Error e -> Error(e.Replace("policy.services", "environment.services"))
+                    | Ok services ->
+                        let declaration = Text.RegularExpressions.Regex("^[a-z][a-z0-9]*:[a-z0-9.]+$")
+                        match services |> List.tryFind (declaration.IsMatch >> not) with
+                        | Some bad -> Error(sprintf "environment.services entry \"%s\" is not a name:version declaration" bad)
+                        | None -> Ok { services = services }
+        | _ -> Error "environment must be an object"
+
+    /// One phrase for a notice: what a host would have to provide.
+    let describeEnvironment (environment: Environment) =
+        if environment.services.IsEmpty then "" else "services " + String.Join(", ", environment.services)
+
+    /// True when a host has said it confines and provisions this process,
+    /// in which case its environment declarations are its business.
+    let hostProvidesEnvironment () =
+        String.Equals(Environment.GetEnvironmentVariable "JERN_SANDBOX", "external", StringComparison.OrdinalIgnoreCase)
+
     let canonicalJson (policy: Policy) : string =
         let escape (s: string) =
             let b = StringBuilder()

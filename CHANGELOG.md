@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **An `"environment"` object beside `"policy"`.** The baseline and
+  `jern.json` may declare what a hosting runner must provide around the
+  agent, starting with `"services": ["postgres:16"]`. jern validates the
+  object the way it validates `"policy"`, rejecting unknown keys so a typo
+  cannot pass silently, and applies none of it: a laptop has its own
+  network, and a host such as Jern Cloud provisions its own. Outside a host
+  (no `JERN_SANDBOX=external`) a non-empty object earns one notice.
+
 ## 0.14.10 — 2026-09-02
 
 - **Gemini thought signatures survive the tool loop.** Gemini's
