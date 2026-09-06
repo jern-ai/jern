@@ -166,6 +166,40 @@
             (resume resume-recall value)))
         (eval body env)))))
 
+; The model's own door to that memory: the memory_read and memory_write tools.
+; A call to either never reaches the host executor; this handler turns it
+; into the jern/recall or jern/remember effect, which crosses the memory
+; handler above (policy, approval, trace) like any other access, and hands
+; the model a tool result. It sits inside the tool handler and outside the
+; policy handler, so the tool policy sees the call by name first.
+(define with-memory-tool-handler
+  (vau (body) env
+    (prompt jern/tool-call
+      (lambda (call resume-call)
+        (sequence
+          (define name (plist-get call :name))
+          (define input (plist-get call :input))
+          (cond
+            ((equal? name "memory_read")
+             (sequence
+               (define key (plist-get input :key))
+               (define value (perform jern/recall key))
+               (resume resume-call
+                 (if (eqv? value :null)
+                     (list :content (String.concat "nothing is stored under " key) :is_error #f)
+                     (list :content value :is_error #f)))))
+            ((equal? name "memory_write")
+             (sequence
+               (define stored
+                 (perform jern/remember
+                   (list :key (plist-get input :key) :value (plist-get input :value))))
+               (resume resume-call
+                 (if (eqv? stored #t)
+                     (list :content (String.concat "remembered " (plist-get input :key)) :is_error #f)
+                     (list :content "the workspace policy does not allow memory; nothing stored" :is_error #t)))))
+            (#t (resume resume-call (perform jern/tool-call call))))))
+      (eval body env))))
+
 ; Subagents: jern/spawn forks a child agent with its own session. The whole
 ; stack — policy, approval, budget, memory, trace — composes recursively
 ; onto the child (host-side, in jern/host-spawn): the child shares this
@@ -247,8 +281,9 @@
               (with-budget-handler
                 (with-tool-handler
                   (with-git-handler
-                    (with-policy-handler
-                      (eval form program-env))))))))))))
+                    (with-memory-tool-handler
+                      (with-policy-handler
+                        (eval form program-env)))))))))))))
 
 ; Run a form in the agent environment under the full handler stack.
 ; `agent-env` is bound host-side in this environment.
@@ -270,5 +305,6 @@
               (with-budget-handler
                 (with-tool-handler
                   (with-git-handler
-                    (with-policy-handler
-                      (eval form agent-env))))))))))))
+                    (with-memory-tool-handler
+                      (with-policy-handler
+                        (eval form agent-env)))))))))))))

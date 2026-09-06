@@ -67,6 +67,49 @@ let ``remember and recall round-trip and persist across sessions`` () =
         Directory.Delete(root, true)
 
 [<Fact>]
+let ``the memory tools reach the memory through the effects`` () =
+    let root = makeRoot ()
+    try
+        let trace = ResizeArray<string>()
+        let session = newSession root (Some trace)
+        let content value =
+            match value with
+            | List items ->
+                let rec find = function
+                    | Keyword "content" :: v :: _ -> v
+                    | _ :: rest -> find rest
+                    | [] -> failwith "no :content"
+                match find items with
+                | Obj (:? string as text) -> text
+                | other -> failwith ("content is not text: " + showVal other)
+            | other -> failwith ("expected a tool result plist, got " + showVal other)
+        Assert.Equal("remembered build", content (run session """(call-tool "memory_write" (list :key "build" :value "dotnet test"))"""))
+        Assert.Equal("dotnet test", content (run session """(call-tool "memory_read" (list :key "build"))"""))
+        Assert.Equal("nothing is stored under other", content (run session """(call-tool "memory_read" (list :key "other"))"""))
+        Assert.Equal(Some "dotnet test", Memory.get (Memory.storePath root) "build")
+        let count (marker: string) = trace |> Seq.filter (fun l -> l.Contains marker) |> Seq.length
+        Assert.Equal(1, count "\"event\":\"memory-remember\"")
+        Assert.Equal(2, count "\"event\":\"memory-recall\"")
+    finally
+        Directory.Delete(root, true)
+
+[<Fact>]
+let ``the memory_write tool is refused when the policy denies memory`` () =
+    let root = makeRoot ()
+    try
+        Directory.CreateDirectory(Path.Combine(root, ".jern")) |> ignore
+        File.WriteAllText(
+            Path.Combine(root, ".jern", "policy.ikr"),
+            "(define memory-policy\n  (lambda (op key) \"memory is off here\"))\n")
+        let session = newSession root None
+        let result = showVal (run session """(call-tool "memory_write" (list :key "k" :value "v"))""")
+        Assert.Contains(":is_error #t", result)
+        Assert.Contains("does not allow memory", result)
+        Assert.True(Memory.get (Memory.storePath root) "k" |> Option.isNone)
+    finally
+        Directory.Delete(root, true)
+
+[<Fact>]
 let ``a workspace policy can deny remembering`` () =
     let root = makeRoot ()
     try

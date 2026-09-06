@@ -2,7 +2,7 @@
   "exchanges": [
     {
       "request": {
-        "system": "You are jern, a terminal coding agent operating in the user's workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
+        "system": "You are jern, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
         "max_tokens": 8192,
         "tools": [
           {
@@ -23,7 +23,7 @@
           },
           {
             "name": "list_dir",
-            "description": "List the entries of a workspace directory. Directories are suffixed with '/'.",
+            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -51,7 +51,7 @@
           },
           {
             "name": "grep",
-            "description": "Search workspace files with a regular expression. Returns 'path:line: text' matches.",
+            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -71,7 +71,7 @@
           },
           {
             "name": "symbols",
-            "description": "Find symbol definitions (functions, types, classes, methods) across the workspace. Returns 'path:line: kind name' for definition sites only — use this to locate where something is defined instead of grepping every mention.",
+            "description": "Find symbol definitions (functions, types, classes, methods) across the workspace. Returns \u0027path:line: kind name\u0027 for definition sites only \u2014 use this to locate where something is defined instead of grepping every mention.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -151,8 +151,45 @@
             }
           },
           {
+            "name": "memory_read",
+            "description": "Read a note stored about this workspace under a key, by you or an earlier session: how it builds, how tests run, traps. Answers the note\u0027s text, or says nothing is stored. Notes live in the workspace memory, which the workspace policy may deny.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "The note\u0027s key, for example \u0022build\u0022, \u0022tests\u0022, or \u0022gotchas\u0022"
+                }
+              },
+              "required": [
+                "key"
+              ]
+            }
+          },
+          {
+            "name": "memory_write",
+            "description": "Store a short note about this workspace under a key, for yourself in later sessions: how it builds, how tests run, a trap you hit. Overwrites the key. Keep notes factual and short; they are shown to the people who own the repository. Stored only when the workspace policy allows memory.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "A short key, for example \u0022build\u0022, \u0022tests\u0022, or \u0022gotchas\u0022"
+                },
+                "value": {
+                  "type": "string",
+                  "description": "The note, a few sentences at most"
+                }
+              },
+              "required": [
+                "key",
+                "value"
+              ]
+            }
+          },
+          {
             "name": "kernel_eval",
-            "description": "Run a program in the agent's sandboxed IronKernel (a Kernel/Scheme dialect): compose several tool calls with real control flow in ONE step instead of one tool call per turn. Call tools as (call-tool \"name\" (list :arg value ...)); each returns a plist — read it with (plist-get result :content) / (plist-get result :is_error). Language: define, lambda, if, cond, sequence, map, filter, exact integers, (vector ...), plists via (list :key value), string-contains?/prefix?/suffix?, String.concat. Definitions persist across kernel_eval calls for the whole session. The value of the last form is returned as text. Every tool call inside the program is still policy-checked and approval-gated individually; program errors come back as this tool's error result for you to read and fix.",
+            "description": "Run a program in the agent\u0027s sandboxed IronKernel (a Kernel/Scheme dialect): compose several tool calls with real control flow in ONE step instead of one tool call per turn. Call tools as (call-tool \u0022name\u0022 (list :arg value ...)); each returns a plist \u2014 read it with (plist-get result :content) / (plist-get result :is_error). Language: define, lambda, if, cond, sequence, map, filter, exact integers, (vector ...), plists via (list :key value), string-contains?/prefix?/suffix?, String.concat. Definitions persist across kernel_eval calls for the whole session. The value of the last form is returned as text. Every tool call inside the program is still policy-checked and approval-gated individually; program errors come back as this tool\u0027s error result for you to read and fix.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -194,7 +231,7 @@
     },
     {
       "request": {
-        "system": "You are jern, a terminal coding agent operating in the user's workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
+        "system": "You are jern, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
         "max_tokens": 8192,
         "tools": [
           {
@@ -215,7 +252,7 @@
           },
           {
             "name": "list_dir",
-            "description": "List the entries of a workspace directory. Directories are suffixed with '/'.",
+            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -243,7 +280,7 @@
           },
           {
             "name": "grep",
-            "description": "Search workspace files with a regular expression. Returns 'path:line: text' matches.",
+            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -263,7 +300,7 @@
           },
           {
             "name": "symbols",
-            "description": "Find symbol definitions (functions, types, classes, methods) across the workspace. Returns 'path:line: kind name' for definition sites only — use this to locate where something is defined instead of grepping every mention.",
+            "description": "Find symbol definitions (functions, types, classes, methods) across the workspace. Returns \u0027path:line: kind name\u0027 for definition sites only \u2014 use this to locate where something is defined instead of grepping every mention.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -343,8 +380,45 @@
             }
           },
           {
+            "name": "memory_read",
+            "description": "Read a note stored about this workspace under a key, by you or an earlier session: how it builds, how tests run, traps. Answers the note\u0027s text, or says nothing is stored. Notes live in the workspace memory, which the workspace policy may deny.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "The note\u0027s key, for example \u0022build\u0022, \u0022tests\u0022, or \u0022gotchas\u0022"
+                }
+              },
+              "required": [
+                "key"
+              ]
+            }
+          },
+          {
+            "name": "memory_write",
+            "description": "Store a short note about this workspace under a key, for yourself in later sessions: how it builds, how tests run, a trap you hit. Overwrites the key. Keep notes factual and short; they are shown to the people who own the repository. Stored only when the workspace policy allows memory.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "A short key, for example \u0022build\u0022, \u0022tests\u0022, or \u0022gotchas\u0022"
+                },
+                "value": {
+                  "type": "string",
+                  "description": "The note, a few sentences at most"
+                }
+              },
+              "required": [
+                "key",
+                "value"
+              ]
+            }
+          },
+          {
             "name": "kernel_eval",
-            "description": "Run a program in the agent's sandboxed IronKernel (a Kernel/Scheme dialect): compose several tool calls with real control flow in ONE step instead of one tool call per turn. Call tools as (call-tool \"name\" (list :arg value ...)); each returns a plist — read it with (plist-get result :content) / (plist-get result :is_error). Language: define, lambda, if, cond, sequence, map, filter, exact integers, (vector ...), plists via (list :key value), string-contains?/prefix?/suffix?, String.concat. Definitions persist across kernel_eval calls for the whole session. The value of the last form is returned as text. Every tool call inside the program is still policy-checked and approval-gated individually; program errors come back as this tool's error result for you to read and fix.",
+            "description": "Run a program in the agent\u0027s sandboxed IronKernel (a Kernel/Scheme dialect): compose several tool calls with real control flow in ONE step instead of one tool call per turn. Call tools as (call-tool \u0022name\u0022 (list :arg value ...)); each returns a plist \u2014 read it with (plist-get result :content) / (plist-get result :is_error). Language: define, lambda, if, cond, sequence, map, filter, exact integers, (vector ...), plists via (list :key value), string-contains?/prefix?/suffix?, String.concat. Definitions persist across kernel_eval calls for the whole session. The value of the last form is returned as text. Every tool call inside the program is still policy-checked and approval-gated individually; program errors come back as this tool\u0027s error result for you to read and fix.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -412,7 +486,7 @@
     },
     {
       "request": {
-        "system": "You are jern, a terminal coding agent operating in the user's workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
+        "system": "You are jern, a terminal coding agent operating in the user\u0027s workspace.\nUse the tools to inspect and change files; keep going until the task is done,\nthen reply with a short summary. Prefer minimal, precise edits. When a tool\nfails, read the error and adapt. Never invent file contents you have not read.",
         "max_tokens": 8192,
         "tools": [
           {
@@ -433,7 +507,7 @@
           },
           {
             "name": "list_dir",
-            "description": "List the entries of a workspace directory. Directories are suffixed with '/'.",
+            "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -461,7 +535,7 @@
           },
           {
             "name": "grep",
-            "description": "Search workspace files with a regular expression. Returns 'path:line: text' matches.",
+            "description": "Search workspace files with a regular expression. Returns \u0027path:line: text\u0027 matches.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -481,7 +555,7 @@
           },
           {
             "name": "symbols",
-            "description": "Find symbol definitions (functions, types, classes, methods) across the workspace. Returns 'path:line: kind name' for definition sites only — use this to locate where something is defined instead of grepping every mention.",
+            "description": "Find symbol definitions (functions, types, classes, methods) across the workspace. Returns \u0027path:line: kind name\u0027 for definition sites only \u2014 use this to locate where something is defined instead of grepping every mention.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -561,8 +635,45 @@
             }
           },
           {
+            "name": "memory_read",
+            "description": "Read a note stored about this workspace under a key, by you or an earlier session: how it builds, how tests run, traps. Answers the note\u0027s text, or says nothing is stored. Notes live in the workspace memory, which the workspace policy may deny.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "The note\u0027s key, for example \u0022build\u0022, \u0022tests\u0022, or \u0022gotchas\u0022"
+                }
+              },
+              "required": [
+                "key"
+              ]
+            }
+          },
+          {
+            "name": "memory_write",
+            "description": "Store a short note about this workspace under a key, for yourself in later sessions: how it builds, how tests run, a trap you hit. Overwrites the key. Keep notes factual and short; they are shown to the people who own the repository. Stored only when the workspace policy allows memory.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "A short key, for example \u0022build\u0022, \u0022tests\u0022, or \u0022gotchas\u0022"
+                },
+                "value": {
+                  "type": "string",
+                  "description": "The note, a few sentences at most"
+                }
+              },
+              "required": [
+                "key",
+                "value"
+              ]
+            }
+          },
+          {
             "name": "kernel_eval",
-            "description": "Run a program in the agent's sandboxed IronKernel (a Kernel/Scheme dialect): compose several tool calls with real control flow in ONE step instead of one tool call per turn. Call tools as (call-tool \"name\" (list :arg value ...)); each returns a plist — read it with (plist-get result :content) / (plist-get result :is_error). Language: define, lambda, if, cond, sequence, map, filter, exact integers, (vector ...), plists via (list :key value), string-contains?/prefix?/suffix?, String.concat. Definitions persist across kernel_eval calls for the whole session. The value of the last form is returned as text. Every tool call inside the program is still policy-checked and approval-gated individually; program errors come back as this tool's error result for you to read and fix.",
+            "description": "Run a program in the agent\u0027s sandboxed IronKernel (a Kernel/Scheme dialect): compose several tool calls with real control flow in ONE step instead of one tool call per turn. Call tools as (call-tool \u0022name\u0022 (list :arg value ...)); each returns a plist \u2014 read it with (plist-get result :content) / (plist-get result :is_error). Language: define, lambda, if, cond, sequence, map, filter, exact integers, (vector ...), plists via (list :key value), string-contains?/prefix?/suffix?, String.concat. Definitions persist across kernel_eval calls for the whole session. The value of the last form is returned as text. Every tool call inside the program is still policy-checked and approval-gated individually; program errors come back as this tool\u0027s error result for you to read and fix.",
             "input_schema": {
               "type": "object",
               "properties": {
@@ -630,7 +741,7 @@
               {
                 "type": "tool_result",
                 "tool_use_id": "t2",
-                "content": "edited 'greeting.txt'",
+                "content": "edited \u0027greeting.txt\u0027",
                 "is_error": false
               }
             ]

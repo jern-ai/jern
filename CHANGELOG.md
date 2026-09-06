@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.15.0 — 2026-09-05
+
+- **The model can use the memory.** Two tools, `memory_read` and `memory_write`,
+  let the model read and write the workspace memory in `.jern/memory.json`
+  that agent programs already reached through `(recall …)` and
+  `(remember …)`. A call to either never reaches the host tool executor:
+  a handler turns it into the same `jern/recall` or `jern/remember` effect,
+  so the memory policy (the baseline's `memory` key), the approver, and
+  the trace govern it exactly as before, and the tool policy still sees
+  the call by name. The base tool policy allows both; denying memory in
+  the policy refuses `memory_write` with a tool error the model can read.
+- **An `environment` object beside `policy`** is recognised and validated,
+  and applied by the host that runs the session (Jern Cloud's services and
+  network allowlist); outside a host it prints a notice.
+
+
 ## Unreleased
 
 - **An `"environment"` object beside `"policy"`.** The baseline and
