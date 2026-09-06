@@ -66,6 +66,21 @@
         (list :command (list :type "string" :description "Command line, run with sh -c (cmd.exe /c on Windows)"))
         :required (vector "command")))
 
+(define-tool "memory_read"
+  "Read a note stored about this workspace under a key, by you or an earlier session: how it builds, how tests run, traps. Answers the note's text, or says nothing is stored. Notes live in the workspace memory, which the workspace policy may deny."
+  (list :type "object"
+        :properties
+        (list :key (list :type "string" :description "The note's key, for example \"build\", \"tests\", or \"gotchas\""))
+        :required (vector "key")))
+
+(define-tool "memory_write"
+  "Store a short note about this workspace under a key, for yourself in later sessions: how it builds, how tests run, a trap you hit. Overwrites the key. Keep notes factual and short; they are shown to the people who own the repository. Stored only when the workspace policy allows memory."
+  (list :type "object"
+        :properties
+        (list :key (list :type "string" :description "A short key, for example \"build\", \"tests\", or \"gotchas\"")
+              :value (list :type "string" :description "The note, a few sentences at most"))
+        :required (vector "key" "value")))
+
 (define-tool "kernel_eval"
   "Run a program in the agent's sandboxed IronKernel (a Kernel/Scheme dialect): compose several tool calls with real control flow in ONE step instead of one tool call per turn. Call tools as (call-tool \"name\" (list :arg value ...)); each returns a plist — read it with (plist-get result :content) / (plist-get result :is_error). Language: define, lambda, if, cond, sequence, map, filter, exact integers, (vector ...), plists via (list :key value), string-contains?/prefix?/suffix?, String.concat. Definitions persist across kernel_eval calls for the whole session. The value of the last form is returned as text. Every tool call inside the program is still policy-checked and approval-gated individually; program errors come back as this tool's error result for you to read and fix."
   (list :type "object"
