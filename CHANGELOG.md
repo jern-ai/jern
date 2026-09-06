@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.1 — 2026-09-06
+
+- **The environment object keeps up with its hosts.** `network_allow` is
+  recognised beside `services`, and a key this runtime does not know is
+  kept and named in the notice instead of refusing the baseline, so a
+  session no longer fails when the host that runs it is ahead of the
+  runtime. Known keys are still validated.
+
+
 ## 0.15.0 — 2026-09-05
 
 - **The model can use the memory.** Two tools, `memory_read` and `memory_write`,

@@ -335,9 +335,18 @@ let ``an environment object is recognised and validated but never applied here``
         match PolicyConfig.parseEnvironment (JsonNode.Parse(json: string)) with
         | Error _ -> true
         | Ok _ -> false
-    // A misspelt key must not pass silently, exactly as in "policy".
-    Assert.True(rejected """{"servcies":["postgres:16"]}""")
+    // A key this runtime does not know is kept and named, never refused: a
+    // host ahead of the runtime must not fail every session.
+    match PolicyConfig.parseEnvironment (JsonNode.Parse("""{"servcies":["postgres:16"],"network_allow":["docs.python.org"]}""": string)) with
+    | Ok environment ->
+        Assert.Equal<string list>([ "servcies" ], environment.unknown)
+        Assert.Equal<string list>([ "docs.python.org" ], environment.networkAllow)
+        Assert.False(PolicyConfig.environmentIsEmpty environment)
+    | Error message -> failwith message
     Assert.True(rejected """{"services":"postgres:16"}""")
     Assert.True(rejected """{"services":["Postgres 16"]}""")
+    Assert.True(rejected """{"network_allow":["Docs.Python.Org"]}""")
+    Assert.True(rejected """{"network_allow":["localhost"]}""")
     Assert.True(rejected """["postgres:16"]""")
-    Assert.Equal("services postgres:16", PolicyConfig.describeEnvironment { PolicyConfig.services = [ "postgres:16" ] })
+    Assert.Equal("services postgres:16; network docs.python.org; keys this runtime does not know: servcies",
+                 PolicyConfig.describeEnvironment { PolicyConfig.services = [ "postgres:16" ]; PolicyConfig.networkAllow = [ "docs.python.org" ]; PolicyConfig.unknown = [ "servcies" ] })

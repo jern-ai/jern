@@ -142,28 +142,32 @@ module PolicyConfig =
     /// on the agent itself. jern recognises the object so a misspelt key
     /// cannot pass silently, and applies none of it; a host such as Jern
     /// Cloud grants it from a catalog. Every field is optional.
+    /// What the baseline asks a host to provide around the agent. The runtime
+    /// recognises it and applies none of it. Keys a newer host may know and
+    /// this runtime does not are kept, not refused: a host validates its own
+    /// declarations, and a session must not fail because the runtime is
+    /// older than the baseline.
     type Environment =
-        { /// Services the attempt needs beside it, as `name:version`
-          /// declarations such as `postgres:16`.
-          services: string list }
+        { services: string list
+          networkAllow: string list
+          unknown: string list }
 
-    let emptyEnvironment = { services = [] }
+    let emptyEnvironment = { services = []; networkAllow = []; unknown = [] }
 
     let environmentIsEmpty (environment: Environment) = environment = emptyEnvironment
 
-    /// Parse an `"environment"` object. Unknown keys are an error for the
-    /// same reason they are in `"policy"`: a typo must not look applied.
+    /// Parse an `"environment"` object. Known keys are validated; a key this
+    /// runtime does not know is kept under `unknown` and named in the notice,
+    /// so a typo is visible without a session failing on a host that is
+    /// ahead of the runtime.
     let parseEnvironment (node: JsonNode) : Result<Environment, string> =
         match node with
         | :? JsonObject as o ->
-            let known = set [ "services" ]
+            let known = set [ "services"; "network_allow" ]
             let unknown = o |> Seq.map (fun kv -> kv.Key) |> Seq.filter (known.Contains >> not) |> List.ofSeq
-            if not unknown.IsEmpty then
-                Error(sprintf "unknown environment key(s): %s (known: %s)"
-                          (String.Join(", ", unknown)) (String.Join(", ", known)))
-            else
+            let services =
                 match o.["services"] with
-                | null -> Ok emptyEnvironment
+                | null -> Ok []
                 | servicesNode ->
                     match stringArray "services" servicesNode with
                     | Error e -> Error(e.Replace("policy.services", "environment.services"))
@@ -171,12 +175,29 @@ module PolicyConfig =
                         let declaration = Text.RegularExpressions.Regex("^[a-z][a-z0-9]*:[a-z0-9.]+$")
                         match services |> List.tryFind (declaration.IsMatch >> not) with
                         | Some bad -> Error(sprintf "environment.services entry \"%s\" is not a name:version declaration" bad)
-                        | None -> Ok { services = services }
+                        | None -> Ok services
+            let networkAllow =
+                match o.["network_allow"] with
+                | null -> Ok []
+                | hostsNode ->
+                    match stringArray "network_allow" hostsNode with
+                    | Error e -> Error(e.Replace("policy.network_allow", "environment.network_allow"))
+                    | Ok hosts ->
+                        let hostName = Text.RegularExpressions.Regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")
+                        match hosts |> List.tryFind (fun host -> not (hostName.IsMatch host) || not (host.Contains ".")) with
+                        | Some bad -> Error(sprintf "environment.network_allow entry \"%s\" is not a lowercase host name" bad)
+                        | None -> Ok hosts
+            match services, networkAllow with
+            | Error e, _ | _, Error e -> Error e
+            | Ok services, Ok hosts -> Ok { services = services; networkAllow = hosts; unknown = unknown }
         | _ -> Error "environment must be an object"
 
     /// One phrase for a notice: what a host would have to provide.
     let describeEnvironment (environment: Environment) =
-        if environment.services.IsEmpty then "" else "services " + String.Join(", ", environment.services)
+        [ if not environment.services.IsEmpty then "services " + String.Join(", ", environment.services)
+          if not environment.networkAllow.IsEmpty then "network " + String.Join(", ", environment.networkAllow)
+          if not environment.unknown.IsEmpty then "keys this runtime does not know: " + String.Join(", ", environment.unknown) ]
+        |> fun parts -> String.Join("; ", parts)
 
     /// True when a host has said it confines and provisions this process,
     /// in which case its environment declarations are its business.
