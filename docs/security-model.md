@@ -122,6 +122,13 @@ The two halves are trusted differently, because they carry different risk:
 Malformed policy is a startup error, never a silent no-op: a typo in a rule
 meant to restrict must not look like it applied.
 
+`allow` and `deny` take tool names, `mcp__*`-style prefixes, and tool
+packs (`pack:read`, `pack:edit`, `pack:verify`, `pack:git`,
+`pack:session`, `pack:memory`), which expand to their tools when the
+policy compiles, so a family gains a tool without a policy losing track
+of it. The two halves keep their trust: a pack in `deny` restricts on
+sight, a pack in `allow` is a grant.
+
 `test_command` is a grant of the same kind, made once: the `run_tests` tool
 runs that command and nothing else, so the base policy allows it without an
 approval, where `shell` would ask. The model chooses only a filter or a

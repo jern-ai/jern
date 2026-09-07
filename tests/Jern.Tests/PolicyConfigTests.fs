@@ -446,3 +446,17 @@ let ``an environment object is recognised and validated but never applied here``
     Assert.True(rejected """["postgres:16"]""")
     Assert.Equal("services postgres:16; network docs.python.org; keys this runtime does not know: servcies",
                  PolicyConfig.describeEnvironment { PolicyConfig.services = [ "postgres:16" ]; PolicyConfig.networkAllow = [ "docs.python.org" ]; PolicyConfig.unknown = [ "servcies" ] })
+
+[<Fact>]
+let ``a tool pack in allow or deny expands when the policy compiles`` () =
+    let policy = parsePolicy """{"deny":["pack:git","mcp__*"],"allow":["pack:verify"]}"""
+    // The JSON keeps the pack name; the compiled layer names every tool.
+    Assert.Equal("""{"allow":["pack:verify"],"deny":["pack:git","mcp__*"]}""", PolicyConfig.canonicalJson policy)
+    let compiled = PolicyConfig.compile "jern.json" true policy
+    Assert.Contains("\"git_status\" \"git_diff\" \"git_log\" \"git_blame\" \"changed_set\"", compiled)
+    Assert.Contains("\"run_tests\"", compiled)
+    Assert.Contains("\"mcp__\"", compiled)
+    Assert.Contains("deny: pack:git, mcp__*", PolicyConfig.describeRestrictions policy)
+    match PolicyConfig.parse (JsonNode.Parse """{"deny":["pack:nope"]}""") with
+    | Ok _ -> failwith "expected the unknown pack to be rejected"
+    | Error message -> Assert.Contains("unknown tool pack pack:nope", message)

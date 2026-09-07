@@ -148,6 +148,39 @@ module Tools =
 
     /// An indented, depth-limited tree of the workspace (or a subdirectory),
     /// for cheap first-turn context and for the model to orient itself.
+    /// The entries of a tree built from workspace-relative file paths,
+    /// depth-limited and sorted like the directory walk: directories first
+    /// come where their names sort, each with a trailing slash.
+    let private treeFromPaths (relativeRoot: string) (paths: string list) =
+        let prefix = if relativeRoot = "" || relativeRoot = "." then "" else relativeRoot.TrimEnd('/') + "/"
+        let under =
+            paths
+            |> List.choose (fun p -> if prefix = "" then Some p elif p.StartsWith prefix then Some(p.Substring prefix.Length) else None)
+            |> List.filter (fun p -> p <> "" && not (p.Split('/') |> Array.exists skippedDirs.Contains))
+        let lines = ResizeArray<string>()
+        let mutable truncated = false
+        let rec emit (depth: int) (entries: string list) =
+            // Group by first segment; a file is a segment with nothing after.
+            let groups =
+                entries
+                |> List.groupBy (fun p -> match p.IndexOf '/' with -1 -> p, false | i -> p.Substring(0, i), true)
+                |> List.sortBy (fun ((name, _), _) -> name)
+            for (name, isDir), members in groups do
+                if lines.Count >= limits.maxTreeEntries then truncated <- true
+                elif not truncated then
+                    let indent = String.replicate depth "  "
+                    if isDir then
+                        lines.Add(indent + name + "/")
+                        if depth + 1 <= 3 then
+                            emit (depth + 1) (members |> List.map (fun p -> p.Substring(name.Length + 1)))
+                    else lines.Add(indent + name)
+        emit 0 under
+        lines, truncated
+
+    /// An indented, depth-limited tree of the workspace (or a subdirectory),
+    /// for cheap first-turn context and for the model to orient itself.
+    /// Inside a git repository the tree is what git tracks or would track:
+    /// ignored files (build output, dependencies) are left out.
     let private fileTree root input =
         match optionalStringArg "path" "." input with
         | Error e -> toolError e
@@ -158,26 +191,38 @@ module Tools =
                 if not (Directory.Exists full) then
                     toolError (sprintf "directory '%s' does not exist" path)
                 else
-                    let lines = ResizeArray<string>()
-                    let mutable truncated = false
-                    let rec walk dir depth =
-                        if depth <= 3 && not truncated then
-                            let entries =
-                                Directory.EnumerateFileSystemEntries dir
-                                |> Seq.sortBy (fun e -> Path.GetFileName e)
-                                |> List.ofSeq
-                            for entry in entries do
-                                if lines.Count >= limits.maxTreeEntries then truncated <- true
-                                else
-                                    let name = Path.GetFileName entry
-                                    let indent = String.replicate depth "  "
-                                    if Directory.Exists entry then
-                                        if not (skippedDirs.Contains name) then
-                                            lines.Add(indent + name + "/")
-                                            walk entry (depth + 1)
-                                    else
-                                        lines.Add(indent + name)
-                    walk full 0
+                    let relative = Path.GetRelativePath(Path.GetFullPath root, full).Replace('\\', '/')
+                    let fromGit =
+                        if Git.isRepo root then
+                            match Git.listFiles root (if relative = "." then "." else relative) with
+                            | Ok paths -> Some(treeFromPaths relative paths)
+                            | Error _ -> None
+                        else None
+                    let lines, truncated =
+                        match fromGit with
+                        | Some result -> result
+                        | None ->
+                            let lines = ResizeArray<string>()
+                            let mutable truncated = false
+                            let rec walk dir depth =
+                                if depth <= 3 && not truncated then
+                                    let entries =
+                                        Directory.EnumerateFileSystemEntries dir
+                                        |> Seq.sortBy (fun e -> Path.GetFileName e)
+                                        |> List.ofSeq
+                                    for entry in entries do
+                                        if lines.Count >= limits.maxTreeEntries then truncated <- true
+                                        else
+                                            let name = Path.GetFileName entry
+                                            let indent = String.replicate depth "  "
+                                            if Directory.Exists entry then
+                                                if not (skippedDirs.Contains name) then
+                                                    lines.Add(indent + name + "/")
+                                                    walk entry (depth + 1)
+                                            else
+                                                lines.Add(indent + name)
+                            walk full 0
+                            lines, truncated
                     let listing = String.concat "\n" lines
                     ok (if truncated then listing + sprintf "\n… truncated at %d entries" limits.maxTreeEntries
                         elif listing = "" then "(empty directory)"

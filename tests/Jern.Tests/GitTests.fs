@@ -242,3 +242,20 @@ let ``outside a repository the git tools say so`` () =
         Assert.True(isErrorOf status)
         Assert.Contains("not a git repository", contentOf status)
     finally Directory.Delete(root, true)
+
+[<Fact>]
+let ``file_tree inside a repository leaves ignored files out`` () =
+    withRepo (fun root ->
+        Directory.CreateDirectory(Path.Combine(root, "src")) |> ignore
+        Directory.CreateDirectory(Path.Combine(root, "build")) |> ignore
+        File.WriteAllText(Path.Combine(root, ".gitignore"), "build/\n*.log\n")
+        File.WriteAllText(Path.Combine(root, "src", "a.txt"), "a\n")
+        File.WriteAllText(Path.Combine(root, "build", "out.bin"), "x")
+        File.WriteAllText(Path.Combine(root, "debug.log"), "x")
+        File.WriteAllText(Path.Combine(root, "new.txt"), "untracked but not ignored\n")
+        sh root "git add .gitignore src && git -c user.name=u -c user.email=u@x commit -qm files" |> ignore
+        let session = newSession root quietBridge
+        let tree = contentOf (run session """(call-tool "file_tree" (list))""")
+        Assert.Equal(".gitignore\nnew.txt\nsrc/\n  a.txt", tree)
+        let sub = contentOf (run session """(call-tool "file_tree" (list :path "src"))""")
+        Assert.Equal("a.txt", sub))

@@ -168,3 +168,14 @@ module Git =
     /// `git blame` for a line range of one file, short hashes and dates.
     let blame (root: string) (path: string) (startLine: int) (endLine: int) : Result<string, string> =
         run root [ "blame"; "--date=short"; "-L"; sprintf "%d,%d" startLine endLine; "--"; path ]
+
+    /// Tracked and untracked files under `path` that git does not ignore,
+    /// workspace-relative with forward slashes. The list `file_tree` shows
+    /// inside a repository: what the repository itself considers its files.
+    let listFiles (root: string) (path: string) : Result<string list, string> =
+        run root [ "ls-files"; "--cached"; "--others"; "--exclude-standard"; "--"; path ]
+        |> Result.map (fun output ->
+            output.Split('\n')
+            |> Array.filter (fun l -> l <> "")
+            |> Array.map (fun l -> l.Replace('\\', '/'))
+            |> List.ofArray)

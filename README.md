@@ -53,13 +53,20 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
-- **M25 — the run as data** (v0.18): `run_tests` runs the repository's
-  own `test_command`, never a model-written command line, and hands back
-  the result parsed: failures first as file, line, test, and message
-  (pytest, unittest, dotnet test, jest, vitest, go test, cargo test),
-  then counts, then only the output the parse could not explain. A
-  filter or path rides the runner's own flag as one quoted argument.
-  The default agent uses it after every edit in place of `shell`.
+- **M25 — the run as data** (v0.18): tools that replace sloppy `shell`
+  with structured, deniable-by-name answers. `run_tests` runs the
+  repository's own `test_command`, never a model-written command line,
+  and hands back failures first as file, line, test, and message (pytest,
+  unittest, dotnet test, jest, vitest, go test, cargo test), then counts.
+  `git_status`, `git_diff`, `git_log`, `git_blame`, and `changed_set` read
+  the repository and the session's own edits as data. `policy_check`
+  answers what the policy would decide for a call before it is made, and
+  `session_status` what the run has spent. `edit_symbol` and `apply_patch`
+  are edits that fail closed: one definition inside its exact extent, or
+  a unified diff whose every hunk must match. `file_tree` honours
+  `.gitignore`, and policies can name whole families of tools as
+  `pack:read`, `pack:edit`, `pack:verify`, `pack:git`, `pack:session`,
+  and `pack:memory`.
 - **M24 — exact code intelligence** (v0.17): `outline`, `read_symbol`,
   and a new `references` tool answer from a real parse. `jern-symbols`, a
   small tree-sitter helper shipped beside the binary, reads Python,
@@ -90,7 +97,8 @@ $ jern test agents/default               # deterministic replay against
   too, and shows the receipt when a turn ends.
 - **M21 — policy from configuration** (v0.13): a `"policy"` object in
   `jern.json` — `edits_within`, `protected_paths`, `max_files_edited`,
-  `max_lines_changed`, `shell_allow`, `allow`, `deny`, `memory` —
+  `max_lines_changed`, `shell_allow`, `allow`, `deny` (tool names,
+  `mcp__*` patterns, or `pack:` families since v0.18), `memory` —
   gives a repository enforced rules with no Kernel in sight. The policy
   handler now *composes* layers instead of asking one redefinable function:
   restrictions tighten, grants relax the base, and severity decides, so

@@ -40,6 +40,14 @@
   `protected_paths`, `max_files_edited`, and `max_lines_changed`, are
   committed by the git layer like `edit_file`, ask by default, and trigger
   the default agent's test run.
+- **`file_tree` honours `.gitignore`.** Inside a repository the tree is
+  what git tracks or would track, so build output and dependencies are
+  left out; outside one the directory walk stands.
+- **Tool packs in policy.** `allow` and `deny` accept `pack:read`,
+  `pack:edit`, `pack:verify`, `pack:git`, `pack:session`, and
+  `pack:memory` beside tool names and `mcp__*` patterns; a pack expands
+  when the policy compiles, the JSON keeps the name, and an unknown pack
+  is a startup error.
 
 ## 0.17.0 — 2026-09-07
 
