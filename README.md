@@ -53,6 +53,13 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M25 — the run as data** (v0.18): `run_tests` runs the repository's
+  own `test_command`, never a model-written command line, and hands back
+  the result parsed: failures first as file, line, test, and message
+  (pytest, unittest, dotnet test, jest, vitest, go test, cargo test),
+  then counts, then only the output the parse could not explain. A
+  filter or path rides the runner's own flag as one quoted argument.
+  The default agent uses it after every edit in place of `shell`.
 - **M24 — exact code intelligence** (v0.17): `outline`, `read_symbol`,
   and a new `references` tool answer from a real parse. `jern-symbols`, a
   small tree-sitter helper shipped beside the binary, reads Python,
@@ -204,7 +211,8 @@ $ jern test agents/default               # deterministic replay against
   `/help`, and a status line (model · tokens · session). The default agent
   opens with a `file_tree` snapshot in the first message (cache-friendly:
   the system prompt stays byte-stable) and, when `jern.json` sets
-  `test_command`, runs your tests after every edit and reacts to the result.
+  `test_command`, runs your tests after every edit (through `run_tests`
+  since v0.18) and reacts to the result.
 - **M8 — git safety** (v0.2 roadmap): every approved `edit_file` is
   auto-committed (author `jern <jern@localhost>`, task in the message), with
   your uncommitted changes to that file saved on their own commit first;

@@ -251,6 +251,7 @@
             ((equal? name "outline") :allow)
             ((equal? name "read_symbol") :allow)
             ((equal? name "references") :allow)
+            ((equal? name "run_tests") :allow) ; runs only the repo's test_command
             ; kernel_eval runs model-authored code, but authority lives at
             ; the effects, not the code: every tool call *inside* a program
             ; is policed and approval-gated individually, so the program

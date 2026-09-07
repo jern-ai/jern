@@ -215,6 +215,39 @@ let ``references tell definitions, calls, and mentions apart`` () =
         Assert.True(isErrorOf bad))
 
 [<Fact>]
+let ``run_tests runs only the workspace test command and parses its output`` () =
+    withWorkspace (fun root ->
+        // A stand-in suite: prints pytest-like output and fails.
+        File.WriteAllText(
+            Path.Combine(root, "suite.txt"),
+            "=================================== FAILURES ===================================\n__________________________________ test_add ___________________________________\n\n    def test_add():\n>       assert add(1, 2) == 4\nE       assert 3 == 4\n\ntests/test_math.py:7: AssertionError\n=========================== short test summary info ============================\nFAILED tests/test_math.py::test_add - assert 3 == 4\n========================= 1 failed, 2 passed in 0.05s ==========================\n")
+        let session = newSession root
+        Tools.configureTestCommand None
+        let unset = run session """(call-tool "run_tests" (list))"""
+        Assert.True(isErrorOf unset)
+        Assert.Contains("no test_command", contentOf unset)
+        Tools.configureTestCommand(Some "cat suite.txt; exit 1")
+        try
+            let result = run session """(call-tool "run_tests" (list))"""
+            Assert.True(isErrorOf result)
+            Assert.StartsWith("FAILED: 1 failed, 2 passed (pytest, exit 1, ", contentOf result)
+            Assert.Contains("\ntests/test_math.py:7: tests/test_math.py::test_add — assert 3 == 4", contentOf result)
+            // The filter cannot smuggle a second command, and an unknown
+            // runner refuses one outright.
+            let smuggled = run session """(call-tool "run_tests" (list :filter "x; touch owned"))"""
+            Assert.True(isErrorOf smuggled)
+            Assert.False(File.Exists(Path.Combine(root, "owned")))
+            let missing = run session """(call-tool "run_tests" (list :path "nope/"))"""
+            Assert.True(isErrorOf missing)
+            Assert.Contains("does not exist", contentOf missing)
+            Tools.configureTestCommand(Some "echo ALL-GOOD")
+            let green = run session """(call-tool "run_tests" (list))"""
+            Assert.False(isErrorOf green)
+            Assert.StartsWith("PASSED: (runner not recognised, exit 0, ", contentOf green)
+            Assert.EndsWith("[output]\nALL-GOOD", contentOf green)
+        finally Tools.configureTestCommand None)
+
+[<Fact>]
 let ``edit_file replaces a unique occurrence`` () =
     withWorkspace (fun root ->
         let session = newSession root

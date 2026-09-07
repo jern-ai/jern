@@ -26,6 +26,9 @@ module Tools =
           maxGrepMatches: int
           maxTreeEntries: int
           shellTimeoutSeconds: float
+          /// Wall-clock cap on one run_tests call; suites run longer than
+          /// commands.
+          testTimeoutSeconds: float
           /// Wall-clock cap on one kernel_eval program (model-authored
           /// Kernel code has no other stop for a pure loop).
           evalTimeoutSeconds: float }
@@ -35,11 +38,17 @@ module Tools =
           maxGrepMatches = 200
           maxTreeEntries = 200
           shellTimeoutSeconds = 120.0
+          testTimeoutSeconds = 600.0
           evalTimeoutSeconds = 30.0 }
 
     let mutable private limits = defaultLimits
     let configureLimits (value: Limits) = limits <- value
     let currentLimits () = limits
+
+    /// The workspace's test command (jern.json "test_command"), the only
+    /// command run_tests ever runs. None until configured.
+    let mutable private testCommand: string option = None
+    let configureTestCommand (value: string option) = testCommand <- value
 
     /// F#-side plist access for tool-call payloads.
     let rec plistTryGet (key: string) (plist: LispVal) : LispVal option =
@@ -702,76 +711,177 @@ module Tools =
               "(allow file-write* (subpath \"/private/var/folders\"))"
               "(allow file-write* (subpath \"/dev\"))" ]
 
+    /// One command run the way `shell` runs it: `/bin/sh -c` (cmd.exe on
+    /// Windows) under the OS sandbox when there is one, in the workspace,
+    /// with a wall-clock cap. Output and exit code, or the timeout.
+    let private runCommand (root: string) (command: string) (timeout: TimeSpan) : Result<string * int * float, string> =
+        use proc = new Process()
+        let sandboxExec = "/usr/bin/sandbox-exec"
+        if externalSandbox () then
+            // The host confines the whole process; see externalSandbox.
+            proc.StartInfo.FileName <- "/bin/sh"
+            proc.StartInfo.ArgumentList.Add "-c"
+        elif OperatingSystem.IsMacOS() && File.Exists sandboxExec then
+            proc.StartInfo.FileName <- sandboxExec
+            proc.StartInfo.ArgumentList.Add "-p"
+            proc.StartInfo.ArgumentList.Add(sandboxProfile root)
+            proc.StartInfo.ArgumentList.Add "/bin/sh"
+            proc.StartInfo.ArgumentList.Add "-c"
+        elif OperatingSystem.IsLinux() && (bwrapPath.Value |> Option.isSome) then
+            // Everything mounts read-only, then the workspace and /tmp
+            // bind back writable — the sandbox-exec posture: writes
+            // confined, reads and network open (docs/security-model.md).
+            proc.StartInfo.FileName <- bwrapPath.Value.Value
+            let rootFull = Path.GetFullPath root
+            for arg in [ "--die-with-parent"
+                         "--ro-bind"; "/"; "/"
+                         "--bind"; rootFull; rootFull
+                         "--bind"; "/tmp"; "/tmp"
+                         "--dev"; "/dev"
+                         "--proc"; "/proc"
+                         "/bin/sh"; "-c" ] do
+                proc.StartInfo.ArgumentList.Add arg
+        else
+            if not warnedNoSandbox then
+                warnedNoSandbox <- true
+                let hint = if OperatingSystem.IsLinux() then " (install bubblewrap to confine writes)" else ""
+                eprintfn "jern: no OS sandbox available for shell commands%s; approval is the only gate" hint
+            if OperatingSystem.IsWindows() then
+                // cmd.exe /d /s /c: same contract as sh -c (one command
+                // string), /d skips AutoRun, /s keeps quote handling sane.
+                // No sandbox on Windows — docs/security-model.md says so.
+                let comspec = Environment.GetEnvironmentVariable "COMSPEC"
+                proc.StartInfo.FileName <- (if String.IsNullOrEmpty comspec then "cmd.exe" else comspec)
+                proc.StartInfo.ArgumentList.Add "/d"
+                proc.StartInfo.ArgumentList.Add "/s"
+                proc.StartInfo.ArgumentList.Add "/c"
+            else
+                proc.StartInfo.FileName <- "/bin/sh"
+                proc.StartInfo.ArgumentList.Add "-c"
+        proc.StartInfo.ArgumentList.Add command
+        proc.StartInfo.WorkingDirectory <- root
+        proc.StartInfo.RedirectStandardOutput <- true
+        proc.StartInfo.RedirectStandardError <- true
+        proc.StartInfo.UseShellExecute <- false
+        try
+            let started = Diagnostics.Stopwatch.StartNew()
+            proc.Start() |> ignore
+            let stdout = proc.StandardOutput.ReadToEndAsync()
+            let stderr = proc.StandardError.ReadToEndAsync()
+            if proc.WaitForExit(int timeout.TotalMilliseconds) then
+                let output =
+                    [ stdout.Result; stderr.Result ]
+                    |> List.filter (fun s -> s <> "")
+                    |> String.concat "\n"
+                Ok(output, proc.ExitCode, started.Elapsed.TotalSeconds)
+            else
+                try proc.Kill(true) with _ -> ()
+                Error(sprintf "command timed out after %.0f seconds" timeout.TotalSeconds)
+        with ex ->
+            Error(sprintf "failed to run command: %s" ex.Message)
+
     let private shell root input =
         match stringArg "command" input with
         | Error e -> toolError e
         | Ok command ->
-            use proc = new Process()
-            let sandboxExec = "/usr/bin/sandbox-exec"
-            if externalSandbox () then
-                // The host confines the whole process; see externalSandbox.
-                proc.StartInfo.FileName <- "/bin/sh"
-                proc.StartInfo.ArgumentList.Add "-c"
-            elif OperatingSystem.IsMacOS() && File.Exists sandboxExec then
-                proc.StartInfo.FileName <- sandboxExec
-                proc.StartInfo.ArgumentList.Add "-p"
-                proc.StartInfo.ArgumentList.Add(sandboxProfile root)
-                proc.StartInfo.ArgumentList.Add "/bin/sh"
-                proc.StartInfo.ArgumentList.Add "-c"
-            elif OperatingSystem.IsLinux() && (bwrapPath.Value |> Option.isSome) then
-                // Everything mounts read-only, then the workspace and /tmp
-                // bind back writable — the sandbox-exec posture: writes
-                // confined, reads and network open (docs/security-model.md).
-                proc.StartInfo.FileName <- bwrapPath.Value.Value
-                let rootFull = Path.GetFullPath root
-                for arg in [ "--die-with-parent"
-                             "--ro-bind"; "/"; "/"
-                             "--bind"; rootFull; rootFull
-                             "--bind"; "/tmp"; "/tmp"
-                             "--dev"; "/dev"
-                             "--proc"; "/proc"
-                             "/bin/sh"; "-c" ] do
-                    proc.StartInfo.ArgumentList.Add arg
-            else
-                if not warnedNoSandbox then
-                    warnedNoSandbox <- true
-                    let hint = if OperatingSystem.IsLinux() then " (install bubblewrap to confine writes)" else ""
-                    eprintfn "jern: no OS sandbox available for shell commands%s; approval is the only gate" hint
-                if OperatingSystem.IsWindows() then
-                    // cmd.exe /d /s /c: same contract as sh -c (one command
-                    // string), /d skips AutoRun, /s keeps quote handling sane.
-                    // No sandbox on Windows — docs/security-model.md says so.
-                    let comspec = Environment.GetEnvironmentVariable "COMSPEC"
-                    proc.StartInfo.FileName <- (if String.IsNullOrEmpty comspec then "cmd.exe" else comspec)
-                    proc.StartInfo.ArgumentList.Add "/d"
-                    proc.StartInfo.ArgumentList.Add "/s"
-                    proc.StartInfo.ArgumentList.Add "/c"
-                else
-                    proc.StartInfo.FileName <- "/bin/sh"
-                    proc.StartInfo.ArgumentList.Add "-c"
-            proc.StartInfo.ArgumentList.Add command
-            proc.StartInfo.WorkingDirectory <- root
-            proc.StartInfo.RedirectStandardOutput <- true
-            proc.StartInfo.RedirectStandardError <- true
-            proc.StartInfo.UseShellExecute <- false
-            let shellTimeout = TimeSpan.FromSeconds limits.shellTimeoutSeconds
-            try
-                proc.Start() |> ignore
-                let stdout = proc.StandardOutput.ReadToEndAsync()
-                let stderr = proc.StandardError.ReadToEndAsync()
-                if proc.WaitForExit(int shellTimeout.TotalMilliseconds) then
-                    let output =
-                        [ stdout.Result; stderr.Result ]
-                        |> List.filter (fun s -> s <> "")
-                        |> String.concat "\n"
-                    let output = if output = "" then "(no output)" else output
-                    if proc.ExitCode = 0 then ok output
-                    else toolError (sprintf "%s\n(exit code %d)" output proc.ExitCode)
-                else
-                    try proc.Kill(true) with _ -> ()
-                    toolError (sprintf "command timed out after %.0f seconds" shellTimeout.TotalSeconds)
-            with ex ->
-                toolError (sprintf "failed to run command: %s" ex.Message)
+            match runCommand root command (TimeSpan.FromSeconds limits.shellTimeoutSeconds) with
+            | Error e -> toolError e
+            | Ok (output, exitCode, _) ->
+                let output = if output = "" then "(no output)" else output
+                if exitCode = 0 then ok output
+                else toolError (sprintf "%s\n(exit code %d)" output exitCode)
+
+    // -----------------------------------------------------------------------
+    // Tests as a tool. The command is the repository's own (jern.json
+    // "test_command"), never the model's; a filter or path narrows the run
+    // through the flag the runner takes for it, quoted as one argument and
+    // limited to characters no shell reads, so nothing rides along. The
+    // output comes back parsed (TestReport): failures first, counts, and
+    // only as much raw text as the parse left unexplained.
+
+    /// Which runner a test command invokes, for the narrowing flags.
+    let private runnerOf (command: string) =
+        let c = command.ToLowerInvariant()
+        if c.Contains "pytest" then "pytest"
+        elif c.Contains "unittest" then "unittest"
+        elif c.Contains "dotnet test" then "dotnet"
+        elif c.Contains "vitest" then "vitest"
+        elif c.Contains "jest" then "jest"
+        elif c.Contains "cargo test" then "cargo" // before go: "cargo test" contains "go test"
+        elif c.Contains "go test" then "go"
+        else ""
+
+    let private safeArgument = Regex(@"^[A-Za-z0-9_.:/~\-\[\]() ,]+$", RegexOptions.Compiled)
+
+    let private quoted (value: string) =
+        if OperatingSystem.IsWindows() then "\"" + value + "\"" else "'" + value + "'"
+
+    /// The command line with the filter and path applied, or why they
+    /// cannot be.
+    let narrowTestCommand (command: string) (filter: string option) (path: string option) : Result<string, string> =
+        let runner = runnerOf command
+        let checkArgument (label: string) (value: string) =
+            if value.Trim() = "" then Error(sprintf "%s must not be empty" label)
+            elif value.Length > 200 then Error(sprintf "%s is too long" label)
+            elif not (safeArgument.IsMatch value) then
+                Error(sprintf "%s may contain letters, digits, spaces, and _ . : / ~ - [ ] ( ) , only" label)
+            else Ok value
+        let withFilter (cmd: string) =
+            match filter with
+            | None -> Ok cmd
+            | Some f ->
+                checkArgument "filter" f
+                |> Result.bind (fun f ->
+                    match runner with
+                    | "pytest" | "unittest" -> Ok(sprintf "%s -k %s" cmd (quoted f))
+                    | "dotnet" -> Ok(sprintf "%s --filter %s" cmd (quoted ("FullyQualifiedName~" + f)))
+                    | "jest" | "vitest" -> Ok(sprintf "%s -t %s" cmd (quoted f))
+                    | "go" -> Ok(sprintf "%s -run %s" cmd (quoted f))
+                    | "cargo" -> Ok(sprintf "%s %s" cmd (quoted f))
+                    | _ -> Error "filter is not supported for this test command; run the whole suite")
+        let withPath (cmd: string) =
+            match path with
+            | None -> Ok cmd
+            | Some p ->
+                checkArgument "path" p
+                |> Result.bind (fun p ->
+                    match runner with
+                    | "pytest" | "jest" | "vitest" -> Ok(sprintf "%s %s" cmd (quoted p))
+                    | "go" ->
+                        let p = p.TrimEnd('/')
+                        Ok(sprintf "%s %s" cmd (quoted (if p.StartsWith "./" then p else "./" + p)))
+                    | "" -> Error "path is not supported for this test command; run the whole suite"
+                    | r -> Error(sprintf "path is not supported for %s; use filter" (if r = "dotnet" then "dotnet test" else r)))
+        withFilter command |> Result.bind withPath
+
+    let private runTests root input =
+        match optionalStringArg "filter" "" input, optionalStringArg "path" "" input with
+        | Error e, _ | _, Error e -> toolError e
+        | Ok filter, Ok path ->
+            match testCommand with
+            | None -> toolError "no test_command is configured in jern.json; there is nothing to run"
+            | Some command ->
+                let path =
+                    if path = "" then Ok None
+                    else
+                        match resolve root path with
+                        | Error e -> Error e
+                        | Ok full ->
+                            if File.Exists full || Directory.Exists full then
+                                Ok(Some(Path.GetRelativePath(Path.GetFullPath root, full).Replace('\\', '/')))
+                            else Error(sprintf "path '%s' does not exist" path)
+                match path with
+                | Error e -> toolError e
+                | Ok path ->
+                    match narrowTestCommand command (if filter = "" then None else Some filter) path with
+                    | Error e -> toolError e
+                    | Ok commandLine ->
+                        match runCommand root commandLine (TimeSpan.FromSeconds limits.testTimeoutSeconds) with
+                        | Error e -> toolError e
+                        | Ok (output, exitCode, seconds) ->
+                            let report = TestReport.parse output
+                            let text = TestReport.render exitCode seconds output report
+                            if exitCode = 0 then ok text else toolError text
 
     /// Dispatch an jern/tool-call payload `(:name "…" :input (…))`.
     let dispatch (root: string) (call: LispVal) : ThrowsError<LispVal> =
@@ -794,6 +904,7 @@ module Tools =
                 | "edit_file" -> Some editFile
                 | "write_file" -> Some writeFile
                 | "shell" -> Some shell
+                | "run_tests" -> Some runTests
                 | _ -> None
             match run with
             | Some tool ->

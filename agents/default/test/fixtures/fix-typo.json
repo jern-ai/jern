@@ -207,6 +207,24 @@
             }
           },
           {
+            "name": "run_tests",
+            "description": "Run the workspace\u0027s tests (its jern.json test_command) and get the result parsed: failures first as \u0027file:line: test \u2014 message\u0027, then counts, then only the output the parse could not explain. Far cheaper than running the same command through shell. filter narrows to tests whose name matches; path to one file or directory, where the runner supports it.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "type": "string",
+                  "description": "Test name or keyword to run (the runner\u0027s own -k / -t / -run / --filter)"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative test file or directory (pytest, jest, vitest, go)"
+                }
+              },
+              "required": []
+            }
+          },
+          {
             "name": "memory_read",
             "description": "Read a note stored about this workspace under a key, by you or an earlier session: how it builds, how tests run, traps. Answers the note\u0027s text, or says nothing is stored. Notes live in the workspace memory, which the workspace policy may deny.",
             "input_schema": {
@@ -489,6 +507,24 @@
               "required": [
                 "command"
               ]
+            }
+          },
+          {
+            "name": "run_tests",
+            "description": "Run the workspace\u0027s tests (its jern.json test_command) and get the result parsed: failures first as \u0027file:line: test \u2014 message\u0027, then counts, then only the output the parse could not explain. Far cheaper than running the same command through shell. filter narrows to tests whose name matches; path to one file or directory, where the runner supports it.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "type": "string",
+                  "description": "Test name or keyword to run (the runner\u0027s own -k / -t / -run / --filter)"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative test file or directory (pytest, jest, vitest, go)"
+                }
+              },
+              "required": []
             }
           },
           {
@@ -800,6 +836,24 @@
               "required": [
                 "command"
               ]
+            }
+          },
+          {
+            "name": "run_tests",
+            "description": "Run the workspace\u0027s tests (its jern.json test_command) and get the result parsed: failures first as \u0027file:line: test \u2014 message\u0027, then counts, then only the output the parse could not explain. Far cheaper than running the same command through shell. filter narrows to tests whose name matches; path to one file or directory, where the runner supports it.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "filter": {
+                  "type": "string",
+                  "description": "Test name or keyword to run (the runner\u0027s own -k / -t / -run / --filter)"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative test file or directory (pytest, jest, vitest, go)"
+                }
+              },
+              "required": []
             }
           },
           {

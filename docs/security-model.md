@@ -122,6 +122,13 @@ The two halves are trusted differently, because they carry different risk:
 Malformed policy is a startup error, never a silent no-op: a typo in a rule
 meant to restrict must not look like it applied.
 
+`test_command` is a grant of the same kind, made once: the `run_tests` tool
+runs that command and nothing else, so the base policy allows it without an
+approval, where `shell` would ask. The model chooses only a filter or a
+path, which ride the runner's own flag as one quoted argument limited to
+characters no shell reads. A repository that does not want its tests run
+unattended denies `run_tests` by name.
+
 ### Protected baselines, for unattended and CI runs
 
 A policy checked out _from_ a pull request cannot govern that pull request:

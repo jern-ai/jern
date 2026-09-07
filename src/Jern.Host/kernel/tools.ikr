@@ -89,6 +89,14 @@
         (list :command (list :type "string" :description "Command line, run with sh -c (cmd.exe /c on Windows)"))
         :required (vector "command")))
 
+(define-tool "run_tests"
+  "Run the workspace's tests (its jern.json test_command) and get the result parsed: failures first as 'file:line: test — message', then counts, then only the output the parse could not explain. Far cheaper than running the same command through shell. filter narrows to tests whose name matches; path to one file or directory, where the runner supports it."
+  (list :type "object"
+        :properties
+        (list :filter (list :type "string" :description "Test name or keyword to run (the runner's own -k / -t / -run / --filter)")
+              :path (list :type "string" :description "Workspace-relative test file or directory (pytest, jest, vitest, go)"))
+        :required (vector)))
+
 (define-tool "memory_read"
   "Read a note stored about this workspace under a key, by you or an earlier session: how it builds, how tests run, traps. Answers the note's text, or says nothing is stored. Notes live in the workspace memory, which the workspace policy may deny."
   (list :type "object"

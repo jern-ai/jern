@@ -137,6 +137,7 @@ module Session =
             ((equal? name "outline") :allow)
             ((equal? name "read_symbol") :allow)
             ((equal? name "references") :allow)
+            ((equal? name "run_tests") :allow) ; runs only the repo's test_command
             ((equal? name "kernel_eval") :allow) ; inner calls are still policed
             (#t :ask)))))
 """
@@ -202,6 +203,12 @@ module Session =
         | Choice1Of2 error -> Choice1Of2 error
         | Choice2Of2 std ->
             let tags = AgentEnv.newEffectTags ()
+
+            // The workspace's test command is what run_tests runs; it
+            // travels in the workspace-config plist the agent source reads.
+            match Tools.plistTryGet "test_command" config.agentConfig with
+            | Some (Obj (:? string as command)) -> Tools.configureTestCommand(Some command)
+            | _ -> ()
 
             // Connect configured MCP servers. A server that fails to start is
             // skipped with a warning — a dead integration must not brick the

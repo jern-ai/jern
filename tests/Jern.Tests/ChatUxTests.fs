@@ -96,7 +96,7 @@ let ``test_command output rides the edit tool result`` () =
         | Choice2Of2 _ -> ()
         // The second request's tool_result carries the test run's output,
         // which itself proves the tests ran after the edit landed.
-        Assert.Contains("[test_command]", requests.[1])
+        Assert.Contains("[run_tests]", requests.[1])
         Assert.Contains("TESTS-RAN", requests.[1])
         Assert.Contains("two", requests.[1]))
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.18.0 — unreleased
+
+- **`run_tests`.** The workspace's `test_command`, run as a tool and read
+  back parsed: failures first as `file:line: test — message` for pytest,
+  unittest, dotnet test, jest, vitest, go test, and cargo test (recognised
+  from their output), then counts, then only the output the parse could
+  not explain, capped. The command is the repository's own, never the
+  model's; `filter` and `path` ride the runner's flag as one quoted
+  argument limited to characters no shell reads, and runners without such
+  a flag refuse them. The base policy allows it, as it would the
+  repository's own tests; `deny: ["run_tests"]` turns it off. A new limit,
+  `test_timeout_seconds` (default 600), caps a run. The default agent
+  calls it after every edit instead of `shell`, so its fixture is
+  re-recorded.
+
 ## 0.17.0 — 2026-09-07
 
 - **The symbol tools parse.** `outline` and `read_symbol` answer from a
