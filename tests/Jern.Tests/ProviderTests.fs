@@ -373,3 +373,19 @@ let ``the anthropic body drops reasoning_effort and keeps thinking`` () =
     let body = AnthropicBridge.prepareBody None request
     Assert.False(body.ContainsKey "reasoning_effort")
     Assert.True(body.ContainsKey "thinking")
+
+[<Fact>]
+let ``a baseline may name the test command beside its policy`` () =
+    let dir = Path.Combine(Path.GetTempPath(), "jern-baseline-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory dir |> ignore
+    try
+        let write (name: string) (content: string) =
+            let path = Path.Combine(dir, name)
+            File.WriteAllText(path, content)
+            path
+        Assert.Equal(Ok(Some "./build.sh"), Providers.baselineTestCommand (write "with.json" """{"policy":{"edits_within":["src/"]},"test_command":"./build.sh"}"""))
+        Assert.Equal(Ok None, Providers.baselineTestCommand (write "without.json" """{"policy":{"edits_within":["src/"]}}"""))
+        Assert.Equal(Ok None, Providers.baselineTestCommand (write "bare.json" """{"edits_within":["src/"]}"""))
+        Assert.True(Result.isError (Providers.baselineTestCommand (write "number.json" """{"policy":{},"test_command":3}""")))
+        Assert.True(Result.isError (Providers.baselineTestCommand (write "blank.json" """{"policy":{},"test_command":"  "}""")))
+    finally Directory.Delete(dir, true)

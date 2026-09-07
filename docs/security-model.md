@@ -131,7 +131,10 @@ sight, a pack in `allow` is a grant.
 
 `test_command` is a grant of the same kind, made once: the `run_tests` tool
 runs that command and nothing else, so the base policy allows it without an
-approval, where `shell` would ask. The model chooses only a filter or a
+approval, where `shell` would ask. A protected baseline may name it beside
+its `policy` (since v0.18.1), and that copy outranks `jern.json`'s: the
+baseline is the file a pull request cannot change, so a checkout cannot
+swap the command `run_tests` runs without approval. The model chooses only a filter or a
 path, which ride the runner's own flag as one quoted argument limited to
 characters no shell reads. A repository that does not want its tests run
 unattended denies `run_tests` by name.

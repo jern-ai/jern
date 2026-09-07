@@ -292,6 +292,28 @@ module Providers =
         with ex ->
             Error("bad jern config: " + ex.Message)
 
+    /// The test command a protected baseline names: a `--policy-baseline`
+    /// file that is jern.json-shaped may carry "test_command" beside
+    /// "policy", so a repository governed by one file has one file. It
+    /// outranks jern.json's: the baseline is the copy a pull request cannot
+    /// change. None when the file has no such key; an error names a value
+    /// of the wrong shape.
+    let baselineTestCommand (path: string) : Result<string option, string> =
+        try
+            match JsonNode.Parse(File.ReadAllText path) with
+            | :? JsonObject as o ->
+                match o.["test_command"] with
+                | null -> Ok None
+                | :? JsonValue as v ->
+                    match v.TryGetValue<string>() with
+                    | true, command when command.Trim() <> "" && command.Length <= 500 && not (command |> Seq.exists Char.IsControl) ->
+                        Ok(Some command)
+                    | true, _ -> Error "test_command must be a non-empty single line of at most 500 characters"
+                    | _ -> Error "test_command must be a string"
+                | _ -> Error "test_command must be a string"
+            | _ -> Ok None
+        with ex -> Error("not readable JSON: " + ex.Message)
+
     /// `alias | provider/model | claude-*` -> provider + bare model id.
     let resolve (config: Config) (modelSpec: string) : Result<Provider * string, string> =
         let spec =
