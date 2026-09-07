@@ -20,6 +20,11 @@ case "$(uname -s)" in
   Darwin)
     if [ -n "${JERN_SYMBOLS_ARCH:-}" ]; then flags+=(-arch "$JERN_SYMBOLS_ARCH"); fi
     ;;
+  *)
+    # glibc hides fdopen and the endian macros under plain -std=c11; these
+    # are the feature-test macros tree-sitter's own Makefile sets.
+    flags+=(-D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200112L)
+    ;;
 esac
 objects=()
 compile() {
