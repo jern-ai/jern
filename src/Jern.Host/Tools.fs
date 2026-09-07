@@ -413,6 +413,32 @@ module Tools =
         let t = line.Trim()
         if t.Length > 160 then t.Substring(0, 160) + "…" else t
 
+    /// Every definition in a file with its extent, 0-based and inclusive:
+    /// exact from jern-symbols when its grammar covers the language, else
+    /// the patterns above with the bracket/indentation extent.
+    let private definitionsWithExtent (file: string) (lines: string[]) =
+        match Symbols.outline file with
+        | Some defs ->
+            defs |> List.map (fun d -> d.start - 1, max (d.start - 1) (d.finish - 1), d.kind, d.name, d.signature)
+        | None ->
+            let ext = Path.GetExtension(file).ToLowerInvariant()
+            definitionsOf file lines
+            |> List.map (fun (i, kind, name, line) -> i, extentEnd ext lines i, kind, name, signatureOf line)
+
+    let private hasDefinitions (file: string) =
+        symbolPatterns.ContainsKey(Path.GetExtension(file).ToLowerInvariant()) || Symbols.supports file
+
+    let private walkFiles (full: string) =
+        if File.Exists full then Seq.singleton full
+        elif Directory.Exists full then
+            let rec walk dir = seq {
+                for entry in Directory.EnumerateFiles dir do yield entry
+                for sub in Directory.EnumerateDirectories dir do
+                    if not (skippedDirs.Contains(Path.GetFileName sub)) then
+                        yield! walk sub }
+            walk full
+        else Seq.empty
+
     /// Every definition in one file with its kind, extent, and signature line.
     let private outline root input =
         match stringArg "path" input with
@@ -422,25 +448,52 @@ module Tools =
             | Error e -> toolError e
             | Ok full ->
                 if not (File.Exists full) then toolError (sprintf "file '%s' does not exist" path)
+                elif not (hasDefinitions full) then
+                    toolError (sprintf "no definition patterns for '%s' files; use read_file" (Path.GetExtension(full).ToLowerInvariant()))
                 else
-                    let ext = Path.GetExtension(full).ToLowerInvariant()
-                    if not (symbolPatterns.ContainsKey ext) then
-                        toolError (sprintf "no definition patterns for '%s' files; use read_file" ext)
-                    else
-                        let lines = File.ReadAllLines full
-                        match definitionsOf full lines with
-                        | [] -> ok "(no definitions found)"
-                        | defs ->
-                            let shown =
-                                defs
-                                |> List.truncate limits.maxGrepMatches
-                                |> List.map (fun (i, kind, name, line) ->
-                                    sprintf "%d-%d: %s %s — %s" (i + 1) (extentEnd ext lines i + 1) kind name (signatureOf line))
-                            let more =
-                                if defs.Length > limits.maxGrepMatches then sprintf "\n… truncated at %d definitions" limits.maxGrepMatches else ""
-                            ok (String.concat "\n" shown + more)
+                    let lines = File.ReadAllLines full
+                    match definitionsWithExtent full lines with
+                    | [] -> ok "(no definitions found)"
+                    | defs ->
+                        let shown =
+                            defs
+                            |> List.truncate limits.maxGrepMatches
+                            |> List.map (fun (start, finish, kind, name, signature) ->
+                                sprintf "%d-%d: %s %s — %s" (start + 1) (finish + 1) kind name signature)
+                        let more =
+                            if defs.Length > limits.maxGrepMatches then sprintf "\n… truncated at %d definitions" limits.maxGrepMatches else ""
+                        ok (String.concat "\n" shown + more)
 
     let private maxSymbolLines = 400
+
+    /// Definitions named `name` across `files`: (file, start, finish, kind,
+    /// name), 0-based inclusive lines. Files the helper parses are answered
+    /// exactly; the rest by pattern. `exact` false compares ignoring case.
+    let private definitionsNamed (files: string list) (name: string) (exact: bool) =
+        let supported, others = files |> List.partition Symbols.supports
+        let fromHelper, others =
+            match Symbols.definitions supported (Some name) (not exact) with
+            | Some defs ->
+                defs |> List.map (fun d -> d.file, d.start - 1, max (d.start - 1) (d.finish - 1), d.kind, d.name), others
+            | None -> [], files
+        let comparison = if exact then StringComparison.Ordinal else StringComparison.OrdinalIgnoreCase
+        let fromPatterns =
+            others
+            |> Seq.collect (fun file ->
+                if not (symbolPatterns.ContainsKey(Path.GetExtension(file).ToLowerInvariant())) then Seq.empty
+                else
+                    try
+                        let lines = File.ReadAllLines file
+                        let ext = Path.GetExtension(file).ToLowerInvariant()
+                        definitionsOf file lines
+                        |> List.filter (fun (_, _, n, _) -> String.Equals(n, name, comparison))
+                        |> List.map (fun (i, kind, n, _) -> file, i, extentEnd ext lines i, kind, n)
+                        |> Seq.ofList
+                    with _ -> Seq.empty)
+            |> List.ofSeq
+        fromHelper @ fromPatterns
+        |> List.sortBy (fun (file, start, _, _, _) -> file, start)
+        |> List.truncate 50
 
     /// The source of one definition by name, across the workspace or under a
     /// path; several matches are listed so the model can name the file.
@@ -452,42 +505,19 @@ module Tools =
             | Error e -> toolError e
             | Ok full ->
                 let rootFull = Path.GetFullPath root
-                let files =
-                    if File.Exists full then Seq.singleton full
-                    elif Directory.Exists full then
-                        let rec walk dir = seq {
-                            for entry in Directory.EnumerateFiles dir do yield entry
-                            for sub in Directory.EnumerateDirectories dir do
-                                if not (skippedDirs.Contains(Path.GetFileName sub)) then
-                                    yield! walk sub }
-                        walk full
-                    else Seq.empty
                 if not (File.Exists full) && not (Directory.Exists full) then
                     toolError (sprintf "path '%s' does not exist" path)
                 else
-                    let named (comparison: StringComparison) =
-                        files
-                        |> Seq.collect (fun file ->
-                            if not (symbolPatterns.ContainsKey(Path.GetExtension(file).ToLowerInvariant())) then Seq.empty
-                            else
-                                try
-                                    let lines = File.ReadAllLines file
-                                    definitionsOf file lines
-                                    |> List.filter (fun (_, _, n, _) -> String.Equals(n, name, comparison))
-                                    |> List.map (fun (i, kind, n, _) -> file, lines, i, kind, n)
-                                    |> Seq.ofList
-                                with _ -> Seq.empty)
-                        |> Seq.truncate 50
-                        |> List.ofSeq
+                    let files = walkFiles full |> List.ofSeq
                     let candidates =
-                        match named StringComparison.Ordinal with
-                        | [] -> named StringComparison.OrdinalIgnoreCase
+                        match definitionsNamed files name true with
+                        | [] -> definitionsNamed files name false
                         | exact -> exact
                     match candidates with
                     | [] -> toolError (sprintf "no definition named '%s' found; symbols with a query finds partial names" name)
-                    | [ (file, lines, start, kind, defined) ] ->
-                        let ext = Path.GetExtension(file).ToLowerInvariant()
-                        let finish = extentEnd ext lines start
+                    | [ (file, start, finish, kind, defined) ] ->
+                        let lines = File.ReadAllLines file
+                        let finish = min finish (lines.Length - 1)
                         let shownEnd = min finish (start + maxSymbolLines - 1)
                         let body = String.concat "\n" lines.[start .. shownEnd]
                         let more = if shownEnd < finish then sprintf "\n… %d more lines; read_file for the rest" (finish - shownEnd) else ""
@@ -495,9 +525,67 @@ module Tools =
                     | many ->
                         let listed =
                             many
-                            |> List.map (fun (file, lines, start, kind, defined) ->
-                                sprintf "%s:%d-%d: %s %s" (Path.GetRelativePath(rootFull, file)) (start + 1) (extentEnd (Path.GetExtension(file).ToLowerInvariant()) lines start + 1) kind defined)
+                            |> List.map (fun (file, start, finish, kind, defined) ->
+                                sprintf "%s:%d-%d: %s %s" (Path.GetRelativePath(rootFull, file)) (start + 1) (finish + 1) kind defined)
                         ok (sprintf "%d definitions named '%s'; pass path to choose one:\n%s" many.Length name (String.concat "\n" listed))
+
+    /// Every mention of a name across the workspace or under a path, outside
+    /// strings and comments where a grammar is available, each labelled with
+    /// what it is (definition, call, type, …) and the definition it sits in.
+    /// Files without a grammar are searched for the whole word.
+    let private references root input =
+        match stringArg "name" input, optionalStringArg "path" "." input with
+        | Error e, _ | _, Error e -> toolError e
+        | Ok name, Ok path ->
+            if name.Trim() = "" then toolError "name must not be empty"
+            else
+                match resolve root path with
+                | Error e -> toolError e
+                | Ok full ->
+                    let rootFull = Path.GetFullPath root
+                    if not (File.Exists full) && not (Directory.Exists full) then
+                        toolError (sprintf "path '%s' does not exist" path)
+                    else
+                        let files = walkFiles full |> List.ofSeq
+                        let supported, others = files |> List.partition Symbols.supports
+                        let exact, others =
+                            match Symbols.references supported name with
+                            | Some refs -> refs |> List.map (fun r -> r.file, r.line, r.column, r.kind, r.scope, r.text), others
+                            | None -> [], files
+                        let word = Regex(@"(?<![\w$])" + Regex.Escape name + @"(?![\w$])", RegexOptions.Compiled)
+                        let textual =
+                            others
+                            |> Seq.filter (fun file -> symbolPatterns.ContainsKey(Path.GetExtension(file).ToLowerInvariant()))
+                            |> Seq.collect (fun file ->
+                                try
+                                    File.ReadLines file
+                                    |> Seq.indexed
+                                    |> Seq.collect (fun (i, line) ->
+                                        word.Matches line
+                                        |> Seq.map (fun m -> file, i + 1, m.Index + 1, "mention", "", line.Trim()))
+                                    |> List.ofSeq
+                                    |> Seq.ofList
+                                with _ -> Seq.empty)
+                            |> List.ofSeq
+                        let all =
+                            exact @ textual
+                            |> List.sortBy (fun (file, line, column, _, _, _) -> file, line, column)
+                        match all with
+                        | [] -> ok (sprintf "(no references to '%s')" name)
+                        | _ ->
+                            let shown =
+                                all
+                                |> List.truncate limits.maxGrepMatches
+                                |> List.map (fun (file, line, column, kind, scope, text) ->
+                                    let where = if scope = "" then kind else sprintf "%s in %s" kind scope
+                                    sprintf "%s:%d:%d: %s — %s" (Path.GetRelativePath(rootFull, file)) line column where text)
+                            let fileCount = all |> List.map (fun (f, _, _, _, _, _) -> f) |> List.distinct |> List.length
+                            let definitions = all |> List.filter (fun (_, _, _, k, _, _) -> k = "definition") |> List.length
+                            let header =
+                                sprintf "%d references to '%s' in %d files (%d definitions)" all.Length name fileCount definitions
+                            let more =
+                                if all.Length > limits.maxGrepMatches then sprintf "\n… truncated at %d; narrow with path" limits.maxGrepMatches else ""
+                            ok (header + "\n" + String.concat "\n" shown + more)
 
     let private editFile root input =
         match stringArg "path" input, stringArg "old_string" input, stringArg "new_string" input with
@@ -702,6 +790,7 @@ module Tools =
                 | "symbols" -> Some symbols
                 | "outline" -> Some outline
                 | "read_symbol" -> Some readSymbol
+                | "references" -> Some references
                 | "edit_file" -> Some editFile
                 | "write_file" -> Some writeFile
                 | "shell" -> Some shell

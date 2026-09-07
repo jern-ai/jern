@@ -53,6 +53,15 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M24 — exact code intelligence** (v0.17): `outline`, `read_symbol`,
+  and a new `references` tool answer from a real parse. `jern-symbols`, a
+  small tree-sitter helper shipped beside the binary, reads Python,
+  JavaScript, TypeScript, C#, Java, Go, and Rust with each grammar's own
+  tags queries, so a definition's extent is exact, methods inside classes
+  are definitions too, and `references` lists every mention of a name
+  with what it is (definition, call, type) and the definition it sits in,
+  leaving strings and comments out. Languages without a grammar keep the
+  line patterns. See [native/symbols](native/symbols/README.md).
 - **M23 — behavioral CI** (v0.14): `jern golden record "task"` keeps a
   real run as a committed snapshot; `jern golden check` replays every
   recording offline against the current agent and policy and fails with the
@@ -263,10 +272,15 @@ parser/compiler are published — tracked as upstream work, this repo being the
 language's first demanding customer.
 
 ```bash
+bash native/symbols/fetch.sh && bash native/symbols/build.sh   # the tree-sitter helper (needs a C compiler)
 dotnet build Jern.slnx
 dotnet test Jern.slnx
 dotnet run --project src/Jern.Cli -- repl
 ```
+
+The helper is optional for a build: without it the symbol tools fall back
+to line patterns, and the tests accept either unless `JERN_SYMBOLS_REQUIRED=1`
+(set in CI).
 
 ## Layout
 
@@ -274,6 +288,7 @@ dotnet run --project src/Jern.Cli -- repl
 |---|---|
 | `src/Jern.Host` | F# host: restricted env construction, host-surface injection; later the LLM bridge, tools, JSON⇄Kernel conversion |
 | `src/Jern.Cli` | the `jern` binary |
+| `native/symbols` | `jern-symbols`, the tree-sitter helper behind the symbol tools, and the grammars' tags queries |
 | `agents/default` | the default agent as an `.ikproj` of readable Kernel source |
 | `agents/docs` | a docs-only example agent with a narrowed tool surface |
 | `agents/tdd` | an example agent that enforces test-first in its loop |

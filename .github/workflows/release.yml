@@ -45,7 +45,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.4xx"
+      - name: Build the tree-sitter helper
+        run: bash jern/native/symbols/fetch.sh && bash jern/native/symbols/build.sh
       - run: dotnet test jern/Jern.slnx -c Release --verbosity normal
+        env:
+          JERN_SYMBOLS_REQUIRED: "1"
 
   publish:
     name: Publish ${{ matrix.rid }}
@@ -73,6 +77,7 @@ jobs:
             rid: osx-x64
             exe: jern
             smoke: false
+            symbols_arch: x86_64
           - os: windows-latest
             rid: win-x64
             exe: jern.exe
@@ -94,6 +99,15 @@ jobs:
       # handling: the IronKernel Exe reference is built RID-agnostic (its
       # fsproj declares IsRidAgnostic etc. upstream; Jern.Host.fsproj adds
       # UndefineProperties on the reference).
+      # jern-symbols is a native helper shipped beside jern: built here from
+      # pinned tree-sitter sources for the target (clang on Windows; -arch
+      # x86_64 when cross-compiling osx-x64), then published as content.
+      - name: Build the tree-sitter helper
+        shell: bash
+        run: bash jern/native/symbols/fetch.sh && bash jern/native/symbols/build.sh
+        env:
+          JERN_SYMBOLS_ARCH: ${{ matrix.symbols_arch || '' }}
+
       - name: Restore
         run: dotnet restore jern/src/Jern.Cli/Jern.Cli.fsproj -r ${{ matrix.rid }}
 
@@ -127,8 +141,11 @@ jobs:
           cp -R publish/${{ matrix.rid }}/. "$STAGE/"
           cp jern/README.md jern/LICENSE "$STAGE/"
           if [[ "${{ runner.os }}" != "Windows" ]]; then
-            chmod +x "$STAGE/${{ matrix.exe }}"
+            chmod +x "$STAGE/${{ matrix.exe }}" "$STAGE/jern-symbols"
           fi
+          # The symbol tools' helper and its queries ship in the same tarball.
+          test -f "$STAGE/jern-symbols" -o -f "$STAGE/jern-symbols.exe"
+          test -f "$STAGE/symbols/queries/python.scm"
           tar -C dist -czf "dist/jern-${{ matrix.rid }}.tar.gz" "jern-${{ matrix.rid }}"
 
       # The staged tarball is exactly what users install — run it before
@@ -146,6 +163,13 @@ jobs:
           if [[ "$VERSION" != "${{ needs.version.outputs.version }}" ]]; then
             echo "::error::--version printed '$VERSION', expected '${{ needs.version.outputs.version }}'"
             exit 1
+          fi
+          # The helper beside it parses; the tools would fall back to
+          # patterns without a word if it did not, so ask it directly.
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            "$SMOKE/jern-${{ matrix.rid }}/jern-symbols.exe" languages | grep -q '^.py python$'
+          else
+            "$SMOKE/jern-${{ matrix.rid }}/jern-symbols" languages | grep -q '^.py python$'
           fi
           # The bundled default agent's replay suite is network-free. Its
           # setup uses POSIX shell commands, so it stays off Windows.

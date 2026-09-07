@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.17.0 — 2026-09-07
+
+- **The symbol tools parse.** `outline` and `read_symbol` answer from a
+  real parse for Python, JavaScript, TypeScript and TSX, C#, Java, Go, and
+  Rust: `jern-symbols`, a small tree-sitter helper shipped beside the
+  binary (`native/symbols`), runs each grammar's own tags queries, so a
+  definition's extent is exact, kinds are the language's (function,
+  method, class, interface, constant, …), and methods inside classes are
+  definitions too. Languages without a grammar keep the line patterns, as
+  does a build without the helper. `JERN_SYMBOLS` and
+  `JERN_SYMBOLS_QUERIES` point the runtime at another helper or queries.
+- **A `references` tool.** Every mention of a name across the workspace or
+  under a path, as `file:line:col: kind in scope — text`: the definition,
+  calls, and type uses are told apart and strings and comments left out
+  where the language is parsed; other files are searched for the whole
+  word. The base tool policy allows it, like the other read-only tools.
+
+## 0.16.0 — 2026-09-07
+
+- **`outline` and `read_symbol`.** The definitions in one file with their
+  extents and signatures, and the source of one definition by name, so the
+  model reads a file's shape and the parts it needs instead of the whole.
+- **Replay ignores the tool list.** A recording pins what the agent asked
+  and did with the answers, not which tools a release advertises.
+
+## 0.15.3 — 2026-09-06
+
+- **Blast-radius policy.** `protected_paths`, `max_files_edited`, and
+  `max_lines_changed` in the policy object are enforced by the host as
+  edits apply, traced, and reported on the receipt.
+
+## 0.15.2 — 2026-09-06
+
+- **Cache reads weigh a tenth** in the hard token budget, and OpenAI-style
+  usage is normalised (`cached_tokens` counted as cache reads).
+
 ## 0.15.1 — 2026-09-06
 
 - **The environment object keeps up with its hosts.** `network_allow` is
