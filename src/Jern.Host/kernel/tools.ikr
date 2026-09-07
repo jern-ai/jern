@@ -42,6 +42,21 @@
               :path (list :type "string" :description "File or directory to search; defaults to the workspace root"))
         :required (vector)))
 
+(define-tool "outline"
+  "Every definition in one file with its kind, line range, and signature: 'start-end: kind name — signature'. Read this before read_file to see a file's shape in a few lines, then read_symbol for the parts you need."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file path"))
+        :required (vector "path")))
+
+(define-tool "read_symbol"
+  "The source of one definition by name — a function, class, type, or method — instead of the whole file around it. Exact name first, then case-insensitive; several matches are listed so you can pass path to choose."
+  (list :type "object"
+        :properties
+        (list :name (list :type "string" :description "The symbol's name as defined")
+              :path (list :type "string" :description "File or directory to search; defaults to the workspace root"))
+        :required (vector "name")))
+
 (define-tool "edit_file"
   "Edit a workspace file by exact string replacement. old_string must occur exactly once."
   (list :type "object"

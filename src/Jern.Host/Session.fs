@@ -134,6 +134,8 @@ module Session =
             ((equal? name "file_tree") :allow)
             ((equal? name "grep") :allow)
             ((equal? name "symbols") :allow)
+            ((equal? name "outline") :allow)
+            ((equal? name "read_symbol") :allow)
             ((equal? name "kernel_eval") :allow) ; inner calls are still policed
             (#t :ask)))))
 """

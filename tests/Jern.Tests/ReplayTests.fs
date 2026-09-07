@@ -69,6 +69,36 @@ let ``a faithful replay re-runs the whole recording offline`` () =
         File.Delete tracePath
 
 [<Fact>]
+let ``a recording replays after the runtime's tool list changed`` () =
+    let tracePath = recordTrace ()
+    try
+        // A later runtime offers one more tool: every model request differs
+        // in its tool list and nothing else. That is not a divergence.
+        let rewritten =
+            File.ReadAllLines tracePath
+            |> Array.map (fun line ->
+                if line.Contains "\"event\":\"llm-call\"" then
+                    let doc = System.Text.Json.Nodes.JsonNode.Parse(line).AsObject()
+                    match doc.["request"] with
+                    | :? System.Text.Json.Nodes.JsonObject as request ->
+                        match request.["tools"] with
+                        | :? System.Text.Json.Nodes.JsonArray as tools ->
+                            tools.Add(System.Text.Json.Nodes.JsonNode.Parse("""{"name":"tool_from_the_future","description":"n/a","input_schema":{"type":"object"}}"""))
+                        | _ -> ()
+                    | _ -> ()
+                    doc.ToJsonString()
+                else line)
+        File.WriteAllLines(tracePath, rewritten)
+        match replay tracePath None with
+        | Error message -> failwith message
+        | Ok (Replay.Diverged report) -> failwith ("unexpected divergence: " + report)
+        | Ok (Replay.Completed (llmCalls, toolCalls)) ->
+            Assert.Equal(3, llmCalls)
+            Assert.Equal(6, toolCalls)
+    finally
+        File.Delete tracePath
+
+[<Fact>]
 let ``forking with a stricter policy pinpoints the divergence`` () =
     let tracePath = recordTrace ()
     let policyFile = Path.Combine(Path.GetTempPath(), "jern-strict-" + Guid.NewGuid().ToString("N") + ".ikr")

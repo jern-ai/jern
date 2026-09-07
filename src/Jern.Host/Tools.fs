@@ -317,6 +317,188 @@ module Tools =
                             + sprintf "\n… truncated at %d matches; narrow with query or path" limits.maxGrepMatches)
                     | m -> ok (String.concat "\n" m)
 
+    // -----------------------------------------------------------------------
+    // Reading by symbol. The definition patterns above find where things
+    // start; the extent of a definition follows the language's own shape:
+    // braces for C-like languages, parentheses for Lisps, indentation for the
+    // rest. Approximate by design, bounded, and deterministic, so the model
+    // can read one definition instead of the file around it.
+
+    /// Every definition site in a file: line index, kind, name, and the line.
+    let private definitionsOf (file: string) (lines: string[]) =
+        match symbolPatterns.TryGetValue(Path.GetExtension(file).ToLowerInvariant()) with
+        | false, _ -> []
+        | true, patterns ->
+            lines
+            |> Array.toList
+            |> List.indexed
+            |> List.choose (fun (i, line) ->
+                patterns
+                |> List.tryPick (fun (regex, kind) ->
+                    let m = regex.Match line
+                    if m.Success then Some(i, kind, m.Groups.["n"].Value, line.TrimEnd()) else None))
+
+    let private indentOf (line: string) = line.Length - line.TrimStart().Length
+
+    let private braceLanguages =
+        set [ ".cs"; ".java"; ".kt"; ".kts"; ".scala"; ".go"; ".rs"; ".js"; ".jsx"; ".ts"; ".tsx"; ".mjs"; ".sh"; ".bash"; ".zsh" ]
+    let private parenLanguages = set [ ".ikr"; ".lisp"; ".scm"; ".clj"; ".cljs"; ".el" ]
+
+    /// Walk a line counting a bracket pair outside string literals and after
+    /// no line comment; returns the depth change and whether a bracket opened.
+    let private bracketDelta (openChar: char) (closeChar: char) (lineComment: string) (line: string) =
+        let mutable depth = 0
+        let mutable opened = false
+        let mutable quote: char option = None
+        let mutable j = 0
+        let mutable stop = false
+        while not stop && j < line.Length do
+            let c = line.[j]
+            match quote with
+            | Some q ->
+                if c = '\\' then j <- j + 1
+                elif c = q then quote <- None
+            | None ->
+                if c = '"' || c = '\'' || c = '`' then quote <- Some c
+                elif lineComment <> "" && line.AsSpan(j).StartsWith(lineComment.AsSpan()) then stop <- true
+                elif c = openChar then
+                    depth <- depth + 1
+                    opened <- true
+                elif c = closeChar then depth <- depth - 1
+            j <- j + 1
+        depth, opened
+
+    /// The last line index of the definition that starts at `start`.
+    let private extentEnd (ext: string) (lines: string[]) (start: int) =
+        let last = lines.Length - 1
+        let bracketed openChar closeChar lineComment =
+            let mutable depth = 0
+            let mutable opened = false
+            let mutable finish = start
+            let mutable i = start
+            let mutable stop = false
+            while not stop && i <= last do
+                let delta, openedHere = bracketDelta openChar closeChar lineComment lines.[i]
+                depth <- depth + delta
+                opened <- opened || openedHere
+                if opened && depth <= 0 then
+                    finish <- i
+                    stop <- true
+                elif not opened && i - start >= 2 then
+                    // No block within three lines: a one-line declaration.
+                    finish <- start
+                    stop <- true
+                else
+                    finish <- i
+                    i <- i + 1
+            finish
+        if braceLanguages.Contains ext then
+            bracketed '{' '}' (if ext = ".sh" || ext = ".bash" || ext = ".zsh" then "#" else "//")
+        elif parenLanguages.Contains ext then bracketed '(' ')' ";"
+        else
+            let baseIndent = indentOf lines.[start]
+            let mutable finish = start
+            let mutable i = start + 1
+            let mutable stop = false
+            while not stop && i <= last do
+                let line = lines.[i]
+                if line.Trim() = "" then i <- i + 1
+                elif indentOf line > baseIndent then
+                    finish <- i
+                    i <- i + 1
+                else stop <- true
+            finish
+
+    let private signatureOf (line: string) =
+        let t = line.Trim()
+        if t.Length > 160 then t.Substring(0, 160) + "…" else t
+
+    /// Every definition in one file with its kind, extent, and signature line.
+    let private outline root input =
+        match stringArg "path" input with
+        | Error e -> toolError e
+        | Ok path ->
+            match resolve root path with
+            | Error e -> toolError e
+            | Ok full ->
+                if not (File.Exists full) then toolError (sprintf "file '%s' does not exist" path)
+                else
+                    let ext = Path.GetExtension(full).ToLowerInvariant()
+                    if not (symbolPatterns.ContainsKey ext) then
+                        toolError (sprintf "no definition patterns for '%s' files; use read_file" ext)
+                    else
+                        let lines = File.ReadAllLines full
+                        match definitionsOf full lines with
+                        | [] -> ok "(no definitions found)"
+                        | defs ->
+                            let shown =
+                                defs
+                                |> List.truncate limits.maxGrepMatches
+                                |> List.map (fun (i, kind, name, line) ->
+                                    sprintf "%d-%d: %s %s — %s" (i + 1) (extentEnd ext lines i + 1) kind name (signatureOf line))
+                            let more =
+                                if defs.Length > limits.maxGrepMatches then sprintf "\n… truncated at %d definitions" limits.maxGrepMatches else ""
+                            ok (String.concat "\n" shown + more)
+
+    let private maxSymbolLines = 400
+
+    /// The source of one definition by name, across the workspace or under a
+    /// path; several matches are listed so the model can name the file.
+    let private readSymbol root input =
+        match stringArg "name" input, optionalStringArg "path" "." input with
+        | Error e, _ | _, Error e -> toolError e
+        | Ok name, Ok path ->
+            match resolve root path with
+            | Error e -> toolError e
+            | Ok full ->
+                let rootFull = Path.GetFullPath root
+                let files =
+                    if File.Exists full then Seq.singleton full
+                    elif Directory.Exists full then
+                        let rec walk dir = seq {
+                            for entry in Directory.EnumerateFiles dir do yield entry
+                            for sub in Directory.EnumerateDirectories dir do
+                                if not (skippedDirs.Contains(Path.GetFileName sub)) then
+                                    yield! walk sub }
+                        walk full
+                    else Seq.empty
+                if not (File.Exists full) && not (Directory.Exists full) then
+                    toolError (sprintf "path '%s' does not exist" path)
+                else
+                    let named (comparison: StringComparison) =
+                        files
+                        |> Seq.collect (fun file ->
+                            if not (symbolPatterns.ContainsKey(Path.GetExtension(file).ToLowerInvariant())) then Seq.empty
+                            else
+                                try
+                                    let lines = File.ReadAllLines file
+                                    definitionsOf file lines
+                                    |> List.filter (fun (_, _, n, _) -> String.Equals(n, name, comparison))
+                                    |> List.map (fun (i, kind, n, _) -> file, lines, i, kind, n)
+                                    |> Seq.ofList
+                                with _ -> Seq.empty)
+                        |> Seq.truncate 50
+                        |> List.ofSeq
+                    let candidates =
+                        match named StringComparison.Ordinal with
+                        | [] -> named StringComparison.OrdinalIgnoreCase
+                        | exact -> exact
+                    match candidates with
+                    | [] -> toolError (sprintf "no definition named '%s' found; symbols with a query finds partial names" name)
+                    | [ (file, lines, start, kind, defined) ] ->
+                        let ext = Path.GetExtension(file).ToLowerInvariant()
+                        let finish = extentEnd ext lines start
+                        let shownEnd = min finish (start + maxSymbolLines - 1)
+                        let body = String.concat "\n" lines.[start .. shownEnd]
+                        let more = if shownEnd < finish then sprintf "\n… %d more lines; read_file for the rest" (finish - shownEnd) else ""
+                        ok (sprintf "%s:%d-%d: %s %s\n%s%s" (Path.GetRelativePath(rootFull, file)) (start + 1) (finish + 1) kind defined body more)
+                    | many ->
+                        let listed =
+                            many
+                            |> List.map (fun (file, lines, start, kind, defined) ->
+                                sprintf "%s:%d-%d: %s %s" (Path.GetRelativePath(rootFull, file)) (start + 1) (extentEnd (Path.GetExtension(file).ToLowerInvariant()) lines start + 1) kind defined)
+                        ok (sprintf "%d definitions named '%s'; pass path to choose one:\n%s" many.Length name (String.concat "\n" listed))
+
     let private editFile root input =
         match stringArg "path" input, stringArg "old_string" input, stringArg "new_string" input with
         | Error e, _, _ | _, Error e, _ | _, _, Error e -> toolError e
@@ -518,6 +700,8 @@ module Tools =
                 | "file_tree" -> Some fileTree
                 | "grep" -> Some grep
                 | "symbols" -> Some symbols
+                | "outline" -> Some outline
+                | "read_symbol" -> Some readSymbol
                 | "edit_file" -> Some editFile
                 | "write_file" -> Some writeFile
                 | "shell" -> Some shell

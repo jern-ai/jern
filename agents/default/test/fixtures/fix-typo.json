@@ -88,6 +88,42 @@
             }
           },
           {
+            "name": "outline",
+            "description": "Every definition in one file with its kind, line range, and signature: \u0027start-end: kind name \u2014 signature\u0027. Read this before read_file to see a file\u0027s shape in a few lines, then read_symbol for the parts you need.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "read_symbol",
+            "description": "The source of one definition by name \u2014 a function, class, type, or method \u2014 instead of the whole file around it. Exact name first, then case-insensitive; several matches are listed so you can pass path to choose.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The symbol\u0027s name as defined"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          {
             "name": "edit_file",
             "description": "Edit a workspace file by exact string replacement. old_string must occur exactly once.",
             "input_schema": {
@@ -314,6 +350,42 @@
                 }
               },
               "required": []
+            }
+          },
+          {
+            "name": "outline",
+            "description": "Every definition in one file with its kind, line range, and signature: \u0027start-end: kind name \u2014 signature\u0027. Read this before read_file to see a file\u0027s shape in a few lines, then read_symbol for the parts you need.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "read_symbol",
+            "description": "The source of one definition by name \u2014 a function, class, type, or method \u2014 instead of the whole file around it. Exact name first, then case-insensitive; several matches are listed so you can pass path to choose.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The symbol\u0027s name as defined"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": [
+                "name"
+              ]
             }
           },
           {
@@ -569,6 +641,42 @@
                 }
               },
               "required": []
+            }
+          },
+          {
+            "name": "outline",
+            "description": "Every definition in one file with its kind, line range, and signature: \u0027start-end: kind name \u2014 signature\u0027. Read this before read_file to see a file\u0027s shape in a few lines, then read_symbol for the parts you need.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "read_symbol",
+            "description": "The source of one definition by name \u2014 a function, class, type, or method \u2014 instead of the whole file around it. Exact name first, then case-insensitive; several matches are listed so you can pass path to choose.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The symbol\u0027s name as defined"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": [
+                "name"
+              ]
             }
           },
           {
