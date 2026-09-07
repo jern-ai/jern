@@ -45,6 +45,14 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.4xx"
+      # The vendored sources, keyed on the pins, so a release does not lean
+      # on eight clones from GitHub succeeding at once.
+      - name: Cache the tree-sitter sources
+        uses: actions/cache@v4
+        with:
+          path: jern/native/symbols/vendor
+          key: symbols-vendor-${{ hashFiles('jern/native/symbols/sources.txt') }}
+
       - name: Build the tree-sitter helper
         run: bash jern/native/symbols/fetch.sh && bash jern/native/symbols/build.sh
       - run: dotnet test jern/Jern.slnx -c Release --verbosity normal
@@ -102,6 +110,14 @@ jobs:
       # jern-symbols is a native helper shipped beside jern: built here from
       # pinned tree-sitter sources for the target (clang on Windows; -arch
       # x86_64 when cross-compiling osx-x64), then published as content.
+      # The vendored sources, keyed on the pins, so a release does not lean
+      # on eight clones from GitHub succeeding at once.
+      - name: Cache the tree-sitter sources
+        uses: actions/cache@v4
+        with:
+          path: jern/native/symbols/vendor
+          key: symbols-vendor-${{ hashFiles('jern/native/symbols/sources.txt') }}
+
       - name: Build the tree-sitter helper
         shell: bash
         run: bash jern/native/symbols/fetch.sh && bash jern/native/symbols/build.sh

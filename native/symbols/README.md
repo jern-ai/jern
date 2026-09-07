@@ -7,7 +7,7 @@ grammars (Python, JavaScript, TypeScript and TSX, C#, Java, Go, Rust), and
 or reference. The grammars' own `tags.scm` queries, checked in under
 `queries/`, say what a definition and a reference are in each language.
 
-    bash fetch.sh   # downloads the pinned sources into vendor/ (sha256-checked)
+    bash fetch.sh   # shallow-clones the pinned tags into vendor/ (commit-checked)
     bash build.sh   # builds out/jern-symbols; JERN_SYMBOLS_ARCH=x86_64 cross-compiles on an arm64 Mac
 
 The .NET build copies `out/jern-symbols` and `queries/*.scm` beside the
@@ -19,5 +19,5 @@ binary when they exist; without them the tools fall back to line patterns.
     jern-symbols refs <name>                    references in the files listed on stdin
     jern-symbols languages                      the extensions understood
 
-Sources and their digests are pinned in `sources.txt`; bump them
+Tags and the commits they point at are pinned in `sources.txt`; bump them
 deliberately and run `fetch.sh` again to refresh the queries.

@@ -41,6 +41,14 @@ jobs:
       # jern-symbols, the tree-sitter helper the symbol tools call. Built from
       # pinned sources before the .NET build copies it beside the binary; the
       # tests then require it, so a helper that fails to build fails CI.
+      # The vendored sources, keyed on the pins, so a release does not lean
+      # on eight clones from GitHub succeeding at once.
+      - name: Cache the tree-sitter sources
+        uses: actions/cache@v4
+        with:
+          path: jern/native/symbols/vendor
+          key: symbols-vendor-${{ hashFiles('jern/native/symbols/sources.txt') }}
+
       - name: Build the tree-sitter helper
         run: bash jern/native/symbols/fetch.sh && bash jern/native/symbols/build.sh
 
