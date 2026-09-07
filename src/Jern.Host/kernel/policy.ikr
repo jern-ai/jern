@@ -248,6 +248,8 @@
             ((equal? name "file_tree") :allow)
             ((equal? name "grep") :allow)
             ((equal? name "symbols") :allow)
+            ((equal? name "outline") :allow)
+            ((equal? name "read_symbol") :allow)
             ; kernel_eval runs model-authored code, but authority lives at
             ; the effects, not the code: every tool call *inside* a program
             ; is policed and approval-gated individually, so the program

@@ -134,6 +134,17 @@ module Replay =
     let private canonical (value: LispVal) =
         JsonNode.Parse(Json.serialize value).ToJsonString()
 
+    /// A model request without its tool list. The list is the runtime's,
+    /// not the run's: every release that adds a tool would otherwise turn
+    /// every recording into a divergence, when what the recording pins is
+    /// what the agent asked and what it did with the answers.
+    let private withoutTools (json: string) =
+        match JsonNode.Parse json with
+        | :? JsonObject as o ->
+            o.Remove "tools" |> ignore
+            o.ToJsonString()
+        | node -> node.ToJsonString()
+
     let private diffReport (ordinal: int) (kind: string) (recorded: string) (actual: string) =
         let firstDiff =
             Seq.zip recorded actual
@@ -189,8 +200,8 @@ module Replay =
                             else
                                 let ordinal = llmTotal - recorded.llm.Count + 1
                                 let recordedRequest, response = recorded.llm.Dequeue()
-                                let expected = recordedRequest.ToJsonString()
-                                let actual = canonical request
+                                let expected = withoutTools (recordedRequest.ToJsonString())
+                                let actual = withoutTools (canonical request)
                                 if expected <> actual then
                                     diverge (diffReport ordinal "llm request" expected actual)
                                 else

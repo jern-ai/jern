@@ -120,7 +120,8 @@ $ jern test agents/default               # deterministic replay against
   past and see exactly where behavior would have diverged. **Richer
   assertions**: `(assert-tokens-within n)`, `(assert-max-files-edited n)`,
   `(assert-trajectory pred msg)` — budgets, blast radius, and cross-turn
-  invariants over the captured trajectory. Plus a `symbols` tool
+  invariants over the captured trajectory. Plus `symbols`, `outline`, and
+  `read_symbol` tools
   (definition-aware code search) and bubblewrap shell sandboxing on
   Linux.
 - **M18 — approvals, reasoning, docs** (v0.10): `--auto` approves

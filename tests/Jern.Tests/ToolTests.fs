@@ -94,6 +94,41 @@ let ``symbols finds definition sites, not mentions`` () =
         Assert.True(isErrorOf missing))
 
 [<Fact>]
+let ``outline and read_symbol read a file by its definitions`` () =
+    withWorkspace (fun root ->
+        File.WriteAllText(
+            Path.Combine(root, "src", "app.py"),
+            "import os\n\n\ndef greet(name):\n    \"\"\"Say hello.\"\"\"\n    if name:\n        return f\"hi {name}\"\n    return \"hi\"\n\n\nclass Greeter:\n    def __init__(self):\n        self.count = 0\n\n    def greet(self, name):\n        self.count += 1\n        return greet(name)\n\n\nTOTAL = 3\n")
+        File.WriteAllText(
+            Path.Combine(root, "src", "lib.ts"),
+            "export function greet(name: string): string {\n  const text = \"{\" + name; // not a brace\n  return `hi ${text}`;\n}\n\nexport class Greeter {\n  count = 0;\n  greet(name: string) {\n    this.count += 1;\n    return greet(name);\n  }\n}\n\nexport const total = () => 3;\n")
+        let session = newSession root
+        let outline = run session """(call-tool "outline" (list :path "src/app.py"))"""
+        Assert.False(isErrorOf outline)
+        Assert.Equal("4-8: def greet — def greet(name):\n11-17: class Greeter — class Greeter:\n12-13: def __init__ — def __init__(self):\n15-17: def greet — def greet(self, name):", contentOf outline)
+        let tsOutline = run session """(call-tool "outline" (list :path "src/lib.ts"))"""
+        Assert.Equal("1-4: function greet — export function greet(name: string): string {\n6-12: class Greeter — export class Greeter {\n14-14: const total — export const total = () => 3;", contentOf tsOutline)
+        // One definition, by name, within a path: its lines and nothing else.
+        let one = run session """(call-tool "read_symbol" (list :name "greet" :path "src/lib.ts"))"""
+        Assert.False(isErrorOf one)
+        Assert.StartsWith("src/lib.ts:1-4: function greet\nexport function greet(name: string): string {\n", contentOf one)
+        Assert.EndsWith("return `hi ${text}`;\n}", contentOf one)
+        // Several definitions share the name: they are listed, not guessed.
+        let many = run session """(call-tool "read_symbol" (list :name "greet"))"""
+        Assert.False(isErrorOf many)
+        Assert.StartsWith("3 definitions named 'greet'; pass path to choose one:\n", contentOf many)
+        Assert.Contains("src/app.py:4-8: def greet", contentOf many)
+        // Case-insensitive when nothing matches exactly; unknown names say so.
+        let klass = run session """(call-tool "read_symbol" (list :name "greeter" :path "src/app.py"))"""
+        Assert.StartsWith("src/app.py:11-17: class Greeter\nclass Greeter:\n", contentOf klass)
+        let missing = run session """(call-tool "read_symbol" (list :name "nothing"))"""
+        Assert.True(isErrorOf missing)
+        Assert.Contains("no definition named 'nothing'", contentOf missing)
+        let plain = run session """(call-tool "outline" (list :path "README.md"))"""
+        Assert.True(isErrorOf plain)
+        Assert.Contains("use read_file", contentOf plain))
+
+[<Fact>]
 let ``edit_file replaces a unique occurrence`` () =
     withWorkspace (fun root ->
         let session = newSession root
