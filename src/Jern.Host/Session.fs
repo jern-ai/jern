@@ -138,6 +138,11 @@ module Session =
             ((equal? name "read_symbol") :allow)
             ((equal? name "references") :allow)
             ((equal? name "run_tests") :allow) ; runs only the repo's test_command
+            ((equal? name "git_status") :allow)
+            ((equal? name "git_diff") :allow)
+            ((equal? name "git_log") :allow)
+            ((equal? name "git_blame") :allow)
+            ((equal? name "changed_set") :allow)
             ((equal? name "kernel_eval") :allow) ; inner calls are still policed
             (#t :ask)))))
 """
@@ -342,6 +347,7 @@ module Session =
             // where every edit's success is seen, and asked from the policy
             // layer before an edit runs.
             let editedFiles = Collections.Generic.HashSet<string>(StringComparer.Ordinal)
+            let linesByFile = Collections.Generic.Dictionary<string, int64>(StringComparer.Ordinal)
             let mutable linesChanged = 0L
             let rootFull = Path.GetFullPath config.workspaceRoot
             let relativePath (path: string) =
@@ -435,6 +441,21 @@ module Session =
                                     match nameVal with
                                     | Some (Obj (:? string as name)) when name.StartsWith "mcp__" ->
                                         Mcp.dispatch mcpByName
+                                    | Some (Obj (:? string as name)) when name = "changed_set" ->
+                                        // What this session has edited, from the
+                                        // tracker (not git: it sees the run, not the tree).
+                                        fun _ ->
+                                            let listed =
+                                                editedFiles
+                                                |> Seq.sort
+                                                |> Seq.map (fun path ->
+                                                    let lines = match linesByFile.TryGetValue path with | true, n -> n | _ -> 0L
+                                                    sprintf "  %s (%d lines changed)" path lines)
+                                                |> List.ofSeq
+                                            let text =
+                                                if listed.IsEmpty then "no files edited in this session yet"
+                                                else sprintf "%d files edited in this session, %d lines changed:\n%s" editedFiles.Count linesChanged (String.concat "\n" listed)
+                                            Choice2Of2 (ofList [ Keyword "content"; Obj(text :> obj); Keyword "is_error"; Bool false ])
                                     | _ -> Tools.dispatch config.workspaceRoot
                         match dispatch call with
                         | Choice1Of2 error -> signal cont error
@@ -444,6 +465,7 @@ module Session =
                             match projected with
                             | Some (path, delta) when (match Tools.plistTryGet "is_error" reply with Some (Bool true) -> false | _ -> true) ->
                                 editedFiles.Add path |> ignore
+                                linesByFile.[path] <- (match linesByFile.TryGetValue path with | true, n -> n | _ -> 0L) + delta
                                 linesChanged <- linesChanged + delta
                                 emitTrace
                                     (ofList [ Keyword "event"; Obj("edit-applied" :> obj)

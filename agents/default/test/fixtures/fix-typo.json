@@ -225,6 +225,92 @@
             }
           },
           {
+            "name": "git_status",
+            "description": "The repository\u0027s state as data: branch, then staged, unstaged, and untracked paths. Cheaper and exact where shell would need git status.",
+            "input_schema": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          },
+          {
+            "name": "git_diff",
+            "description": "A unified diff, capped: uncommitted changes against HEAD by default, the index with staged, or against a ref. path narrows it; stat gives per-file counts instead of hunks.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file or directory"
+                },
+                "ref": {
+                  "type": "string",
+                  "description": "Compare the working tree with this ref, e.g. main or HEAD~3"
+                },
+                "staged": {
+                  "type": "boolean",
+                  "description": "Show what is staged instead"
+                },
+                "stat": {
+                  "type": "boolean",
+                  "description": "Per-file change counts instead of the hunks"
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "name": "git_log",
+            "description": "The last commits, newest first, as \u0027hash date subject (author)\u0027 with the files each touched. path limits it to one file or directory; count defaults to 10, at most 50.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file or directory"
+                },
+                "count": {
+                  "type": "integer",
+                  "description": "How many commits, 1 to 50"
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "name": "git_blame",
+            "description": "Who last changed each line of a range in one file, with the commit and date. At most 200 lines at a time; end defaults to 50 lines after start.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "start": {
+                  "type": "integer",
+                  "description": "First line, 1-based"
+                },
+                "end": {
+                  "type": "integer",
+                  "description": "Last line, inclusive"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "changed_set",
+            "description": "The files this session has edited so far, with lines changed per file, from the run\u0027s own record rather than git. Use it before running tests or summarising the work.",
+            "input_schema": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          },
+          {
             "name": "memory_read",
             "description": "Read a note stored about this workspace under a key, by you or an earlier session: how it builds, how tests run, traps. Answers the note\u0027s text, or says nothing is stored. Notes live in the workspace memory, which the workspace policy may deny.",
             "input_schema": {
@@ -524,6 +610,92 @@
                   "description": "Workspace-relative test file or directory (pytest, jest, vitest, go)"
                 }
               },
+              "required": []
+            }
+          },
+          {
+            "name": "git_status",
+            "description": "The repository\u0027s state as data: branch, then staged, unstaged, and untracked paths. Cheaper and exact where shell would need git status.",
+            "input_schema": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          },
+          {
+            "name": "git_diff",
+            "description": "A unified diff, capped: uncommitted changes against HEAD by default, the index with staged, or against a ref. path narrows it; stat gives per-file counts instead of hunks.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file or directory"
+                },
+                "ref": {
+                  "type": "string",
+                  "description": "Compare the working tree with this ref, e.g. main or HEAD~3"
+                },
+                "staged": {
+                  "type": "boolean",
+                  "description": "Show what is staged instead"
+                },
+                "stat": {
+                  "type": "boolean",
+                  "description": "Per-file change counts instead of the hunks"
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "name": "git_log",
+            "description": "The last commits, newest first, as \u0027hash date subject (author)\u0027 with the files each touched. path limits it to one file or directory; count defaults to 10, at most 50.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file or directory"
+                },
+                "count": {
+                  "type": "integer",
+                  "description": "How many commits, 1 to 50"
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "name": "git_blame",
+            "description": "Who last changed each line of a range in one file, with the commit and date. At most 200 lines at a time; end defaults to 50 lines after start.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "start": {
+                  "type": "integer",
+                  "description": "First line, 1-based"
+                },
+                "end": {
+                  "type": "integer",
+                  "description": "Last line, inclusive"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "changed_set",
+            "description": "The files this session has edited so far, with lines changed per file, from the run\u0027s own record rather than git. Use it before running tests or summarising the work.",
+            "input_schema": {
+              "type": "object",
+              "properties": {},
               "required": []
             }
           },
@@ -853,6 +1025,92 @@
                   "description": "Workspace-relative test file or directory (pytest, jest, vitest, go)"
                 }
               },
+              "required": []
+            }
+          },
+          {
+            "name": "git_status",
+            "description": "The repository\u0027s state as data: branch, then staged, unstaged, and untracked paths. Cheaper and exact where shell would need git status.",
+            "input_schema": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          },
+          {
+            "name": "git_diff",
+            "description": "A unified diff, capped: uncommitted changes against HEAD by default, the index with staged, or against a ref. path narrows it; stat gives per-file counts instead of hunks.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file or directory"
+                },
+                "ref": {
+                  "type": "string",
+                  "description": "Compare the working tree with this ref, e.g. main or HEAD~3"
+                },
+                "staged": {
+                  "type": "boolean",
+                  "description": "Show what is staged instead"
+                },
+                "stat": {
+                  "type": "boolean",
+                  "description": "Per-file change counts instead of the hunks"
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "name": "git_log",
+            "description": "The last commits, newest first, as \u0027hash date subject (author)\u0027 with the files each touched. path limits it to one file or directory; count defaults to 10, at most 50.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file or directory"
+                },
+                "count": {
+                  "type": "integer",
+                  "description": "How many commits, 1 to 50"
+                }
+              },
+              "required": []
+            }
+          },
+          {
+            "name": "git_blame",
+            "description": "Who last changed each line of a range in one file, with the commit and date. At most 200 lines at a time; end defaults to 50 lines after start.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "start": {
+                  "type": "integer",
+                  "description": "First line, 1-based"
+                },
+                "end": {
+                  "type": "integer",
+                  "description": "Last line, inclusive"
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          {
+            "name": "changed_set",
+            "description": "The files this session has edited so far, with lines changed per file, from the run\u0027s own record rather than git. Use it before running tests or summarising the work.",
+            "input_schema": {
+              "type": "object",
+              "properties": {},
               "required": []
             }
           },

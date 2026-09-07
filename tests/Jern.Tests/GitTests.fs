@@ -153,3 +153,92 @@ let ``conventions ride the system prompt when the file exists`` () =
         Session.runAgent session "hello" |> ignore
         Assert.True(sawConventions, "CONVENTIONS.md must be in the system prompt")
         Assert.True(sawCacheControl, "the request must carry the cache breakpoint"))
+
+let private run session source =
+    match Session.runSource session "test.ikr" source with
+    | Choice1Of2 error -> failwith (showError error)
+    | Choice2Of2 value -> value
+
+let private contentOf (result: LispVal) =
+    match Tools.plistTryGet "content" result with
+    | Some (Obj (:? string as s)) -> s
+    | other -> failwithf "no :content in tool result: %A" other
+
+let private isErrorOf (result: LispVal) =
+    match Tools.plistTryGet "is_error" result with
+    | Some (Bool b) -> b
+    | _ -> false
+
+let private quietBridge: AnthropicBridge.LlmBridge =
+    fun _ -> Choice2Of2 (Json.deserialize """{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}""")
+
+[<Fact>]
+let ``git_status, git_diff, and git_log read the repository as data`` () =
+    withRepo (fun root ->
+        File.WriteAllText(Path.Combine(root, "a.txt"), "one\n")
+        Directory.CreateDirectory(Path.Combine(root, "src")) |> ignore
+        File.WriteAllText(Path.Combine(root, "src", "b.txt"), "b\n")
+        File.WriteAllText(Path.Combine(root, "c.txt"), "c\n")
+        sh root "git add . && git -c user.name=u -c user.email=u@x commit -qm 'add files'" |> ignore
+        File.WriteAllText(Path.Combine(root, "a.txt"), "two\n")
+        File.WriteAllText(Path.Combine(root, "src", "b.txt"), "bb\n")
+        sh root "git add src/b.txt" |> ignore
+        File.WriteAllText(Path.Combine(root, "new.txt"), "n\n")
+        let session = newSession root quietBridge
+        let status = contentOf (run session """(call-tool "git_status" (list))""")
+        Assert.StartsWith("On main", status)
+        Assert.Contains("Staged:\n  modified src/b.txt", status)
+        Assert.Contains("Unstaged:\n  modified a.txt", status)
+        Assert.Contains("Untracked:\n  new.txt", status)
+        // Uncommitted change against HEAD by default, staged on request,
+        // a ref when named, and per-file counts with stat.
+        let diff = contentOf (run session """(call-tool "git_diff" (list))""")
+        Assert.Contains("-one\n+two", diff)
+        Assert.Contains("-b\n+bb", diff)
+        let staged = contentOf (run session """(call-tool "git_diff" (list :staged #t))""")
+        Assert.Contains("+bb", staged)
+        Assert.DoesNotContain("+two", staged)
+        let scoped = contentOf (run session """(call-tool "git_diff" (list :path "src"))""")
+        Assert.DoesNotContain("+two", scoped)
+        let stat = contentOf (run session """(call-tool "git_diff" (list :stat #t))""")
+        Assert.Contains("a.txt", stat)
+        Assert.DoesNotContain("+two", stat)
+        let bad = run session """(call-tool "git_diff" (list :ref "--output=/tmp/x"))"""
+        Assert.True(isErrorOf bad)
+        Assert.Contains("not a plain ref", contentOf bad)
+        let log = contentOf (run session """(call-tool "git_log" (list :count 5))""")
+        let first = log.Split('\n').[0]
+        Assert.Contains("add files (u)", first)
+        Assert.Contains("\n    a.txt, c.txt, src/b.txt", log)
+        Assert.Contains("root (u)", log)
+        let scopedLog = contentOf (run session """(call-tool "git_log" (list :path "src/b.txt"))""")
+        Assert.DoesNotContain("root", scopedLog)
+        // Blame reads the working tree, so an unmodified file names the commit.
+        let blame = contentOf (run session """(call-tool "git_blame" (list :path "c.txt" :start 1 :end 1))""")
+        Assert.Contains("(u ", blame)
+        Assert.EndsWith(" 1) c", blame.TrimEnd()))
+
+[<Fact>]
+let ``changed_set reports what this session edited`` () =
+    withRepo (fun root ->
+        File.WriteAllText(Path.Combine(root, "a.txt"), "one\n")
+        sh root "git add a.txt && git -c user.name=u -c user.email=u@x commit -qm files" |> ignore
+        let session = newSession root (editBridge ())
+        let before = contentOf (run session """(call-tool "changed_set" (list))""")
+        Assert.Equal("no files edited in this session yet", before)
+        match Session.runAgent session "Change one to two in a.txt" with
+        | Choice1Of2 e -> failwith (showError e)
+        | Choice2Of2 _ -> ()
+        let after = contentOf (run session """(call-tool "changed_set" (list))""")
+        Assert.Equal("1 files edited in this session, 2 lines changed:\n  a.txt (2 lines changed)", after))
+
+[<Fact>]
+let ``outside a repository the git tools say so`` () =
+    let root = Path.Combine(Path.GetTempPath(), "jern-nogit-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory root |> ignore
+    try
+        let session = newSession root quietBridge
+        let status = run session """(call-tool "git_status" (list))"""
+        Assert.True(isErrorOf status)
+        Assert.Contains("not a git repository", contentOf status)
+    finally Directory.Delete(root, true)

@@ -883,6 +883,123 @@ module Tools =
                             let text = TestReport.render exitCode seconds output report
                             if exitCode = 0 then ok text else toolError text
 
+    // -----------------------------------------------------------------------
+    // Git as data. Read-only views over the repository so the model does
+    // not spend turns on `git status && git diff && git log` through shell
+    // or invent flags: a path under the workspace, a validated ref, and
+    // numbers are all it can pass.
+
+    let private maxDiffChars = 24_000
+
+    let private requireRepo root (body: unit -> LispVal) =
+        if Git.isRepo root then body () else toolError "the workspace is not a git repository"
+
+    let private optionalPath root input =
+        match optionalStringArg "path" "" input with
+        | Error e -> Error e
+        | Ok "" -> Ok None
+        | Ok path ->
+            match resolve root path with
+            | Error e -> Error e
+            | Ok full -> Ok(Some(Path.GetRelativePath(Path.GetFullPath root, full).Replace('\\', '/')))
+
+    let private boolArg key input =
+        match plistTryGet key input with
+        | Some (Bool b) -> Ok b
+        | Some (Keyword "null") | None -> Ok false
+        | Some other -> Error(sprintf "argument '%s' must be true or false, got %s" key (showVal other))
+
+    let private intArg key fallback input =
+        match plistTryGet key input with
+        | Some (Obj v) -> (try Ok(Convert.ToInt32 v) with _ -> Error(sprintf "argument '%s' must be a number" key))
+        | Some (Keyword "null") | None -> Ok fallback
+        | Some other -> Error(sprintf "argument '%s' must be a number, got %s" key (showVal other))
+
+    let private gitStatus root input =
+        requireRepo root (fun () ->
+            match Git.status root with
+            | Error e -> toolError e
+            | Ok (branch, entries) ->
+                let describe code =
+                    match code with
+                    | "M" -> "modified" | "A" -> "added" | "D" -> "deleted" | "R" -> "renamed"
+                    | "C" -> "copied" | "U" -> "unmerged" | "T" -> "type changed" | other -> other
+                let group title (picked: (string * string) list) =
+                    if picked.IsEmpty then []
+                    else title :: (picked |> List.truncate limits.maxGrepMatches |> List.map (fun (code, path) -> sprintf "  %s %s" (describe code) path))
+                let staged = entries |> List.filter (fun e -> e.staged <> " " && e.staged <> "?") |> List.map (fun e -> e.staged, e.path)
+                let unstaged = entries |> List.filter (fun e -> e.unstaged <> " " && e.unstaged <> "?") |> List.map (fun e -> e.unstaged, e.path)
+                let untracked = entries |> List.filter (fun e -> e.staged = "?") |> List.map (fun e -> "?", e.path)
+                let body =
+                    group "Staged:" staged
+                    @ group "Unstaged:" unstaged
+                    @ (if untracked.IsEmpty then [] else "Untracked:" :: (untracked |> List.truncate limits.maxGrepMatches |> List.map (fun (_, p) -> "  " + p)))
+                let head = sprintf "On %s" branch
+                ok (String.concat "\n" (head :: (if body.IsEmpty then [ "clean: nothing staged, unstaged, or untracked" ] else body))))
+
+    let private gitDiff root input =
+        requireRepo root (fun () ->
+            match optionalPath root input, optionalStringArg "ref" "" input, boolArg "staged" input, boolArg "stat" input with
+            | Error e, _, _, _ | _, Error e, _, _ | _, _, Error e, _ | _, _, _, Error e -> toolError e
+            | Ok path, Ok reference, Ok staged, Ok stat ->
+                if reference <> "" && not (Git.isSafeRef reference) then
+                    toolError (sprintf "ref '%s' is not a plain ref name" reference)
+                else
+                    match Git.diff root path (if reference = "" then None else Some reference) staged stat with
+                    | Error e -> toolError e
+                    | Ok "" ->
+                        let what =
+                            if staged then "nothing is staged"
+                            elif reference <> "" then sprintf "no difference from %s" reference
+                            else "no uncommitted changes"
+                        ok (sprintf "(%s%s)" what (match path with Some p -> " under " + p | None -> ""))
+                    | Ok text ->
+                        if text.Length > maxDiffChars then
+                            ok (text.Substring(0, maxDiffChars) + sprintf "\n… truncated at %d characters; narrow with path or use stat" maxDiffChars)
+                        else ok text)
+
+    let private gitLog root input =
+        requireRepo root (fun () ->
+            match optionalPath root input, intArg "count" 10 input with
+            | Error e, _ | _, Error e -> toolError e
+            | Ok path, Ok count ->
+                let count = max 1 (min 50 count)
+                match Git.log root path count with
+                | Error e -> toolError e
+                | Ok [] -> ok "(no commits)"
+                | Ok entries ->
+                    entries
+                    |> List.map (fun e ->
+                        let files =
+                            match e.files with
+                            | [] -> ""
+                            | fs ->
+                                let shown = fs |> List.truncate 10
+                                sprintf "\n    %s%s" (String.concat ", " shown) (if fs.Length > 10 then sprintf " … %d more" (fs.Length - 10) else "")
+                        sprintf "%s %s %s (%s)%s" e.hash e.date e.subject e.author files)
+                    |> String.concat "\n"
+                    |> ok)
+
+    let private gitBlame root input =
+        requireRepo root (fun () ->
+            match stringArg "path" input, intArg "start" 1 input, intArg "end" 0 input with
+            | Error e, _, _ | _, Error e, _ | _, _, Error e -> toolError e
+            | Ok path, Ok startLine, Ok endLine ->
+                match resolve root path with
+                | Error e -> toolError e
+                | Ok full ->
+                    if not (File.Exists full) then toolError (sprintf "file '%s' does not exist" path)
+                    else
+                        let relative = Path.GetRelativePath(Path.GetFullPath root, full).Replace('\\', '/')
+                        let startLine = max 1 startLine
+                        let endLine = if endLine <= 0 then startLine + 49 else endLine
+                        if endLine < startLine then toolError "end must not be before start"
+                        elif endLine - startLine >= 200 then toolError "at most 200 lines at a time"
+                        else
+                            match Git.blame root relative startLine endLine with
+                            | Error e -> toolError e
+                            | Ok text -> ok text)
+
     /// Dispatch an jern/tool-call payload `(:name "…" :input (…))`.
     let dispatch (root: string) (call: LispVal) : ThrowsError<LispVal> =
         match plistTryGet "name" call with
@@ -905,6 +1022,10 @@ module Tools =
                 | "write_file" -> Some writeFile
                 | "shell" -> Some shell
                 | "run_tests" -> Some runTests
+                | "git_status" -> Some gitStatus
+                | "git_diff" -> Some gitDiff
+                | "git_log" -> Some gitLog
+                | "git_blame" -> Some gitBlame
                 | _ -> None
             match run with
             | Some tool ->

@@ -14,6 +14,14 @@
   `test_timeout_seconds` (default 600), caps a run. The default agent
   calls it after every edit instead of `shell`, so its fixture is
   re-recorded.
+- **Git as data.** `git_status` (branch, staged, unstaged, untracked),
+  `git_diff` (uncommitted changes against HEAD, or `staged`, or a `ref`;
+  `path` narrows, `stat` counts), `git_log` (hash, date, subject, author,
+  files; `path`, `count` up to 50), and `git_blame` (a line range of one
+  file). All read-only: the model passes a workspace path, a validated
+  ref, or numbers, never a git command line. `changed_set` lists the files
+  this session has edited with lines changed per file, from the run's own
+  record. All five are allowed by the base policy.
 
 ## 0.17.0 — 2026-09-07
 

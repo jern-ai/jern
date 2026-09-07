@@ -97,6 +97,41 @@
               :path (list :type "string" :description "Workspace-relative test file or directory (pytest, jest, vitest, go)"))
         :required (vector)))
 
+(define-tool "git_status"
+  "The repository's state as data: branch, then staged, unstaged, and untracked paths. Cheaper and exact where shell would need git status."
+  (list :type "object" :properties (list) :required (vector)))
+
+(define-tool "git_diff"
+  "A unified diff, capped: uncommitted changes against HEAD by default, the index with staged, or against a ref. path narrows it; stat gives per-file counts instead of hunks."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file or directory")
+              :ref (list :type "string" :description "Compare the working tree with this ref, e.g. main or HEAD~3")
+              :staged (list :type "boolean" :description "Show what is staged instead")
+              :stat (list :type "boolean" :description "Per-file change counts instead of the hunks"))
+        :required (vector)))
+
+(define-tool "git_log"
+  "The last commits, newest first, as 'hash date subject (author)' with the files each touched. path limits it to one file or directory; count defaults to 10, at most 50."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file or directory")
+              :count (list :type "integer" :description "How many commits, 1 to 50"))
+        :required (vector)))
+
+(define-tool "git_blame"
+  "Who last changed each line of a range in one file, with the commit and date. At most 200 lines at a time; end defaults to 50 lines after start."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file path")
+              :start (list :type "integer" :description "First line, 1-based")
+              :end (list :type "integer" :description "Last line, inclusive"))
+        :required (vector "path")))
+
+(define-tool "changed_set"
+  "The files this session has edited so far, with lines changed per file, from the run's own record rather than git. Use it before running tests or summarising the work."
+  (list :type "object" :properties (list) :required (vector)))
+
 (define-tool "memory_read"
   "Read a note stored about this workspace under a key, by you or an earlier session: how it builds, how tests run, traps. Answers the note's text, or says nothing is stored. Notes live in the workspace memory, which the workspace policy may deny."
   (list :type "object"
