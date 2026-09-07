@@ -201,6 +201,18 @@ let private loadProviders () =
         eprintfn "jern: %s" message
         exit 1
     | Ok config ->
+        // A protected baseline's test command outranks the checkout's: it is
+        // the copy a pull request cannot change (Providers.baselineTestCommand).
+        let config =
+            match cliPolicyBaseline with
+            | None -> config
+            | Some file ->
+                match Providers.baselineTestCommand file with
+                | Ok (Some command) -> { config with testCommand = Some command }
+                | Ok None -> config
+                | Error message ->
+                    eprintfn "jern: --policy-baseline '%s': %s" file message
+                    exit 2
         Tools.configureLimits config.limits
         Tools.configureTestCommand config.testCommand
         { config with

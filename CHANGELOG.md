@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.1 — 2026-09-07
+
+- **The baseline may name the test command.** A `--policy-baseline` file
+  that is jern.json-shaped may carry `test_command` beside `policy`; it is
+  applied as the workspace's test command and outranks `jern.json`'s, so a
+  repository governed by one protected file needs no second file for
+  `run_tests` and the default agent's run after every edit.
+
 ## 0.18.0 — unreleased
 
 - **`run_tests`.** The workspace's `test_command`, run as a tool and read
