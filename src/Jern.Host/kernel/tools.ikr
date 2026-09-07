@@ -57,6 +57,14 @@
               :path (list :type "string" :description "File or directory to search; defaults to the workspace root"))
         :required (vector "name")))
 
+(define-tool "references"
+  "Every mention of a name across the workspace or under a path, as 'file:line:col: kind in scope — text', with the definition, calls, and type uses told apart and strings and comments left out where the language is parsed (Python, JavaScript, TypeScript, C#, Java, Go, Rust). Use this before changing a definition to see everything the change touches."
+  (list :type "object"
+        :properties
+        (list :name (list :type "string" :description "The symbol's name, whole word")
+              :path (list :type "string" :description "File or directory to search; defaults to the workspace root"))
+        :required (vector "name")))
+
 (define-tool "edit_file"
   "Edit a workspace file by exact string replacement. old_string must occur exactly once."
   (list :type "object"

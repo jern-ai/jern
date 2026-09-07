@@ -38,6 +38,12 @@ jobs:
         with:
           dotnet-version: "10.0.4xx"
 
+      # jern-symbols, the tree-sitter helper the symbol tools call. Built from
+      # pinned sources before the .NET build copies it beside the binary; the
+      # tests then require it, so a helper that fails to build fails CI.
+      - name: Build the tree-sitter helper
+        run: bash jern/native/symbols/fetch.sh && bash jern/native/symbols/build.sh
+
       - name: Restore
         run: dotnet restore jern/Jern.slnx
 
@@ -46,6 +52,8 @@ jobs:
 
       - name: Test
         run: dotnet test jern/Jern.slnx -c Release --no-build --verbosity normal
+        env:
+          JERN_SYMBOLS_REQUIRED: "1"
 
       - name: Test live Action contract
         run: bash jern/action/test-live-run.sh

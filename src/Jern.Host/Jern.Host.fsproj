@@ -9,6 +9,7 @@
     <Compile Include="AgentEnv.fs" />
     <Compile Include="Anthropic.fs" />
     <Compile Include="OpenAI.fs" />
+    <Compile Include="Symbols.fs" />
     <Compile Include="Tools.fs" />
     <Compile Include="Approvals.fs" />
     <Compile Include="Mcp.fs" />
@@ -29,6 +30,27 @@
   <ItemGroup>
     <!-- Host-owned Kernel source: the agent prelude and the handler stack. -->
     <Content Include="kernel/*.ikr" CopyToOutputDirectory="PreserveNewest" />
+    <!-- jern-symbols, the tree-sitter helper (native/symbols), and the tags
+         queries it reads. The helper is built by native/symbols/build.sh
+         before the build; without it the symbol tools fall back to patterns. -->
+    <!-- ExcludeFromSingleFile: the helper is a native executable and would
+         otherwise be folded into the single-file bundle, where it cannot be
+         run; it must stay a file beside jern. -->
+    <Content Include="../../native/symbols/out/jern-symbols"
+             Condition="Exists('../../native/symbols/out/jern-symbols')"
+             Link="jern-symbols"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true" />
+    <Content Include="../../native/symbols/out/jern-symbols.exe"
+             Condition="Exists('../../native/symbols/out/jern-symbols.exe')"
+             Link="jern-symbols.exe"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true" />
+    <Content Include="../../native/symbols/queries/*.scm"
+             Link="symbols/queries/%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
     <!-- The bundled agents ship as readable source alongside the binary
          (loop, tests, and fixtures — jern eject copies the default one). -->
     <Content Include="../../agents/default/**/*"

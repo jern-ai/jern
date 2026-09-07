@@ -136,6 +136,7 @@ module Session =
             ((equal? name "symbols") :allow)
             ((equal? name "outline") :allow)
             ((equal? name "read_symbol") :allow)
+            ((equal? name "references") :allow)
             ((equal? name "kernel_eval") :allow) ; inner calls are still policed
             (#t :ask)))))
 """

@@ -124,6 +124,26 @@
             }
           },
           {
+            "name": "references",
+            "description": "Every mention of a name across the workspace or under a path, as \u0027file:line:col: kind in scope \u2014 text\u0027, with the definition, calls, and type uses told apart and strings and comments left out where the language is parsed (Python, JavaScript, TypeScript, C#, Java, Go, Rust). Use this before changing a definition to see everything the change touches.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The symbol\u0027s name, whole word"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          {
             "name": "edit_file",
             "description": "Edit a workspace file by exact string replacement. old_string must occur exactly once.",
             "input_schema": {
@@ -377,6 +397,26 @@
                 "name": {
                   "type": "string",
                   "description": "The symbol\u0027s name as defined"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          {
+            "name": "references",
+            "description": "Every mention of a name across the workspace or under a path, as \u0027file:line:col: kind in scope \u2014 text\u0027, with the definition, calls, and type uses told apart and strings and comments left out where the language is parsed (Python, JavaScript, TypeScript, C#, Java, Go, Rust). Use this before changing a definition to see everything the change touches.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The symbol\u0027s name, whole word"
                 },
                 "path": {
                   "type": "string",
@@ -668,6 +708,26 @@
                 "name": {
                   "type": "string",
                   "description": "The symbol\u0027s name as defined"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "File or directory to search; defaults to the workspace root"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          {
+            "name": "references",
+            "description": "Every mention of a name across the workspace or under a path, as \u0027file:line:col: kind in scope \u2014 text\u0027, with the definition, calls, and type uses told apart and strings and comments left out where the language is parsed (Python, JavaScript, TypeScript, C#, Java, Go, Rust). Use this before changing a definition to see everything the change touches.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The symbol\u0027s name, whole word"
                 },
                 "path": {
                   "type": "string",
