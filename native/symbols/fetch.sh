@@ -8,6 +8,9 @@ vendor="$here/vendor"
 mkdir -p "$vendor"
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
 while read -r name tag expected; do
+  # A Windows checkout may hand sources.txt over with CRLF endings; the
+  # digest must not carry the carriage return into the comparison.
+  expected="${expected%$'\r'}"
   case "$name" in ''|'#'*) continue ;; esac
   if [ -f "$vendor/$name/.fetched" ] && [ "$(cat "$vendor/$name/.fetched")" = "$tag $expected" ]; then
     continue
