@@ -1,9 +1,9 @@
-# name tag sha256-of-github-tag-tarball
-tree-sitter v0.27.0 d35c96e68736bd9569d2757c3cc71052485f33082c3825f1aed9d0e86013a159
-tree-sitter-python v0.25.0 4609a3665a620e117acf795ff01b9e965880f81745f287a16336f4ca86cf270c
-tree-sitter-javascript v0.25.0 9712fc283d3dc01d996d20b6392143445d05867a7aad76fdd723824468428b86
-tree-sitter-typescript v0.23.2 2c4ce711ae8d1218a3b2f899189298159d672870b5b34dff5d937bed2f3e8983
-tree-sitter-c-sharp v0.23.5 9628b164369071019368618bdefa446f0aab8acaac47b75d5dfb209e93b8903b
-tree-sitter-java v0.23.5 cb199e0faae4b2c08425f88cbb51c1a9319612e7b96315a174a624db9bf3d9f0
-tree-sitter-go v0.25.0 2dc241b97872c53195e01b86542b411a3c1a6201d9c946c78d5c60c063bba1ef
-tree-sitter-rust v0.24.2 061e90a539a55a6aa65dceb0ad6425c50ab1a6e3e6d4ba430e2795ed4550f10e
+# name tag commit — the commit each tag points at, checked after the clone
+tree-sitter v0.27.0 6070dbfefd326bd735e5683eb128cc1b57dad0c0
+tree-sitter-python v0.25.0 293fdc02038ee2bf0e2e206711b69c90ac0d413f
+tree-sitter-javascript v0.25.0 44c892e0be055ac465d5eeddae6d3e194424e7de
+tree-sitter-typescript v0.23.2 f975a621f4e7f532fe322e13c4f79495e0a7b2e7
+tree-sitter-c-sharp v0.23.5 cac6d5fb595f5811a076336682d5d595ac1c9e85
+tree-sitter-java v0.23.5 94703d5a6bed02b98e438d7cad1136c01a60ba2c
+tree-sitter-go v0.25.0 1547678a9da59885853f5f5cc8a99cc203fa2e2c
+tree-sitter-rust v0.24.2 77a3747266f4d621d0757825e6b11edcbf991ca5
