@@ -222,10 +222,35 @@ module OpenAIBridge =
                  | _ -> "end_turn")
         match usage with
         | Some u ->
+            // The canonical usage follows Anthropic's shape: input_tokens is the
+            // fresh prompt, cache_read_input_tokens the part served from the
+            // provider's prompt cache. OpenAI-shaped providers fold the cached
+            // part into prompt_tokens and report it under prompt_tokens_details.
             let usageOut = JsonObject()
+            let int64Of (node: JsonNode) =
+                match node with
+                | :? JsonValue as v ->
+                    (try Some(Convert.ToInt64(v.GetValue<decimal>())) with _ ->
+                        try Some(v.GetValue<int64>()) with _ -> None)
+                | _ -> None
+            let cached =
+                match u.["prompt_tokens_details"] with
+                | :? JsonObject as details ->
+                    match details.["cached_tokens"] with
+                    | null -> 0L
+                    | t -> defaultArg (int64Of t) 0L
+                | _ -> 0L
             match u.["prompt_tokens"] with
             | null -> ()
-            | t -> usageOut.["input_tokens"] <- t.DeepClone()
+            | t ->
+                match int64Of t with
+                | Some prompt when prompt >= 0L && cached > 0L ->
+                    // Parsed numbers read back as any integer width, like the
+                    // provider's own.
+                    let cachedPart = min prompt cached
+                    usageOut.["input_tokens"] <- JsonNode.Parse(string (prompt - cachedPart))
+                    usageOut.["cache_read_input_tokens"] <- JsonNode.Parse(string cachedPart)
+                | _ -> usageOut.["input_tokens"] <- t.DeepClone()
             match u.["completion_tokens"] with
             | null -> ()
             | t -> usageOut.["output_tokens"] <- t.DeepClone()

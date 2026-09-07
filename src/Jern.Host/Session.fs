@@ -248,6 +248,11 @@ module Session =
                               Keyword "tokens"; Obj(budget.Spent :> obj) ])
                 Default message
 
+            // What a response counts toward the hard budget: fresh input, cache
+            // writes, and output in full, cache reads at a tenth, rounded up,
+            // which is what providers charge for them. An agent loop re-sends
+            // its whole context on every call, so counting cache reads in full
+            // made a budget track context size instead of cost.
             let responseTokens response =
                 let token usage key =
                     match Tools.plistTryGet key usage with
@@ -259,13 +264,18 @@ module Session =
                         with _ ->
                             Error(sprintf "provider returned invalid %s usage" key)
                     | _ -> Error(sprintf "provider omitted %s usage" key)
+                let optionalToken usage key =
+                    match Tools.plistTryGet key usage with
+                    | Some _ -> token usage key
+                    | None -> Ok 0L
                 match Tools.plistTryGet "usage" response with
                 | Some usage ->
-                    match token usage "input_tokens", token usage "output_tokens" with
-                    | Ok input, Ok output ->
-                        try Ok(Checked.(+) input output)
+                    match token usage "input_tokens", token usage "output_tokens",
+                          optionalToken usage "cache_creation_input_tokens", optionalToken usage "cache_read_input_tokens" with
+                    | Ok input, Ok output, Ok cacheCreation, Ok cacheRead ->
+                        try Ok(Checked.(+) (Checked.(+) input cacheCreation) (Checked.(+) output ((cacheRead + 9L) / 10L)))
                         with :? OverflowException -> Error "provider token usage overflowed"
-                    | Error message, _ | _, Error message -> Error message
+                    | Error message, _, _, _ | _, Error message, _, _ | _, _, Error message, _ | _, _, _, Error message -> Error message
                 | None -> Error "provider omitted token usage"
 
             let hostLlmCall env cont = function

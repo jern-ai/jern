@@ -201,7 +201,14 @@ module Receipt =
                         | Some usage ->
                             s <-
                                 { s with
-                                    inputTokens = s.inputTokens + defaultArg (int64Of usage "input_tokens") 0L
+                                    // Raw input as the provider metered it: fresh, cache
+                                    // writes, and cache reads. The hard budget weighs
+                                    // cache reads at a tenth; the receipt does not.
+                                    inputTokens =
+                                        s.inputTokens
+                                        + defaultArg (int64Of usage "input_tokens") 0L
+                                        + defaultArg (int64Of usage "cache_creation_input_tokens") 0L
+                                        + defaultArg (int64Of usage "cache_read_input_tokens") 0L
                                     outputTokens = s.outputTokens + defaultArg (int64Of usage "output_tokens") 0L }
                         | None -> ()
                     | "tool-call" ->

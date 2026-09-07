@@ -82,6 +82,21 @@ let ``responses translate back to the canonical shape`` () =
         Assert.Equal(20, canonical.["usage"].["output_tokens"].GetValue<int>())
 
 [<Fact>]
+let ``cached prompt tokens translate to cache reads beside the fresh input`` () =
+    let openai =
+        """{
+          "model": "gpt-test",
+          "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "Done."}}],
+          "usage": {"prompt_tokens": 100, "completion_tokens": 20, "prompt_tokens_details": {"cached_tokens": 60}}
+        }"""
+    match OpenAIBridge.translateResponse (JsonNode.Parse(openai).AsObject()) with
+    | Error e -> failwith e
+    | Ok canonical ->
+        Assert.Equal(40, canonical.["usage"].["input_tokens"].GetValue<int>())
+        Assert.Equal(60L, canonical.["usage"].["cache_read_input_tokens"].GetValue<int64>())
+        Assert.Equal(20, canonical.["usage"].["output_tokens"].GetValue<int>())
+
+[<Fact>]
 let ``openai stream chunks accumulate text, tool calls, and usage`` () =
     let collected = Text.StringBuilder()
     let accumulator = OpenAIBridge.StreamAccumulator(fun piece -> collected.Append piece |> ignore)
