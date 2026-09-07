@@ -39,10 +39,19 @@ module PolicyConfig =
           /// Tool names (with `*` suffix wildcards) to deny. Restriction.
           deny: string list
           /// "allow" (grant) | "ask" | "deny" (restrictions). None = silent.
-          memory: string option }
+          memory: string option
+          /// At most this many distinct files may be edited in a run. Restriction.
+          maxFilesEdited: int option
+          /// At most this many lines may change in a run, counting a replaced
+          /// region as its old lines plus its new ones. Restriction.
+          maxLinesChanged: int option
+          /// Workspace-relative prefixes no edit may touch, whatever
+          /// edits_within allows. Restriction.
+          protectedPaths: string list }
 
     let empty =
-        { editsWithin = []; shellAllow = []; allow = []; deny = []; memory = None }
+        { editsWithin = []; shellAllow = []; allow = []; deny = []; memory = None
+          maxFilesEdited = None; maxLinesChanged = None; protectedPaths = [] }
 
     let isEmpty (policy: Policy) = policy = empty
 
@@ -56,13 +65,28 @@ module PolicyConfig =
         not policy.editsWithin.IsEmpty
         || not policy.deny.IsEmpty
         || (match policy.memory with Some ("ask" | "deny") -> true | _ -> false)
+        || policy.maxFilesEdited.IsSome
+        || policy.maxLinesChanged.IsSome
+        || not policy.protectedPaths.IsEmpty
 
     /// The tightening half alone — what survives a declined trust prompt.
     let restrictionsOnly (policy: Policy) =
         { empty with
             editsWithin = policy.editsWithin
             deny = policy.deny
-            memory = (match policy.memory with Some ("ask" | "deny" as m) -> Some m | _ -> None) }
+            memory = (match policy.memory with Some ("ask" | "deny" as m) -> Some m | _ -> None)
+            maxFilesEdited = policy.maxFilesEdited
+            maxLinesChanged = policy.maxLinesChanged
+            protectedPaths = policy.protectedPaths }
+
+    /// The blast radius every source agrees on: the smallest limits and every
+    /// protected prefix. Restrictions need no trust, so all sources count.
+    let effectiveLimits (policies: Policy list) =
+        let smallest select =
+            policies |> List.choose select |> function [] -> None | values -> Some(List.min values)
+        smallest (fun p -> p.maxFilesEdited),
+        smallest (fun p -> p.maxLinesChanged),
+        policies |> List.collect (fun p -> p.protectedPaths) |> List.distinct |> List.sort
 
     // ---------------------------------------------------------------------
     // Parsing
@@ -93,7 +117,7 @@ module PolicyConfig =
     let parse (node: JsonNode) : Result<Policy, string> =
         match node with
         | :? JsonObject as o ->
-            let known = set [ "edits_within"; "shell_allow"; "allow"; "deny"; "memory" ]
+            let known = set [ "edits_within"; "shell_allow"; "allow"; "deny"; "memory"; "max_files_edited"; "max_lines_changed"; "protected_paths" ]
             let unknown = o |> Seq.map (fun kv -> kv.Key) |> Seq.filter (known.Contains >> not) |> List.ofSeq
             if not unknown.IsEmpty then
                 Error(sprintf "unknown policy key(s): %s (known: %s)"
@@ -103,9 +127,21 @@ module PolicyConfig =
                     match o.[name] with
                     | null -> Ok []
                     | node -> stringArray name node
-                match field "edits_within", field "shell_allow", field "allow", field "deny" with
-                | Error e, _, _, _ | _, Error e, _, _ | _, _, Error e, _ | _, _, _, Error e -> Error e
-                | Ok editsWithin, Ok shellAllow, Ok allow, Ok deny ->
+                let positive (name: string) =
+                    match o.[name] with
+                    | null -> Ok None
+                    | :? JsonValue as v ->
+                        match (try Some(v.GetValue<int>()) with _ -> None) with
+                        | Some n when n >= 1 -> Ok(Some n)
+                        | _ -> Error(sprintf "policy.%s must be a positive integer" name)
+                    | _ -> Error(sprintf "policy.%s must be a positive integer" name)
+                match field "edits_within", field "shell_allow", field "allow", field "deny", field "protected_paths" with
+                | Error e, _, _, _, _ | _, Error e, _, _, _ | _, _, Error e, _, _ | _, _, _, Error e, _ | _, _, _, _, Error e -> Error e
+                | Ok editsWithin, Ok shellAllow, Ok allow, Ok deny, Ok protectedPaths ->
+                    let limits =
+                        match positive "max_files_edited", positive "max_lines_changed" with
+                        | Error e, _ | _, Error e -> Error e
+                        | Ok files, Ok lines -> Ok(files, lines)
                     let memory =
                         match o.["memory"] with
                         | null -> Ok None
@@ -118,13 +154,17 @@ module PolicyConfig =
                                     Error(sprintf "policy.memory must be \"allow\", \"ask\", or \"deny\", got \"%s\"" other)
                                 | _ -> Error "policy.memory must be a string"
                             | _ -> Error "policy.memory must be a string"
-                    memory
-                    |> Result.map (fun memory ->
-                        { editsWithin = editsWithin
-                          shellAllow = shellAllow
-                          allow = allow
-                          deny = deny
-                          memory = memory })
+                    match memory, limits with
+                    | Error e, _ | _, Error e -> Error e
+                    | Ok memory, Ok(maxFiles, maxLines) ->
+                        Ok { editsWithin = editsWithin
+                             shellAllow = shellAllow
+                             allow = allow
+                             deny = deny
+                             memory = memory
+                             maxFilesEdited = maxFiles
+                             maxLinesChanged = maxLines
+                             protectedPaths = protectedPaths }
         | _ -> Error "policy must be a JSON object"
 
     // ---------------------------------------------------------------------
@@ -219,14 +259,22 @@ module PolicyConfig =
             b.ToString()
         let array (values: string list) =
             "[" + String.Join(",", values |> List.map (fun v -> "\"" + escape v + "\"")) + "]"
-        // Keys in ordinal sort order: allow, deny, edits_within, memory, shell_allow.
+        // Keys in ordinal sort order: allow, deny, edits_within, max_files_edited,
+        // max_lines_changed, memory, protected_paths, shell_allow.
         let fields =
             [ if not policy.allow.IsEmpty then yield "\"allow\":" + array policy.allow
               if not policy.deny.IsEmpty then yield "\"deny\":" + array policy.deny
               if not policy.editsWithin.IsEmpty then yield "\"edits_within\":" + array policy.editsWithin
+              match policy.maxFilesEdited with
+              | Some n -> yield sprintf "\"max_files_edited\":%d" n
+              | None -> ()
+              match policy.maxLinesChanged with
+              | Some n -> yield sprintf "\"max_lines_changed\":%d" n
+              | None -> ()
               match policy.memory with
               | Some m -> yield "\"memory\":\"" + escape m + "\""
               | None -> ()
+              if not policy.protectedPaths.IsEmpty then yield "\"protected_paths\":" + array policy.protectedPaths
               if not policy.shellAllow.IsEmpty then yield "\"shell_allow\":" + array policy.shellAllow ]
         "{" + String.Join(",", fields) + "}"
 
@@ -292,6 +340,24 @@ module PolicyConfig =
             add  "            :allow"
             add (sprintf "            %s)" (kernelString (sprintf "policy: edits are limited to %s (%s edits_within)" prefixes label)))
             add  "        :allow)))"
+        if not policy.protectedPaths.IsEmpty then
+            let prefixes = String.Join(", ", policy.protectedPaths)
+            add (sprintf "(add-policy-restriction! %s" (kernelString (label + " protected_paths")))
+            add  "  (lambda (call)"
+            add  "    (if (policy-file-write? call)"
+            add (sprintf "        (if (policy-path-within-any? call %s)" (kernelList policy.protectedPaths))
+            add (sprintf "            %s" (kernelString (sprintf "policy: edits under %s are denied (%s protected_paths)" prefixes label)))
+            add  "            :allow)"
+            add  "        :allow)))"
+        if policy.maxFilesEdited.IsSome || policy.maxLinesChanged.IsSome then
+            // The counts live in the host, which sees every edit succeed or
+            // fail; the layer asks it whether this write would cross a limit.
+            add (sprintf "(add-policy-restriction! %s" (kernelString (label + " blast_radius")))
+            add  "  (lambda (call)"
+            add  "    (if (policy-file-write? call)"
+            add (sprintf "        (jern/host-blast-radius call %d %d %s)"
+                     (defaultArg policy.maxFilesEdited 0) (defaultArg policy.maxLinesChanged 0) (kernelString label))
+            add  "        :allow)))"
         if not policy.deny.IsEmpty then
             let exacts, prefixes = splitPatterns policy.deny
             add (sprintf "(add-policy-restriction! %s" (kernelString (label + " deny")))
@@ -327,6 +393,14 @@ module PolicyConfig =
     let describeRestrictions (policy: Policy) : string list =
         [ if not policy.editsWithin.IsEmpty then
             yield "edits_within: " + String.Join(", ", policy.editsWithin)
+          if not policy.protectedPaths.IsEmpty then
+            yield "protected_paths: " + String.Join(", ", policy.protectedPaths)
+          match policy.maxFilesEdited with
+          | Some n -> yield sprintf "max_files_edited: %d" n
+          | None -> ()
+          match policy.maxLinesChanged with
+          | Some n -> yield sprintf "max_lines_changed: %d" n
+          | None -> ()
           if not policy.deny.IsEmpty then
             yield "deny: " + String.Join(", ", policy.deny)
           match policy.memory with

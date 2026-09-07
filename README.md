@@ -73,7 +73,8 @@ $ jern test agents/default               # deterministic replay against
   explicitly partial instead of guessing. `jern ui` now persists its trace
   too, and shows the receipt when a turn ends.
 - **M21 — policy from configuration** (v0.13): a `"policy"` object in
-  `jern.json` — `edits_within`, `shell_allow`, `allow`, `deny`, `memory` —
+  `jern.json` — `edits_within`, `protected_paths`, `max_files_edited`,
+  `max_lines_changed`, `shell_allow`, `allow`, `deny`, `memory` —
   gives a repository enforced rules with no Kernel in sight. The policy
   handler now *composes* layers instead of asking one redefinable function:
   restrictions tighten, grants relax the base, and severity decides, so

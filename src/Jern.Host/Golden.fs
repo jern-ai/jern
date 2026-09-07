@@ -30,13 +30,14 @@ module Golden =
 
     type Assertions =
         { editsWithin: string list
+          maxLinesChanged: int option
           noTools: string list
           maxFilesEdited: int option
           maxLlmCalls: int option
           maxTokens: int option }
 
     let noAssertions =
-        { editsWithin = []; noTools = []; maxFilesEdited = None; maxLlmCalls = None; maxTokens = None }
+        { editsWithin = []; maxLinesChanged = None; noTools = []; maxFilesEdited = None; maxLlmCalls = None; maxTokens = None }
 
     type Metadata =
         { task: string
@@ -112,7 +113,7 @@ module Golden =
                 match doc.["assert"] with
                 | null -> Ok { task = task; recordedWith = recordedWith; assertions = noAssertions }
                 | :? JsonObject as a ->
-                    let known = set [ "edits_within"; "no_tools"; "max_files_edited"; "max_llm_calls"; "max_tokens" ]
+                    let known = set [ "edits_within"; "no_tools"; "max_files_edited"; "max_lines_changed"; "max_llm_calls"; "max_tokens" ]
                     let unknown =
                         a |> Seq.map (fun kv -> kv.Key) |> Seq.filter (known.Contains >> not) |> List.ofSeq
                     if not unknown.IsEmpty then
@@ -133,13 +134,14 @@ module Golden =
                         match list "edits_within", list "no_tools" with
                         | Error e, _ | _, Error e -> Error e
                         | Ok editsWithin, Ok noTools ->
-                            match number "max_files_edited", number "max_llm_calls", number "max_tokens" with
-                            | Error e, _, _ | _, Error e, _ | _, _, Error e -> Error e
-                            | Ok maxFiles, Ok maxCalls, Ok maxTokens ->
+                            match number "max_files_edited", number "max_llm_calls", number "max_tokens", number "max_lines_changed" with
+                            | Error e, _, _, _ | _, Error e, _, _ | _, _, Error e, _ | _, _, _, Error e -> Error e
+                            | Ok maxFiles, Ok maxCalls, Ok maxTokens, Ok maxLines ->
                                 Ok { task = task
                                      recordedWith = recordedWith
                                      assertions =
                                        { editsWithin = editsWithin
+                                         maxLinesChanged = maxLines
                                          noTools = noTools
                                          maxFilesEdited = maxFiles
                                          maxLlmCalls = maxCalls
@@ -163,6 +165,9 @@ module Golden =
             a.["no_tools"] <- strings metadata.assertions.noTools
         (match metadata.assertions.maxFilesEdited with
          | Some n -> a.["max_files_edited"] <- JsonValue.Create n
+         | None -> ())
+        (match metadata.assertions.maxLinesChanged with
+         | Some n -> a.["max_lines_changed"] <- JsonValue.Create n
          | None -> ())
         (match metadata.assertions.maxLlmCalls with
          | Some n -> a.["max_llm_calls"] <- JsonValue.Create n
@@ -224,6 +229,11 @@ module Golden =
           match assertions.maxFilesEdited with
           | Some limit when summary.filesTouched.Length > limit ->
               yield sprintf "changed %d files (limit %d)" summary.filesTouched.Length limit
+          | _ -> ()
+
+          match assertions.maxLinesChanged with
+          | Some limit when summary.linesChanged > int64 limit ->
+              yield sprintf "changed %d lines (limit %d)" summary.linesChanged limit
           | _ -> ()
 
           match assertions.maxLlmCalls with

@@ -327,11 +327,93 @@ module Session =
             let evalProgramRef: (LispVal -> ThrowsError<LispVal>) ref =
                 ref (fun _ -> Choice1Of2 (Default "kernel_eval is not available yet"))
 
+            // The blast radius: what edits this run has made so far, for the
+            // max_files_edited and max_lines_changed restrictions. Counted here,
+            // where every edit's success is seen, and asked from the policy
+            // layer before an edit runs.
+            let editedFiles = Collections.Generic.HashSet<string>(StringComparer.Ordinal)
+            let mutable linesChanged = 0L
+            let rootFull = Path.GetFullPath config.workspaceRoot
+            let relativePath (path: string) =
+                try
+                    let full = Path.GetFullPath(Path.Combine(rootFull, path))
+                    if full.StartsWith(rootFull + string Path.DirectorySeparatorChar, StringComparison.Ordinal) || full = rootFull then
+                        Path.GetRelativePath(rootFull, full).Replace('\\', '/')
+                    else path
+                with _ -> path
+            let lineCount (text: string) =
+                if String.IsNullOrEmpty text then 0L
+                else
+                    let lines = text.Split('\n')
+                    int64 (if text.EndsWith "\n" then lines.Length - 1 else lines.Length)
+            // Lines changed by replacing one text with another: the line
+            // difference as a diff would count it, added plus removed, on the
+            // longest common subsequence of lines; positional when the two
+            // texts are too large for that to be cheap.
+            let splitLines (text: string) =
+                if String.IsNullOrEmpty text then [||]
+                else
+                    let lines = text.Split('\n')
+                    if text.EndsWith "\n" then Array.sub lines 0 (lines.Length - 1) else lines
+            let diffLines (before: string) (after: string) =
+                let a = splitLines before
+                let b = splitLines after
+                let n, m = a.Length, b.Length
+                if int64 n * int64 m > 4_000_000L then
+                    let shared = min n m
+                    let differing = Seq.init shared id |> Seq.filter (fun i -> a.[i] <> b.[i]) |> Seq.length
+                    int64 (2 * differing + abs (n - m))
+                else
+                    let table = Array2D.zeroCreate (n + 1) (m + 1)
+                    for i in n - 1 .. -1 .. 0 do
+                        for j in m - 1 .. -1 .. 0 do
+                            table.[i, j] <- if a.[i] = b.[j] then table.[i + 1, j + 1] + 1 else max table.[i + 1, j] table.[i, j + 1]
+                    int64 (n + m - 2 * table.[0, 0])
+            // What one write would add to the blast radius: the file it
+            // touches and the lines it changes, computed before it runs.
+            let projectedEdit (call: LispVal) =
+                let input = Tools.plistTryGet "input" call
+                let stringArg key =
+                    input |> Option.bind (Tools.plistTryGet key) |> Option.bind (function Obj (:? string as v) -> Some v | _ -> None)
+                match Tools.plistTryGet "name" call, stringArg "path" with
+                | Some (Obj (:? string as "edit_file")), Some path ->
+                    Some(relativePath path, lineCount (defaultArg (stringArg "old_string") "") + lineCount (defaultArg (stringArg "new_string") ""))
+                | Some (Obj (:? string as "write_file")), Some path ->
+                    let content = defaultArg (stringArg "content") ""
+                    let existing =
+                        try
+                            let full = Path.GetFullPath(Path.Combine(rootFull, path))
+                            if File.Exists full then Some(File.ReadAllText full) else None
+                        with _ -> None
+                    Some(relativePath path, (match existing with Some before -> diffLines before content | None -> lineCount content))
+                | _ -> None
+
+            let hostBlastRadius env cont = function
+                | [call; maxFilesValue; maxLinesValue; Obj (:? string as label)] ->
+                    let limit value = (try Convert.ToInt64((match value with Obj v -> v | _ -> box 0L)) with _ -> 0L)
+                    let maxFiles, maxLines = limit maxFilesValue, limit maxLinesValue
+                    match projectedEdit call with
+                    | None -> bounceContinue env cont (Keyword "allow")
+                    | Some (path, delta) ->
+                        let filesAfter = int64 editedFiles.Count + (if editedFiles.Contains path then 0L else 1L)
+                        let linesAfter = linesChanged + delta
+                        if maxFiles > 0L && filesAfter > maxFiles then
+                            bounceContinue env cont
+                                (Obj(sprintf "policy: at most %d files may be edited in this run (%s max_files_edited); %s would be file %d"
+                                         maxFiles label path filesAfter :> obj))
+                        elif maxLines > 0L && linesAfter > maxLines then
+                            bounceContinue env cont
+                                (Obj(sprintf "policy: at most %d lines may change in this run (%s max_lines_changed); this edit brings the total to %d"
+                                         maxLines label linesAfter :> obj))
+                        else bounceContinue env cont (Keyword "allow")
+                | bad -> signal cont (NumArgs(4, bad))
+
             let hostToolCall env cont = function
                 | [call] ->
                     if config.interrupted () || threadAbandoned () then
                         signal cont (Default "interrupted by user")
                     else
+                        let projected = projectedEdit call
                         let dispatch =
                             match Tools.plistTryGet "name" call with
                             | Some (Obj (:? string as name)) when name = "kernel_eval" ->
@@ -346,7 +428,19 @@ module Session =
                                     | _ -> Tools.dispatch config.workspaceRoot
                         match dispatch call with
                         | Choice1Of2 error -> signal cont error
-                        | Choice2Of2 reply -> bounceContinue env cont reply
+                        | Choice2Of2 reply ->
+                            // An edit that succeeded widens the blast radius,
+                            // and says so in the trace for the receipt.
+                            match projected with
+                            | Some (path, delta) when (match Tools.plistTryGet "is_error" reply with Some (Bool true) -> false | _ -> true) ->
+                                editedFiles.Add path |> ignore
+                                linesChanged <- linesChanged + delta
+                                emitTrace
+                                    (ofList [ Keyword "event"; Obj("edit-applied" :> obj)
+                                              Keyword "path"; Obj(path :> obj)
+                                              Keyword "lines_changed"; Obj(delta :> obj) ])
+                            | _ -> ()
+                            bounceContinue env cont reply
                 | bad -> signal cont (NumArgs(1, bad))
 
             let hostTrace env cont = function
@@ -491,6 +585,7 @@ module Session =
                     (("jern/host-llm-call", AgentEnv.applicative hostLlmCall)
                      :: ("jern/host-hard-token-check", AgentEnv.applicative hostHardTokenCheck)
                      :: ("jern/host-tool-call", AgentEnv.applicative hostToolCall)
+                     :: ("jern/host-blast-radius", AgentEnv.applicative hostBlastRadius)
                      :: ("jern/host-trace", AgentEnv.applicative hostTrace)
                      :: ("jern/host-approve", AgentEnv.applicative hostApprove)
                      :: ("jern/host-git-save-dirty", AgentEnv.applicative hostGitSaveDirty)
@@ -512,6 +607,16 @@ module Session =
             // workspace policy file and needs the same first-use trust; when
             // that is declined, the grants are dropped and the restrictions
             // stay (docs/roadmap-governance.md §2).
+            // The blast radius every source agrees on, stated once so the
+            // receipt can print "3 files of at most 5".
+            (match PolicyConfig.effectiveLimits (config.policySources |> List.map (fun source -> source.policy)) with
+             | None, None, [] -> ()
+             | maxFiles, maxLines, protectedPaths ->
+                 emitTrace
+                     (ofList [ Keyword "event"; Obj("policy-limits" :> obj)
+                               Keyword "max_files_edited"; (match maxFiles with Some n -> Obj(int64 n :> obj) | None -> Keyword "null")
+                               Keyword "max_lines_changed"; (match maxLines with Some n -> Obj(int64 n :> obj) | None -> Keyword "null")
+                               Keyword "protected_paths"; Vector (protectedPaths |> List.map (fun p -> Obj(p :> obj)) |> List.toArray) ]))
             let policyConfigLayers =
                 config.policySources
                 |> List.filter (fun source -> not (PolicyConfig.isEmpty source.policy))
