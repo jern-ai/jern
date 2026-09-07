@@ -13,7 +13,7 @@ while read -r name tag expected; do
     continue
   fi
   archive="$vendor/$name-$tag.tar.gz"
-  curl -fsSL --retry 3 -o "$archive" "https://github.com/tree-sitter/$name/archive/refs/tags/$tag.tar.gz"
+  curl -fsSL --retry 6 --retry-delay 5 --retry-all-errors -o "$archive" "https://github.com/tree-sitter/$name/archive/refs/tags/$tag.tar.gz"
   actual="$(sha "$archive")"
   [ "$actual" = "$expected" ] || { echo "$name $tag: sha256 $actual, expected $expected" >&2; exit 1; }
   rm -rf "$vendor/$name"
