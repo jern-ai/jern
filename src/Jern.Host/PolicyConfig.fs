@@ -53,6 +53,19 @@ module PolicyConfig =
         { editsWithin = []; shellAllow = []; allow = []; deny = []; memory = None
           maxFilesEdited = None; maxLinesChanged = None; protectedPaths = [] }
 
+    /// Tool packs: one name in `allow` or `deny` that stands for a family
+    /// of built-in tools, so a policy reads "pack:git" rather than five
+    /// names, and a tool added to a family later is covered. Packs are
+    /// expanded when the policy compiles; the JSON keeps the pack name.
+    let packs : Map<string, string list> =
+        Map.ofList
+            [ "read", [ "read_file"; "list_dir"; "file_tree"; "grep"; "symbols"; "outline"; "read_symbol"; "references" ]
+              "edit", [ "edit_file"; "edit_symbol"; "apply_patch"; "write_file" ]
+              "verify", [ "run_tests" ]
+              "git", [ "git_status"; "git_diff"; "git_log"; "git_blame"; "changed_set" ]
+              "session", [ "policy_check"; "session_status" ]
+              "memory", [ "memory_read"; "memory_write" ] ]
+
     let isEmpty (policy: Policy) = policy = empty
 
     /// Does this policy loosen anything? Only these halves need trust.
@@ -135,8 +148,13 @@ module PolicyConfig =
                         | Some n when n >= 1 -> Ok(Some n)
                         | _ -> Error(sprintf "policy.%s must be a positive integer" name)
                     | _ -> Error(sprintf "policy.%s must be a positive integer" name)
+                let unknownPack (patterns: string list) =
+                    patterns |> List.tryFind (fun p -> p.StartsWith "pack:" && not (Map.containsKey (p.Substring 5) packs))
                 match field "edits_within", field "shell_allow", field "allow", field "deny", field "protected_paths" with
                 | Error e, _, _, _, _ | _, Error e, _, _, _ | _, _, Error e, _, _ | _, _, _, Error e, _ | _, _, _, _, Error e -> Error e
+                | _, _, Ok allow, Ok deny, _ when (unknownPack (allow @ deny)).IsSome ->
+                    Error(sprintf "unknown tool pack %s (known: %s)" (unknownPack (allow @ deny)).Value
+                              (String.Join(", ", packs |> Map.toList |> List.map (fun (k, _) -> "pack:" + k))))
                 | Ok editsWithin, Ok shellAllow, Ok allow, Ok deny, Ok protectedPaths ->
                     let limits =
                         match positive "max_files_edited", positive "max_lines_changed" with
@@ -305,8 +323,17 @@ module PolicyConfig =
     /// Split tool-name patterns into exact names and `*`-suffix prefixes.
     /// Wildcards are expanded here rather than in Kernel, so the generated
     /// rule stays a plain two-list membership test.
-    let private splitPatterns (patterns: string list) =
+    let private expandPacks (patterns: string list) =
         patterns
+        |> List.collect (fun pattern ->
+            if pattern.StartsWith "pack:" then
+                match Map.tryFind (pattern.Substring 5) packs with
+                | Some tools -> tools
+                | None -> [ pattern ]
+            else [ pattern ])
+
+    let private splitPatterns (patterns: string list) =
+        expandPacks patterns
         |> List.fold
             (fun (exacts, prefixes) (pattern: string) ->
                 if pattern.EndsWith "*" then exacts, pattern.Substring(0, pattern.Length - 1) :: prefixes

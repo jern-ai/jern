@@ -13,6 +13,7 @@
     <Compile Include="ArgsTests.fs" />
     <Compile Include="AgentEnvTests.fs" />
     <Compile Include="SessionTests.fs" />
+    <Compile Include="TestReportTests.fs" />
     <Compile Include="ToolTests.fs" />
     <Compile Include="AgentLoopTests.fs" />
     <Compile Include="PolicyTests.fs" />

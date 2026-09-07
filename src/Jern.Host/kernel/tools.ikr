@@ -74,6 +74,23 @@
               :new_string (list :type "string" :description "Replacement text"))
         :required (vector "path" "old_string" "new_string")))
 
+(define-tool "edit_symbol"
+  "Replace one definition — a function, class, method, or type — with new source, by name, inside its exact extent. Safer than edit_file for a whole definition: nothing outside it can change, and a name that is missing or ambiguous in the file is refused."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file path")
+              :name (list :type "string" :description "The definition's name as defined")
+              :new_source (list :type "string" :description "The complete new definition, signature and body, at the file's indentation"))
+        :required (vector "path" "name" "new_source")))
+
+(define-tool "apply_patch"
+  "Apply a unified diff to one file. Every hunk must match the file's current lines (at its stated line first, then anywhere it matches exactly once); a hunk that does not match refuses the whole patch and says which line differs, so a stale view of the file cannot corrupt it."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file path")
+              :patch (list :type "string" :description "Unified diff hunks (@@ -a,b +c,d @@ with ' ', '-', '+' lines); --- and +++ headers are optional"))
+        :required (vector "path" "patch")))
+
 (define-tool "write_file"
   "Create a new workspace file (or replace an existing one) with the given full content. Parent directories are created as needed."
   (list :type "object"
@@ -88,6 +105,61 @@
         :properties
         (list :command (list :type "string" :description "Command line, run with sh -c (cmd.exe /c on Windows)"))
         :required (vector "command")))
+
+(define-tool "run_tests"
+  "Run the workspace's tests (its jern.json test_command) and get the result parsed: failures first as 'file:line: test — message', then counts, then only the output the parse could not explain. Far cheaper than running the same command through shell. filter narrows to tests whose name matches; path to one file or directory, where the runner supports it."
+  (list :type "object"
+        :properties
+        (list :filter (list :type "string" :description "Test name or keyword to run (the runner's own -k / -t / -run / --filter)")
+              :path (list :type "string" :description "Workspace-relative test file or directory (pytest, jest, vitest, go)"))
+        :required (vector)))
+
+(define-tool "git_status"
+  "The repository's state as data: branch, then staged, unstaged, and untracked paths. Cheaper and exact where shell would need git status."
+  (list :type "object" :properties (list) :required (vector)))
+
+(define-tool "git_diff"
+  "A unified diff, capped: uncommitted changes against HEAD by default, the index with staged, or against a ref. path narrows it; stat gives per-file counts instead of hunks."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file or directory")
+              :ref (list :type "string" :description "Compare the working tree with this ref, e.g. main or HEAD~3")
+              :staged (list :type "boolean" :description "Show what is staged instead")
+              :stat (list :type "boolean" :description "Per-file change counts instead of the hunks"))
+        :required (vector)))
+
+(define-tool "git_log"
+  "The last commits, newest first, as 'hash date subject (author)' with the files each touched. path limits it to one file or directory; count defaults to 10, at most 50."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file or directory")
+              :count (list :type "integer" :description "How many commits, 1 to 50"))
+        :required (vector)))
+
+(define-tool "git_blame"
+  "Who last changed each line of a range in one file, with the commit and date. At most 200 lines at a time; end defaults to 50 lines after start."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file path")
+              :start (list :type "integer" :description "First line, 1-based")
+              :end (list :type "integer" :description "Last line, inclusive"))
+        :required (vector "path")))
+
+(define-tool "changed_set"
+  "The files this session has edited so far, with lines changed per file, from the run's own record rather than git. Use it before running tests or summarising the work."
+  (list :type "object" :properties (list) :required (vector)))
+
+(define-tool "policy_check"
+  "What the policy would decide for a call, without making it: 'allow', 'ask' (needs the user's approval), or 'deny' with the rule's own reason and which layer decided. Ask before an edit or command you are unsure is allowed, instead of trying and being refused."
+  (list :type "object"
+        :properties
+        (list :name (list :type "string" :description "The tool the call would use, e.g. edit_file or shell")
+              :input (list :type "object" :description "The input that call would carry, e.g. {\"path\": \"src/x.py\"} or {\"command\": \"pytest\"}"))
+        :required (vector "name")))
+
+(define-tool "session_status"
+  "What this run has spent so far: model calls and tokens against their budgets, files edited and lines changed, and calls the policy denied."
+  (list :type "object" :properties (list) :required (vector)))
 
 (define-tool "memory_read"
   "Read a note stored about this workspace under a key, by you or an earlier session: how it builds, how tests run, traps. Answers the note's text, or says nothing is stored. Notes live in the workspace memory, which the workspace policy may deny."

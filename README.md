@@ -53,6 +53,20 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M25 — the run as data** (v0.18): tools that replace sloppy `shell`
+  with structured, deniable-by-name answers. `run_tests` runs the
+  repository's own `test_command`, never a model-written command line,
+  and hands back failures first as file, line, test, and message (pytest,
+  unittest, dotnet test, jest, vitest, go test, cargo test), then counts.
+  `git_status`, `git_diff`, `git_log`, `git_blame`, and `changed_set` read
+  the repository and the session's own edits as data. `policy_check`
+  answers what the policy would decide for a call before it is made, and
+  `session_status` what the run has spent. `edit_symbol` and `apply_patch`
+  are edits that fail closed: one definition inside its exact extent, or
+  a unified diff whose every hunk must match. `file_tree` honours
+  `.gitignore`, and policies can name whole families of tools as
+  `pack:read`, `pack:edit`, `pack:verify`, `pack:git`, `pack:session`,
+  and `pack:memory`.
 - **M24 — exact code intelligence** (v0.17): `outline`, `read_symbol`,
   and a new `references` tool answer from a real parse. `jern-symbols`, a
   small tree-sitter helper shipped beside the binary, reads Python,
@@ -83,7 +97,8 @@ $ jern test agents/default               # deterministic replay against
   too, and shows the receipt when a turn ends.
 - **M21 — policy from configuration** (v0.13): a `"policy"` object in
   `jern.json` — `edits_within`, `protected_paths`, `max_files_edited`,
-  `max_lines_changed`, `shell_allow`, `allow`, `deny`, `memory` —
+  `max_lines_changed`, `shell_allow`, `allow`, `deny` (tool names,
+  `mcp__*` patterns, or `pack:` families since v0.18), `memory` —
   gives a repository enforced rules with no Kernel in sight. The policy
   handler now *composes* layers instead of asking one redefinable function:
   restrictions tighten, grants relax the base, and severity decides, so
@@ -204,7 +219,8 @@ $ jern test agents/default               # deterministic replay against
   `/help`, and a status line (model · tokens · session). The default agent
   opens with a `file_tree` snapshot in the first message (cache-friendly:
   the system prompt stays byte-stable) and, when `jern.json` sets
-  `test_command`, runs your tests after every edit and reacts to the result.
+  `test_command`, runs your tests after every edit (through `run_tests`
+  since v0.18) and reacts to the result.
 - **M8 — git safety** (v0.2 roadmap): every approved `edit_file` is
   auto-committed (author `jern <jern@localhost>`, task in the message), with
   your uncommitted changes to that file saved on their own commit first;

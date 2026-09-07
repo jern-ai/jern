@@ -202,6 +202,7 @@ let private loadProviders () =
         exit 1
     | Ok config ->
         Tools.configureLimits config.limits
+        Tools.configureTestCommand config.testCommand
         { config with
             thinkingTokens = (match cliThink with Some t -> Some t | None -> config.thinkingTokens)
             reasoningEffort = (match cliEffort with Some e -> Some e | None -> config.reasoningEffort) }

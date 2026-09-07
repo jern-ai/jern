@@ -54,8 +54,9 @@ module Providers =
         { defaultModel: string
           aliases: Map<string, string>
           providers: Map<string, Provider>
-          /// Shell command the default agent runs after every edit
-          /// (jern.json "test_command"); exposed to agent source.
+          /// The workspace's test command (jern.json "test_command"): what
+          /// run_tests runs and the default agent runs after every edit;
+          /// exposed to agent source.
           testCommand: string option
           /// MCP servers (jern.json "mcp_servers"); their tools register as
           /// mcp__<server>__<tool> and go through the normal policy stack.
@@ -193,6 +194,10 @@ module Providers =
                       Tools.shellTimeoutSeconds =
                         (match l.["shell_timeout_seconds"] with
                          | null -> config.limits.shellTimeoutSeconds
+                         | v -> v.GetValue<float>())
+                      Tools.testTimeoutSeconds =
+                        (match l.["test_timeout_seconds"] with
+                         | null -> config.limits.testTimeoutSeconds
                          | v -> v.GetValue<float>())
                       Tools.evalTimeoutSeconds =
                         (match l.["eval_timeout_seconds"] with

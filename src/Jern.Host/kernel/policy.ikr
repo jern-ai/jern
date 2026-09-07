@@ -119,7 +119,10 @@
   (lambda (call)
     (sequence
       (define name (plist-get call :name))
-      (or? (equal? name "edit_file") (equal? name "write_file")))))
+      (or? (equal? name "edit_file")
+           (equal? name "edit_symbol")
+           (equal? name "apply_patch")
+           (equal? name "write_file")))))
 
 (define policy-path-within-any?
   (lambda (call prefixes)
@@ -208,25 +211,50 @@
       (loop (policy-layers *memory-restrictions*) base))))
 
 ; One-line description of a tool call, for approval prompts and the trace.
+; A field the call lacks (a policy_check probe may carry only a path)
+; reads as empty rather than failing the description.
+(define describe-field
+  (lambda (input key)
+    (sequence
+      (define value (plist-get input key))
+      (if (eqv? value :null)
+          ""
+          (if (or? (number? value) (boolean? value) (pair? value) (symbol? value))
+              (jern/show value)
+              value)))))
+
 (define describe-tool-call
   (lambda (call)
     (sequence
       (define name (plist-get call :name))
-      (define input (plist-get call :input))
+      (define raw (plist-get call :input))
+      (define input (if (eqv? raw :null) () raw))
       (cond ((equal? name "shell")
-             (String.concat "shell: " (plist-get input :command)))
+             (String.concat "shell: " (describe-field input :command)))
             ((equal? name "edit_file")
              ; A minimal diff preview: the exact text leaving and arriving.
              (String.concat "edit_file: "
-               (String.concat (plist-get input :path)
+               (String.concat (describe-field input :path)
                  (String.concat "\n  - "
-                   (String.concat (plist-get input :old_string)
-                     (String.concat "\n  + " (plist-get input :new_string)))))))
+                   (String.concat (describe-field input :old_string)
+                     (String.concat "\n  + " (describe-field input :new_string)))))))
             ((equal? name "write_file")
              ; The full arriving content, as an all-additions diff.
              (String.concat "write_file: "
-               (String.concat (plist-get input :path)
-                 (String.concat "\n  + " (plist-get input :content)))))
+               (String.concat (describe-field input :path)
+                 (String.concat "\n  + " (describe-field input :content)))))
+            ((equal? name "edit_symbol")
+             ; The definition leaving is named; the source arriving is shown.
+             (String.concat "edit_symbol: "
+               (String.concat (describe-field input :path)
+                 (String.concat " "
+                   (String.concat (describe-field input :name)
+                     (String.concat "\n  + " (describe-field input :new_source)))))))
+            ((equal? name "apply_patch")
+             ; A diff already reads as one.
+             (String.concat "apply_patch: "
+               (String.concat (describe-field input :path)
+                 (String.concat "\n" (describe-field input :patch)))))
             (#t name)))))
 
 ; The default policy: reads are free, writes and shell ask first. MCP tools
@@ -242,6 +270,8 @@
             ((equal? name "memory_read") :allow)
             ((equal? name "memory_write") :allow)
             ((equal? name "edit_file") :ask)
+            ((equal? name "edit_symbol") :ask)
+            ((equal? name "apply_patch") :ask)
             ((equal? name "write_file") :ask)
             ((equal? name "read_file") :allow)
             ((equal? name "list_dir") :allow)
@@ -251,6 +281,14 @@
             ((equal? name "outline") :allow)
             ((equal? name "read_symbol") :allow)
             ((equal? name "references") :allow)
+            ((equal? name "run_tests") :allow) ; runs only the repo's test_command
+            ((equal? name "git_status") :allow)
+            ((equal? name "git_diff") :allow)
+            ((equal? name "git_log") :allow)
+            ((equal? name "git_blame") :allow)
+            ((equal? name "changed_set") :allow)
+            ((equal? name "policy_check") :allow)
+            ((equal? name "session_status") :allow)
             ; kernel_eval runs model-authored code, but authority lives at
             ; the effects, not the code: every tool call *inside* a program
             ; is policed and approval-gated individually, so the program
@@ -273,6 +311,62 @@
 ; Intercepts jern/tool-call closest to the agent. Allowed (or approved) calls
 ; are re-performed, which reaches the executor handler installed outside this
 ; one; everything else becomes an error tool-result the agent can react to.
+; --- The policy as a tool ----------------------------------------------------
+;
+; policy_check answers what the composed policy would decide for a call
+; without performing it, so the model asks instead of trying, being denied,
+; and trying again. session_status answers what the run has spent so far.
+; Both are decided by the policy like any other call (a repository can deny
+; them by name) and answered here, without reaching the host tools.
+
+(define *policy-denials-box* (vector 0))
+(define policy-count-denial!
+  (lambda ()
+    (vector-set! *policy-denials-box* 0 (+ 1 (vector-ref *policy-denials-box* 0)))))
+
+(define policy-describe-outcome
+  (lambda (probe outcome)
+    (sequence
+      (define decision (plist-get outcome :decision))
+      (define by (plist-get outcome :by))
+      (define name (plist-get probe :name))
+      (cond ((eqv? decision :allow)
+             (String.concat "allow: " (String.concat name (String.concat " runs without approval (decided by " (String.concat by ")")))))
+            ((eqv? decision :ask)
+             (String.concat "ask: " (String.concat name (String.concat " needs the user's approval (decided by " (String.concat by ")")))))
+            (#t
+             (String.concat "deny: " (String.concat decision (String.concat " (decided by " (String.concat by ")")))))))))
+
+(define policy-check-answer
+  (lambda (call)
+    (sequence
+      (define raw (plist-get call :input))
+      (define input (if (eqv? raw :null) () raw))
+      (define name (plist-get input :name))
+      (if (eqv? name :null)
+          (list :content "policy_check needs name: the tool the call would use" :is_error #t)
+          (sequence
+            (define probe-input (plist-get input :input))
+            (define probe (list :name name :input (if (eqv? probe-input :null) () probe-input)))
+            (define outcome (effective-tool-policy probe))
+            (jern/host-trace
+              (list :event "policy-check"
+                    :call (describe-tool-call probe)
+                    :decision (plist-get outcome :decision)
+                    :by (plist-get outcome :by)))
+            (list :content (policy-describe-outcome probe outcome) :is_error #f))))))
+
+(define session-status-answer
+  (lambda ()
+    (list :content
+          (jern/host-session-status
+            (list :llm_calls (vector-ref *budget-spent-box* 0)
+                  :tokens (vector-ref *budget-spent-box* 1)
+                  :budget_llm_calls (budget-limit :llm_calls)
+                  :budget_tokens (budget-limit :tokens)
+                  :denials (vector-ref *policy-denials-box* 0)))
+          :is_error #f)))
+
 (define with-policy-handler
   (vau (body) env
     (prompt jern/tool-call
@@ -280,25 +374,36 @@
         (sequence
           (define outcome (effective-tool-policy call))
           (define decision (plist-get outcome :decision))
+          (define name (plist-get call :name))
           (jern/host-trace
             (list :event "policy-decision"
                   :call (describe-tool-call call)
                   :decision decision
                   :by (plist-get outcome :by)))
           (cond ((eqv? decision :allow)
-                 (resume resume-call (perform jern/tool-call call)))
+                 (cond ((equal? name "policy_check")
+                        (resume resume-call (policy-check-answer call)))
+                       ((equal? name "session_status")
+                        (resume resume-call (session-status-answer)))
+                       (#t (resume resume-call (perform jern/tool-call call)))))
                 ((eqv? decision :ask)
                  (if (perform jern/approve (describe-tool-call call))
                      (resume resume-call (perform jern/tool-call call))
                      (sequence
+                       (policy-count-denial!)
                        (jern/host-trace
                          (list :event "approval-denied"
                                :call (describe-tool-call call)))
                        (resume resume-call
-                               (list :content "the user declined this action"
+                               (list :content
+                                     (String.concat "the user declined this action; "
+                                       (String.concat (plist-get outcome :by)
+                                                      " asks for approval for it — policy_check tells what is allowed"))
                                      :is_error #t)))))
-                (#t (resume resume-call
-                            (list :content decision :is_error #t))))))
+                (#t (sequence
+                      (policy-count-denial!)
+                      (resume resume-call
+                              (list :content decision :is_error #t)))))))
       (eval body env))))
 
 ; Answers jern/approve by asking the host (TTY prompt, --yes, or a test stub).

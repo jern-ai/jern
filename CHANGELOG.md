@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.18.0 — unreleased
+
+- **`run_tests`.** The workspace's `test_command`, run as a tool and read
+  back parsed: failures first as `file:line: test — message` for pytest,
+  unittest, dotnet test, jest, vitest, go test, and cargo test (recognised
+  from their output), then counts, then only the output the parse could
+  not explain, capped. The command is the repository's own, never the
+  model's; `filter` and `path` ride the runner's flag as one quoted
+  argument limited to characters no shell reads, and runners without such
+  a flag refuse them. The base policy allows it, as it would the
+  repository's own tests; `deny: ["run_tests"]` turns it off. A new limit,
+  `test_timeout_seconds` (default 600), caps a run. The default agent
+  calls it after every edit instead of `shell`, so its fixture is
+  re-recorded.
+- **Git as data.** `git_status` (branch, staged, unstaged, untracked),
+  `git_diff` (uncommitted changes against HEAD, or `staged`, or a `ref`;
+  `path` narrows, `stat` counts), `git_log` (hash, date, subject, author,
+  files; `path`, `count` up to 50), and `git_blame` (a line range of one
+  file). All read-only: the model passes a workspace path, a validated
+  ref, or numbers, never a git command line. `changed_set` lists the files
+  this session has edited with lines changed per file, from the run's own
+  record. All five are allowed by the base policy.
+- **`policy_check` and `session_status`.** `policy_check` answers what the
+  composed policy would decide for a call (`allow`, `ask`, or `deny` with
+  the rule's own reason) and which layer decided, without making it, so
+  the model asks instead of trying, being refused, and trying again. A
+  declined approval now names the layer that asked. `session_status`
+  reports model calls and tokens against their budgets, the hard token
+  cap when a host set one, files edited and lines changed, and calls
+  denied. Both are answered in the policy layer and traced.
+- **Edits that fail closed.** `edit_symbol` replaces one definition by
+  name inside its exact extent (found the way `read_symbol` finds it) and
+  refuses a name that is missing or defined more than once in the file.
+  `apply_patch` applies a unified diff to one file: every hunk must match
+  the file's current lines, at its stated line first and otherwise where
+  it matches exactly once, and one hunk that does not match refuses the
+  whole patch and names the line. Both count toward `edits_within`,
+  `protected_paths`, `max_files_edited`, and `max_lines_changed`, are
+  committed by the git layer like `edit_file`, ask by default, and trigger
+  the default agent's test run.
+- **`file_tree` honours `.gitignore`.** Inside a repository the tree is
+  what git tracks or would track, so build output and dependencies are
+  left out; outside one the directory walk stands.
+- **Tool packs in policy.** `allow` and `deny` accept `pack:read`,
+  `pack:edit`, `pack:verify`, `pack:git`, `pack:session`, and
+  `pack:memory` beside tool names and `mcp__*` patterns; a pack expands
+  when the policy compiles, the JSON keeps the name, and an unknown pack
+  is a startup error.
+
 ## 0.17.0 — 2026-09-07
 
 - **The symbol tools parse.** `outline` and `read_symbol` answer from a

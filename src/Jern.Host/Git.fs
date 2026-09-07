@@ -1,11 +1,12 @@
 namespace Jern.Host
 
+open System
 open System.Diagnostics
 
-/// Git operations behind the git handler (kernel/handlers.ikr) and
-/// `jern undo`. Every jern-authored commit carries the author
-/// `jern <jern@localhost>`, which is what makes undo safe: it only ever
-/// pops a commit jern itself made.
+/// Git operations behind the git handler (kernel/handlers.ikr), `jern undo`,
+/// and the read-only git tools. Every jern-authored commit carries the
+/// author `jern <jern@localhost>`, which is what makes undo safe: it only
+/// ever pops a commit jern itself made.
 module Git =
 
     let author = "jern <jern@localhost>"
@@ -95,3 +96,86 @@ module Git =
                     match run root [ "reset"; "--hard"; "HEAD~1" ] with
                     | Ok _ -> Ok subject
                     | Error e -> Error("undo failed: " + e)
+
+    // -----------------------------------------------------------------------
+    // Read-only views for the git_* tools. Every argument that reaches git
+    // is a path under the workspace, a validated ref, or a number; the
+    // model never writes a git command line.
+
+    /// A ref the model may name: no leading dash (no options ride in), and
+    /// only the characters refs, `HEAD~3`, `@{u}`, and ranges use.
+    let isSafeRef (value: string) =
+        value <> ""
+        && not (value.StartsWith "-")
+        && value |> Seq.forall (fun c -> Char.IsLetterOrDigit c || "_./~^@{}-:".Contains c)
+        && not (value.Contains "..")   // ranges are diff's business, not the tool's
+
+    type StatusEntry = { staged: string; unstaged: string; path: string }
+
+    /// Branch line and entries from `git status --porcelain=v1 --branch`.
+    let status (root: string) : Result<string * StatusEntry list, string> =
+        run root [ "status"; "--porcelain=v1"; "--branch"; "--untracked-files=all" ]
+        |> Result.map (fun output ->
+            let lines = output.Split('\n') |> Array.filter (fun l -> l <> "")
+            let branch =
+                lines |> Array.tryFind (fun l -> l.StartsWith "## ") |> Option.map (fun l -> l.Substring 3) |> Option.defaultValue ""
+            let entries =
+                lines
+                |> Array.filter (fun l -> not (l.StartsWith "## ") && l.Length > 3)
+                |> Array.map (fun l -> { staged = string l.[0]; unstaged = string l.[1]; path = l.Substring 3 })
+                |> List.ofArray
+            branch, entries)
+
+    /// `git diff` between the working tree and HEAD (all uncommitted
+    /// change), the index (`staged`), or a ref; optionally as `--stat`.
+    let diff (root: string) (path: string option) (reference: string option) (staged: bool) (stat: bool) : Result<string, string> =
+        let args =
+            [ yield "diff"
+              yield "--no-color"
+              if stat then yield "--stat"
+              if staged then yield "--cached"
+              match reference with
+              | Some r -> yield r
+              | None -> if not staged then yield "HEAD"
+              yield "--"
+              match path with Some p -> yield p | None -> () ]
+        run root args
+
+    type LogEntry = { hash: string; date: string; author: string; subject: string; files: string list }
+
+    /// The last `count` commits touching `path` (or anything), newest first.
+    let log (root: string) (path: string option) (count: int) : Result<LogEntry list, string> =
+        let args =
+            [ yield "log"; yield sprintf "-n%d" count; yield "--date=short"; yield "--name-only"
+              yield "--format=%x1e%h%x1f%ad%x1f%an%x1f%s"
+              yield "--"
+              match path with Some p -> yield p | None -> () ]
+        run root args
+        |> Result.map (fun output ->
+            output.Split('\x1e', StringSplitOptions.RemoveEmptyEntries)
+            |> Array.choose (fun record ->
+                let header, files =
+                    match record.IndexOf '\n' with
+                    | -1 -> record, ""
+                    | i -> record.Substring(0, i), record.Substring(i + 1)
+                match header.Split '\x1f' with
+                | [| hash; date; author; subject |] ->
+                    Some { hash = hash; date = date; author = author; subject = subject
+                           files = files.Split('\n') |> Array.filter (fun f -> f.Trim() <> "") |> List.ofArray }
+                | _ -> None)
+            |> List.ofArray)
+
+    /// `git blame` for a line range of one file, short hashes and dates.
+    let blame (root: string) (path: string) (startLine: int) (endLine: int) : Result<string, string> =
+        run root [ "blame"; "--date=short"; "-L"; sprintf "%d,%d" startLine endLine; "--"; path ]
+
+    /// Tracked and untracked files under `path` that git does not ignore,
+    /// workspace-relative with forward slashes. The list `file_tree` shows
+    /// inside a repository: what the repository itself considers its files.
+    let listFiles (root: string) (path: string) : Result<string list, string> =
+        run root [ "ls-files"; "--cached"; "--others"; "--exclude-standard"; "--"; path ]
+        |> Result.map (fun output ->
+            output.Split('\n')
+            |> Array.filter (fun l -> l <> "")
+            |> Array.map (fun l -> l.Replace('\\', '/'))
+            |> List.ofArray)

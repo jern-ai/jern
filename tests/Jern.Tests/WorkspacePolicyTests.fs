@@ -186,3 +186,81 @@ let ``without a workspace policy the built-in rules stand`` () =
         Assert.Single asked |> ignore
     finally
         Directory.Delete(root, true)
+
+[<Fact>]
+let ``policy_check tells what a call would meet without making it`` () =
+    let root = newRoot ()
+    try
+        // A restriction layer, named as jern.json's compiler names them, and
+        // a base policy that leaves shell at :ask.
+        writePolicy root
+            """(add-policy-restriction! "jern.json edits_within"
+                 (lambda (call)
+                   (if (policy-file-write? call)
+                       (if (policy-path-within-any? call (list "src/"))
+                           :allow
+                           "policy: edits are limited to src/ (jern.json edits_within)")
+                       :allow)))"""
+        File.WriteAllText(Path.Combine(root, "a.txt"), "hello\n")
+        let asked = ResizeArray<string>()
+        let session = sessionIn root (Some(fun d -> asked.Add d; false))
+        let denied =
+            callTool session
+                """(call-tool "policy_check" (list :name "edit_file" :input (list :path "a.txt" :old_string "hello" :new_string "bye")))"""
+        Assert.Contains("deny: policy: edits are limited to src/ (jern.json edits_within) (decided by jern.json edits_within)", denied)
+        Assert.Contains("\"is_error\":false", denied)
+        let asks = callTool session """(call-tool "policy_check" (list :name "edit_file" :input (list :path "src/b.txt")))"""
+        // (Json.serialize writes the apostrophe as \u0027, so match around it.)
+        Assert.Contains("ask: edit_file needs the user", asks)
+        Assert.Contains("s approval (decided by tool-policy)", asks)
+        let allowed = callTool session """(call-tool "policy_check" (list :name "read_file" :input (list :path "a.txt")))"""
+        Assert.Contains("allow: read_file runs without approval (decided by tool-policy)", allowed)
+        let ask = callTool session """(call-tool "policy_check" (list :name "shell" :input (list :command "make")))"""
+        Assert.Contains("ask: shell needs the user", ask)
+        let bare = callTool session """(call-tool "policy_check" (list))"""
+        Assert.Contains("needs name", bare)
+        // Nothing ran and nobody was asked: the file is untouched.
+        Assert.Empty asked
+        Assert.Equal("hello\n", File.ReadAllText(Path.Combine(root, "a.txt")))
+        // A declined approval names the layer that asked, and counts.
+        let declined = callTool session """(call-tool "shell" (list :command "printf no"))"""
+        Assert.Contains("the user declined this action; tool-policy asks for approval for it", declined)
+        Assert.Single asked |> ignore
+        let status = callTool session """(call-tool "session_status" (list))"""
+        Assert.Contains("model calls: 0\\ntokens: 0\\nfiles edited: 0 (0 lines changed)\\ncalls denied: 1", status)
+    finally
+        Directory.Delete(root, true)
+
+[<Fact>]
+let ``edit_symbol and apply_patch answer to the edit restrictions`` () =
+    let root = newRoot ()
+    try
+        writePolicy root
+            """(add-policy-restriction! "jern.json edits_within"
+                 (lambda (call)
+                   (if (policy-file-write? call)
+                       (if (policy-path-within-any? call (list "src/"))
+                           :allow
+                           "policy: edits are limited to src/ (jern.json edits_within)")
+                       :allow)))
+               (add-policy-restriction! "jern.json blast_radius"
+                 (lambda (call)
+                   (if (policy-file-write? call)
+                       (jern/host-blast-radius call 0 3 "jern.json")
+                       :allow)))"""
+        Directory.CreateDirectory(Path.Combine(root, "src")) |> ignore
+        File.WriteAllText(Path.Combine(root, "notes.txt"), "a\nb\n")
+        File.WriteAllText(Path.Combine(root, "src", "m.py"), "def f():\n    return 1\n")
+        let session = sessionIn root (Some(fun _ -> true))
+        let outside = callTool session """(call-tool "apply_patch" (list :path "notes.txt" :patch "@@ -1,1 +1,1 @@\n-a\n+A\n"))"""
+        Assert.Contains("edits are limited to src/", outside)
+        Assert.Equal("a\nb\n", File.ReadAllText(Path.Combine(root, "notes.txt")))
+        // Two old lines plus four new ones cross a three-line blast radius.
+        let wide = callTool session """(call-tool "edit_symbol" (list :path "src/m.py" :name "f" :new_source "def f():\n    x = 1\n    y = 2\n    return x + y\n"))"""
+        Assert.Contains("at most 3 lines may change", wide)
+        Assert.Equal("def f():\n    return 1\n", File.ReadAllText(Path.Combine(root, "src", "m.py")))
+        let narrow = callTool session """(call-tool "apply_patch" (list :path "src/m.py" :patch "@@ -2,1 +2,1 @@\n-    return 1\n+    return 2\n"))"""
+        Assert.Contains("\"is_error\":false", narrow)
+        Assert.Equal("def f():\n    return 2\n", File.ReadAllText(Path.Combine(root, "src", "m.py")))
+    finally
+        Directory.Delete(root, true)
