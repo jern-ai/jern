@@ -237,7 +237,7 @@ module Receipt =
                                 |> Option.defaultValue false
                             // A file counts as touched only if the write
                             // actually succeeded.
-                            if not failed && (name = "edit_file" || name = "write_file") then
+                            if not failed && (name = "edit_file" || name = "edit_symbol" || name = "apply_patch" || name = "write_file") then
                                 match path with
                                 | Some p when not (files.Contains p) -> files.Add p
                                 | _ -> ()

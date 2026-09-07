@@ -30,6 +30,16 @@
   reports model calls and tokens against their budgets, the hard token
   cap when a host set one, files edited and lines changed, and calls
   denied. Both are answered in the policy layer and traced.
+- **Edits that fail closed.** `edit_symbol` replaces one definition by
+  name inside its exact extent (found the way `read_symbol` finds it) and
+  refuses a name that is missing or defined more than once in the file.
+  `apply_patch` applies a unified diff to one file: every hunk must match
+  the file's current lines, at its stated line first and otherwise where
+  it matches exactly once, and one hunk that does not match refuses the
+  whole patch and names the line. Both count toward `edits_within`,
+  `protected_paths`, `max_files_edited`, and `max_lines_changed`, are
+  committed by the git layer like `edit_file`, ask by default, and trigger
+  the default agent's test run.
 
 ## 0.17.0 — 2026-09-07
 

@@ -230,3 +230,37 @@ let ``policy_check tells what a call would meet without making it`` () =
         Assert.Contains("model calls: 0\\ntokens: 0\\nfiles edited: 0 (0 lines changed)\\ncalls denied: 1", status)
     finally
         Directory.Delete(root, true)
+
+[<Fact>]
+let ``edit_symbol and apply_patch answer to the edit restrictions`` () =
+    let root = newRoot ()
+    try
+        writePolicy root
+            """(add-policy-restriction! "jern.json edits_within"
+                 (lambda (call)
+                   (if (policy-file-write? call)
+                       (if (policy-path-within-any? call (list "src/"))
+                           :allow
+                           "policy: edits are limited to src/ (jern.json edits_within)")
+                       :allow)))
+               (add-policy-restriction! "jern.json blast_radius"
+                 (lambda (call)
+                   (if (policy-file-write? call)
+                       (jern/host-blast-radius call 0 3 "jern.json")
+                       :allow)))"""
+        Directory.CreateDirectory(Path.Combine(root, "src")) |> ignore
+        File.WriteAllText(Path.Combine(root, "notes.txt"), "a\nb\n")
+        File.WriteAllText(Path.Combine(root, "src", "m.py"), "def f():\n    return 1\n")
+        let session = sessionIn root (Some(fun _ -> true))
+        let outside = callTool session """(call-tool "apply_patch" (list :path "notes.txt" :patch "@@ -1,1 +1,1 @@\n-a\n+A\n"))"""
+        Assert.Contains("edits are limited to src/", outside)
+        Assert.Equal("a\nb\n", File.ReadAllText(Path.Combine(root, "notes.txt")))
+        // Two old lines plus four new ones cross a three-line blast radius.
+        let wide = callTool session """(call-tool "edit_symbol" (list :path "src/m.py" :name "f" :new_source "def f():\n    x = 1\n    y = 2\n    return x + y\n"))"""
+        Assert.Contains("at most 3 lines may change", wide)
+        Assert.Equal("def f():\n    return 1\n", File.ReadAllText(Path.Combine(root, "src", "m.py")))
+        let narrow = callTool session """(call-tool "apply_patch" (list :path "src/m.py" :patch "@@ -2,1 +2,1 @@\n-    return 1\n+    return 2\n"))"""
+        Assert.Contains("\"is_error\":false", narrow)
+        Assert.Equal("def f():\n    return 2\n", File.ReadAllText(Path.Combine(root, "src", "m.py")))
+    finally
+        Directory.Delete(root, true)

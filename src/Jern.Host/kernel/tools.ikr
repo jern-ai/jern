@@ -74,6 +74,23 @@
               :new_string (list :type "string" :description "Replacement text"))
         :required (vector "path" "old_string" "new_string")))
 
+(define-tool "edit_symbol"
+  "Replace one definition — a function, class, method, or type — with new source, by name, inside its exact extent. Safer than edit_file for a whole definition: nothing outside it can change, and a name that is missing or ambiguous in the file is refused."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file path")
+              :name (list :type "string" :description "The definition's name as defined")
+              :new_source (list :type "string" :description "The complete new definition, signature and body, at the file's indentation"))
+        :required (vector "path" "name" "new_source")))
+
+(define-tool "apply_patch"
+  "Apply a unified diff to one file. Every hunk must match the file's current lines (at its stated line first, then anywhere it matches exactly once); a hunk that does not match refuses the whole patch and says which line differs, so a stale view of the file cannot corrupt it."
+  (list :type "object"
+        :properties
+        (list :path (list :type "string" :description "Workspace-relative file path")
+              :patch (list :type "string" :description "Unified diff hunks (@@ -a,b +c,d @@ with ' ', '-', '+' lines); --- and +++ headers are optional"))
+        :required (vector "path" "patch")))
+
 (define-tool "write_file"
   "Create a new workspace file (or replace an existing one) with the given full content. Parent directories are created as needed."
   (list :type "object"

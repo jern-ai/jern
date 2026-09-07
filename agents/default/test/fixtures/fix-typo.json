@@ -170,6 +170,53 @@
             }
           },
           {
+            "name": "edit_symbol",
+            "description": "Replace one definition \u2014 a function, class, method, or type \u2014 with new source, by name, inside its exact extent. Safer than edit_file for a whole definition: nothing outside it can change, and a name that is missing or ambiguous in the file is refused.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The definition\u0027s name as defined"
+                },
+                "new_source": {
+                  "type": "string",
+                  "description": "The complete new definition, signature and body, at the file\u0027s indentation"
+                }
+              },
+              "required": [
+                "path",
+                "name",
+                "new_source"
+              ]
+            }
+          },
+          {
+            "name": "apply_patch",
+            "description": "Apply a unified diff to one file. Every hunk must match the file\u0027s current lines (at its stated line first, then anywhere it matches exactly once); a hunk that does not match refuses the whole patch and says which line differs, so a stale view of the file cannot corrupt it.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "patch": {
+                  "type": "string",
+                  "description": "Unified diff hunks (@@ -a,b \u002Bc,d @@ with \u0027 \u0027, \u0027-\u0027, \u0027\u002B\u0027 lines); --- and \u002B\u002B\u002B headers are optional"
+                }
+              },
+              "required": [
+                "path",
+                "patch"
+              ]
+            }
+          },
+          {
             "name": "write_file",
             "description": "Create a new workspace file (or replace an existing one) with the given full content. Parent directories are created as needed.",
             "input_schema": {
@@ -584,6 +631,53 @@
                 "path",
                 "old_string",
                 "new_string"
+              ]
+            }
+          },
+          {
+            "name": "edit_symbol",
+            "description": "Replace one definition \u2014 a function, class, method, or type \u2014 with new source, by name, inside its exact extent. Safer than edit_file for a whole definition: nothing outside it can change, and a name that is missing or ambiguous in the file is refused.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The definition\u0027s name as defined"
+                },
+                "new_source": {
+                  "type": "string",
+                  "description": "The complete new definition, signature and body, at the file\u0027s indentation"
+                }
+              },
+              "required": [
+                "path",
+                "name",
+                "new_source"
+              ]
+            }
+          },
+          {
+            "name": "apply_patch",
+            "description": "Apply a unified diff to one file. Every hunk must match the file\u0027s current lines (at its stated line first, then anywhere it matches exactly once); a hunk that does not match refuses the whole patch and says which line differs, so a stale view of the file cannot corrupt it.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "patch": {
+                  "type": "string",
+                  "description": "Unified diff hunks (@@ -a,b \u002Bc,d @@ with \u0027 \u0027, \u0027-\u0027, \u0027\u002B\u0027 lines); --- and \u002B\u002B\u002B headers are optional"
+                }
+              },
+              "required": [
+                "path",
+                "patch"
               ]
             }
           },
@@ -1028,6 +1122,53 @@
                 "path",
                 "old_string",
                 "new_string"
+              ]
+            }
+          },
+          {
+            "name": "edit_symbol",
+            "description": "Replace one definition \u2014 a function, class, method, or type \u2014 with new source, by name, inside its exact extent. Safer than edit_file for a whole definition: nothing outside it can change, and a name that is missing or ambiguous in the file is refused.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The definition\u0027s name as defined"
+                },
+                "new_source": {
+                  "type": "string",
+                  "description": "The complete new definition, signature and body, at the file\u0027s indentation"
+                }
+              },
+              "required": [
+                "path",
+                "name",
+                "new_source"
+              ]
+            }
+          },
+          {
+            "name": "apply_patch",
+            "description": "Apply a unified diff to one file. Every hunk must match the file\u0027s current lines (at its stated line first, then anywhere it matches exactly once); a hunk that does not match refuses the whole patch and says which line differs, so a stale view of the file cannot corrupt it.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Workspace-relative file path"
+                },
+                "patch": {
+                  "type": "string",
+                  "description": "Unified diff hunks (@@ -a,b \u002Bc,d @@ with \u0027 \u0027, \u0027-\u0027, \u0027\u002B\u0027 lines); --- and \u002B\u002B\u002B headers are optional"
+                }
+              },
+              "required": [
+                "path",
+                "patch"
               ]
             }
           },

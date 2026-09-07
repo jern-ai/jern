@@ -248,6 +248,55 @@ let ``run_tests runs only the workspace test command and parses its output`` () 
         finally Tools.configureTestCommand None)
 
 [<Fact>]
+let ``edit_symbol replaces exactly one definition inside its extent`` () =
+    withWorkspace (fun root ->
+        let file = Path.Combine(root, "src", "math.py")
+        File.WriteAllText(file, "def add(a, b):\n    return a + b\n\n\ndef sub(a, b):\n    return a - b\n\n\nTOTAL = 2\n")
+        let session = newSession root
+        let replaced = run session """(call-tool "edit_symbol" (list :path "src/math.py" :name "sub" :new_source "def sub(a, b):\n    \"\"\"Subtract.\"\"\"\n    return a - b\n"))"""
+        Assert.False(isErrorOf replaced)
+        Assert.Equal("replaced function sub in 'src/math.py' (lines 5-6, now 5-7)", contentOf replaced)
+        Assert.Equal("def add(a, b):\n    return a + b\n\n\ndef sub(a, b):\n    \"\"\"Subtract.\"\"\"\n    return a - b\n\n\nTOTAL = 2\n", File.ReadAllText file)
+        // Missing and ambiguous names are refused; the file is untouched.
+        let missing = run session """(call-tool "edit_symbol" (list :path "src/math.py" :name "mul" :new_source "def mul(): pass"))"""
+        Assert.True(isErrorOf missing)
+        Assert.Contains("no definition named 'mul'", contentOf missing)
+        File.WriteAllText(Path.Combine(root, "src", "two.py"), "def greet():\n    return 1\n\n\nclass G:\n    def greet(self):\n        return 2\n")
+        let ambiguous = run session """(call-tool "edit_symbol" (list :path "src/two.py" :name "greet" :new_source "def greet(): pass"))"""
+        Assert.True(isErrorOf ambiguous)
+        Assert.Contains("defined 2 times", contentOf ambiguous)
+        let plain = run session """(call-tool "edit_symbol" (list :path "README.md" :name "x" :new_source "y"))"""
+        Assert.True(isErrorOf plain)
+        Assert.Contains("use edit_file", contentOf plain))
+
+[<Fact>]
+let ``apply_patch applies matching hunks and refuses a stale one`` () =
+    withWorkspace (fun root ->
+        let file = Path.Combine(root, "src", "list.txt")
+        File.WriteAllText(file, "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n")
+        let session = newSession root
+        let patched = run session """(call-tool "apply_patch" (list :path "src/list.txt" :patch "--- a/src/list.txt\n+++ b/src/list.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+TWO\n three\n"))"""
+        Assert.False(isErrorOf patched)
+        Assert.Equal("patched 'src/list.txt': 1 hunks applied, 2 lines changed", contentOf patched)
+        Assert.Equal("one\nTWO\nthree\nfour\nfive\nsix\nseven\neight\n", File.ReadAllText file)
+        // Two hunks, the first shifting the lines the second names.
+        let shifted = run session """(call-tool "apply_patch" (list :path "src/list.txt" :patch "@@ -1,1 +1,2 @@\n+zero\n one\n@@ -7,2 +8,2 @@\n seven\n-eight\n+EIGHT\n"))"""
+        Assert.False(isErrorOf shifted)
+        Assert.Equal("zero\none\nTWO\nthree\nfour\nfive\nsix\nseven\nEIGHT\n", File.ReadAllText file)
+        // A hunk whose stated line is off is found where it matches once.
+        let moved = run session """(call-tool "apply_patch" (list :path "src/list.txt" :patch "@@ -20,3 +20,3 @@\n four\n-five\n+FIVE\n six\n"))"""
+        Assert.False(isErrorOf moved)
+        Assert.Contains("\nFIVE\n", File.ReadAllText file)
+        // A hunk that does not match refuses the whole patch and changes nothing.
+        let before = File.ReadAllText file
+        let stale = run session """(call-tool "apply_patch" (list :path "src/list.txt" :patch "@@ -1,2 +1,2 @@\n zero\n-ONE\n+1\n@@ -3,1 +3,1 @@\n-TWO\n+2\n"))"""
+        Assert.True(isErrorOf stale)
+        Assert.Contains("hunk at line 1 does not match", contentOf stale)
+        Assert.Equal(before, File.ReadAllText file)
+        let malformed = run session """(call-tool "apply_patch" (list :path "src/list.txt" :patch "just text"))"""
+        Assert.True(isErrorOf malformed))
+
+[<Fact>]
 let ``edit_file replaces a unique occurrence`` () =
     withWorkspace (fun root ->
         let session = newSession root

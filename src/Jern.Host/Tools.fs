@@ -622,6 +622,175 @@ module Tools =
                         ok (sprintf "edited '%s'" path)
                     | n -> toolError (sprintf "old_string occurs %d times in '%s'; provide more context to make it unique" n path)
 
+    // -----------------------------------------------------------------------
+    // Edits that fail closed. edit_symbol replaces exactly one definition's
+    // lines, found the way read_symbol finds them; apply_patch applies a
+    // unified diff whose every hunk must match the file (at its stated line
+    // first, then anywhere it matches exactly once). Neither edits a file
+    // that does not look the way the model was told it looks.
+
+    let private splitKeepingEnding (text: string) =
+        let crlf = text.Contains "\r\n"
+        let body = if crlf then text.Replace("\r\n", "\n") else text
+        let trailing = body.EndsWith "\n"
+        let lines = body.Split('\n')
+        let lines = if trailing then lines.[.. lines.Length - 2] else lines
+        lines, crlf, trailing
+
+    let private joinWithEnding (lines: string[]) (crlf: bool) (trailing: bool) =
+        let body = String.Join("\n", lines) + (if trailing && lines.Length > 0 then "\n" else "")
+        if crlf then body.Replace("\n", "\r\n") else body
+
+    /// The one definition named `name` in `file`, as 0-based inclusive lines.
+    let private symbolIn (root: string) (file: string) (name: string) =
+        match definitionsNamed [ file ] name true with
+        | [] ->
+            match definitionsNamed [ file ] name false with
+            | [] -> Error(sprintf "no definition named '%s' in '%s'" name (Path.GetRelativePath(Path.GetFullPath root, file)))
+            | [ (_, start, finish, kind, defined) ] -> Ok(start, finish, kind, defined)
+            | many -> Error(sprintf "%d definitions match '%s' in this file (%s); name one exactly" many.Length name (many |> List.map (fun (_, st, _, k, n) -> sprintf "%s %s at line %d" k n (st + 1)) |> String.concat ", "))
+        | [ (_, start, finish, kind, defined) ] -> Ok(start, finish, kind, defined)
+        | many -> Error(sprintf "'%s' is defined %d times in this file (lines %s); edit_file the one you mean" name many.Length (many |> List.map (fun (_, st, _, _, _) -> string (st + 1)) |> String.concat ", "))
+
+    /// Lines a symbol edit would change: the old extent plus the new source,
+    /// counted like edit_file counts old_string plus new_string. None when
+    /// the symbol cannot be found (the tool will refuse; nothing changes).
+    let projectedSymbolEdit (root: string) (path: string) (name: string) (newSource: string) : int64 option =
+        try
+            match resolve root path with
+            | Ok full when File.Exists full ->
+                match symbolIn root full name with
+                | Ok (start, finish, _, _) ->
+                    let added = (splitKeepingEnding newSource |> fun (l, _, _) -> l.Length)
+                    Some(int64 (finish - start + 1) + int64 added)
+                | Error _ -> None
+            | _ -> None
+        with _ -> None
+
+    let private editSymbol root input =
+        match stringArg "path" input, stringArg "name" input, stringArg "new_source" input with
+        | Error e, _, _ | _, Error e, _ | _, _, Error e -> toolError e
+        | Ok path, Ok name, Ok newSource ->
+            match resolve root path with
+            | Error e -> toolError e
+            | Ok full ->
+                if not (File.Exists full) then toolError (sprintf "file '%s' does not exist" path)
+                elif not (hasDefinitions full) then toolError (sprintf "no definition patterns for '%s' files; use edit_file" (Path.GetExtension(full).ToLowerInvariant()))
+                elif newSource.Trim() = "" then toolError "new_source must not be empty; to remove a definition use edit_file"
+                else
+                    match symbolIn root full name with
+                    | Error e -> toolError e
+                    | Ok (start, finish, kind, defined) ->
+                        let lines, crlf, trailing = splitKeepingEnding (File.ReadAllText full)
+                        let finish = min finish (lines.Length - 1)
+                        let replacement, _, _ = splitKeepingEnding newSource
+                        let updated = Array.concat [ lines.[.. start - 1]; replacement; lines.[finish + 1 ..] ]
+                        File.WriteAllText(full, joinWithEnding updated crlf trailing)
+                        ok (sprintf "replaced %s %s in '%s' (lines %d-%d, now %d-%d)" kind defined path (start + 1) (finish + 1) (start + 1) (start + replacement.Length))
+
+    type private Hunk = { oldStart: int; before: string list; after: string list; text: string }
+
+    let private hunkHeader = Regex(@"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", RegexOptions.Compiled)
+
+    /// The hunks of a unified diff for one file; headers (---/+++/diff/index)
+    /// are skipped, a `\ No newline at end of file` marker ignored.
+    let private parseHunks (patch: string) : Result<Hunk list, string> =
+        // The patch's own trailing newline is not a blank context line.
+        let lines = patch.Replace("\r\n", "\n").TrimEnd('\n').Split('\n')
+        let hunks = ResizeArray<Hunk>()
+        let mutable current: (int * ResizeArray<string> * ResizeArray<string> * ResizeArray<string>) option = None
+        let mutable problem: string option = None
+        let flush () =
+            match current with
+            | Some (start, before, after, text) ->
+                hunks.Add { oldStart = start; before = List.ofSeq before; after = List.ofSeq after; text = String.Join("\n", text) }
+                current <- None
+            | None -> ()
+        for raw in lines do
+            if problem.IsNone then
+                let m = hunkHeader.Match raw
+                if m.Success then
+                    flush ()
+                    current <- Some(int m.Groups.[1].Value, ResizeArray(), ResizeArray(), ResizeArray [ raw ])
+                else
+                    match current with
+                    | None ->
+                        if raw.StartsWith "--- " || raw.StartsWith "+++ " || raw.StartsWith "diff " || raw.StartsWith "index " || raw.Trim() = "" then ()
+                        else problem <- Some(sprintf "unexpected line before the first hunk: %s" raw)
+                    | Some (_, before, after, text) ->
+                        if raw.StartsWith "\\" then ()
+                        elif raw = "" then
+                            // A blank context line whose leading space was lost.
+                            before.Add ""; after.Add ""; text.Add raw
+                        else
+                            match raw.[0] with
+                            | ' ' -> before.Add(raw.Substring 1); after.Add(raw.Substring 1); text.Add raw
+                            | '-' -> before.Add(raw.Substring 1); text.Add raw
+                            | '+' -> after.Add(raw.Substring 1); text.Add raw
+                            | _ -> problem <- Some(sprintf "a hunk line must start with ' ', '-', or '+': %s" raw)
+        flush ()
+        match problem with
+        | Some p -> Error p
+        | None when hunks.Count = 0 -> Error "the patch has no @@ hunks"
+        | None -> Ok(List.ofSeq hunks)
+
+    /// Lines a patch would change: its removed plus added lines.
+    let patchDelta (patch: string) : int64 =
+        match parseHunks patch with
+        | Ok hunks ->
+            hunks
+            |> List.sumBy (fun h ->
+                h.text.Split('\n') |> Array.filter (fun l -> l.Length > 0 && (l.[0] = '-' || l.[0] = '+') && not (l.StartsWith "---") && not (l.StartsWith "+++")) |> Array.length |> int64)
+        | Error _ -> 0L
+
+    /// Where a hunk's pre-image sits in `lines`: at the stated line when it
+    /// matches there, else the single place it matches; None otherwise.
+    let private locate (lines: string[]) (hunk: Hunk) (offset: int) =
+        let before = Array.ofList hunk.before
+        let matchesAt i =
+            i >= 0 && i + before.Length <= lines.Length
+            && Seq.forall2 (=) (Seq.ofArray lines.[i .. i + before.Length - 1]) (Seq.ofArray before)
+        let stated = hunk.oldStart - 1 + offset
+        if before.Length = 0 then Some(max 0 (min stated lines.Length))
+        elif matchesAt stated then Some stated
+        else
+            let candidates = [ for i in 0 .. lines.Length - before.Length do if matchesAt i then yield i ]
+            match candidates with
+            | [ one ] -> Some one
+            | _ -> None
+
+    let private applyPatch root input =
+        match stringArg "path" input, stringArg "patch" input with
+        | Error e, _ | _, Error e -> toolError e
+        | Ok path, Ok patch ->
+            match resolve root path with
+            | Error e -> toolError e
+            | Ok full ->
+                if not (File.Exists full) then toolError (sprintf "file '%s' does not exist; write_file creates files" path)
+                else
+                    match parseHunks patch with
+                    | Error e -> toolError e
+                    | Ok hunks ->
+                        let original, crlf, trailing = splitKeepingEnding (File.ReadAllText full)
+                        let mutable lines = original
+                        let mutable offset = 0
+                        let mutable failure: string option = None
+                        for hunk in hunks do
+                            if failure.IsNone then
+                                match locate lines hunk offset with
+                                | None ->
+                                    let first = hunk.before |> List.tryHead |> Option.defaultValue ""
+                                    failure <- Some(sprintf "hunk at line %d does not match '%s' (first expected line: %s); read the file again and patch what is there" hunk.oldStart path (if first = "" then "(blank)" else first))
+                                | Some at ->
+                                    let after = Array.ofList hunk.after
+                                    lines <- Array.concat [ lines.[.. at - 1]; after; lines.[at + hunk.before.Length ..] ]
+                                    offset <- offset + (after.Length - hunk.before.Length) + (at - (hunk.oldStart - 1 + offset))
+                        match failure with
+                        | Some e -> toolError e
+                        | None ->
+                            File.WriteAllText(full, joinWithEnding lines crlf trailing)
+                            ok (sprintf "patched '%s': %d hunks applied, %d lines changed" path hunks.Length (patchDelta patch))
+
     /// Create (or replace) a file with the given full content. The approval
     /// prompt shows the whole content as a diff, which is easier to review
     /// than an equivalent `cat > file` shell command — and it works in agents
@@ -1019,6 +1188,8 @@ module Tools =
                 | "read_symbol" -> Some readSymbol
                 | "references" -> Some references
                 | "edit_file" -> Some editFile
+                | "edit_symbol" -> Some editSymbol
+                | "apply_patch" -> Some applyPatch
                 | "write_file" -> Some writeFile
                 | "shell" -> Some shell
                 | "run_tests" -> Some runTests

@@ -119,7 +119,10 @@
   (lambda (call)
     (sequence
       (define name (plist-get call :name))
-      (or? (equal? name "edit_file") (equal? name "write_file")))))
+      (or? (equal? name "edit_file")
+           (equal? name "edit_symbol")
+           (equal? name "apply_patch")
+           (equal? name "write_file")))))
 
 (define policy-path-within-any?
   (lambda (call prefixes)
@@ -240,6 +243,18 @@
              (String.concat "write_file: "
                (String.concat (describe-field input :path)
                  (String.concat "\n  + " (describe-field input :content)))))
+            ((equal? name "edit_symbol")
+             ; The definition leaving is named; the source arriving is shown.
+             (String.concat "edit_symbol: "
+               (String.concat (describe-field input :path)
+                 (String.concat " "
+                   (String.concat (describe-field input :name)
+                     (String.concat "\n  + " (describe-field input :new_source)))))))
+            ((equal? name "apply_patch")
+             ; A diff already reads as one.
+             (String.concat "apply_patch: "
+               (String.concat (describe-field input :path)
+                 (String.concat "\n" (describe-field input :patch)))))
             (#t name)))))
 
 ; The default policy: reads are free, writes and shell ask first. MCP tools
@@ -255,6 +270,8 @@
             ((equal? name "memory_read") :allow)
             ((equal? name "memory_write") :allow)
             ((equal? name "edit_file") :ask)
+            ((equal? name "edit_symbol") :ask)
+            ((equal? name "apply_patch") :ask)
             ((equal? name "write_file") :ask)
             ((equal? name "read_file") :allow)
             ((equal? name "list_dir") :allow)

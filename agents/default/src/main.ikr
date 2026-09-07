@@ -88,8 +88,8 @@ fails, read the error and adapt. Never invent file contents you have not read.")
       (define outcome
         (call-tool (plist-get block :name) (plist-get block :input)))
       (define content
-        (if (and? (or? (equal? (plist-get block :name) "edit_file")
-                       (equal? (plist-get block :name) "write_file"))
+        (if (and? (member? (plist-get block :name)
+                           (list "edit_file" "edit_symbol" "apply_patch" "write_file"))
                   (and? (not? (eqv? (plist-get outcome :is_error) #t))
                         (not? (eqv? test-command :null))))
             (sequence

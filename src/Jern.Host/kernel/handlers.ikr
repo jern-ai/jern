@@ -247,7 +247,7 @@
         (sequence
           (define name (plist-get call :name))
           (define path (plist-get (plist-get call :input) :path))
-          (define file-write? (or? (equal? name "edit_file") (equal? name "write_file")))
+          (define file-write? (policy-file-write? call))
           (if file-write?
               (jern/host-git-save-dirty path)
               #inert)

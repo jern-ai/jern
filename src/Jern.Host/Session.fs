@@ -128,6 +128,8 @@ module Session =
             ; ((equal? name "mcp__github__get_issue") :allow)
             ((equal? name "shell") :ask)
             ((equal? name "edit_file") :ask)
+            ((equal? name "edit_symbol") :ask)
+            ((equal? name "apply_patch") :ask)
             ((equal? name "write_file") :ask)
             ((equal? name "read_file") :allow)
             ((equal? name "list_dir") :allow)
@@ -396,6 +398,14 @@ module Session =
                 match Tools.plistTryGet "name" call, stringArg "path" with
                 | Some (Obj (:? string as "edit_file")), Some path ->
                     Some(relativePath path, lineCount (defaultArg (stringArg "old_string") "") + lineCount (defaultArg (stringArg "new_string") ""))
+                | Some (Obj (:? string as "edit_symbol")), Some path ->
+                    let newSource = defaultArg (stringArg "new_source") ""
+                    let delta =
+                        Tools.projectedSymbolEdit config.workspaceRoot path (defaultArg (stringArg "name") "") newSource
+                        |> Option.defaultValue (lineCount newSource)
+                    Some(relativePath path, delta)
+                | Some (Obj (:? string as "apply_patch")), Some path ->
+                    Some(relativePath path, Tools.patchDelta (defaultArg (stringArg "patch") ""))
                 | Some (Obj (:? string as "write_file")), Some path ->
                     let content = defaultArg (stringArg "content") ""
                     let existing =
