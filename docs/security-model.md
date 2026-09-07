@@ -106,7 +106,8 @@ any Kernel:
 
 The two halves are trusted differently, because they carry different risk:
 
-- **Restrictions** (`edits_within`, `deny`, `memory: ask|deny`) only tighten,
+- **Restrictions** (`edits_within`, `protected_paths`, `max_files_edited`,
+  `max_lines_changed`, `deny`, `memory: ask|deny`) only tighten,
   so they load on sight, with no prompt. A cloned repository can lock its
   agents down without asking anyone's permission.
 - **Grants** (`shell_allow`, `allow`, `memory: allow`) can loosen approvals —

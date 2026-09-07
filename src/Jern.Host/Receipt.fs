@@ -51,6 +51,12 @@ module Receipt =
           /// Tool name → invocations, most-used first.
           tools: (string * int) list
           filesTouched: string list
+          /// Lines changed by successful edits, added plus removed.
+          linesChanged: int64
+          /// The blast radius the policy set, when it set one.
+          maxFilesEdited: int option
+          maxLinesChanged: int option
+          protectedPaths: string list
           commits: int
           policyAllowed: int
           policyAsked: int
@@ -71,7 +77,7 @@ module Receipt =
           llmCalls = 0; inputTokens = 0L; outputTokens = 0L
           budgetLlmCalls = None; budgetTokens = None; cloudTokenCap = None; sandbox = None
           hardTokenBudgetDenied = false; budgetExtended = 0; budgetDenied = false
-          tools = []; filesTouched = []; commits = 0
+          tools = []; filesTouched = []; linesChanged = 0L; maxFilesEdited = None; maxLinesChanged = None; protectedPaths = []; commits = 0
           policyAllowed = 0; policyAsked = 0; policyDeniedByRule = 0; approvalsDenied = 0
           denialReasons = []; spawns = 0; programs = 0; policyLayers = []
           memoryReads = 0; memoryWrites = 0 }
@@ -243,6 +249,14 @@ module Receipt =
                             s <- { s with policyDeniedByRule = s.policyDeniedByRule + 1 }
                             if not (reasons.Contains reason) then reasons.Add reason
                         | None -> ()
+                    | "edit-applied" ->
+                        s <- { s with linesChanged = s.linesChanged + defaultArg (int64Of doc "lines_changed") 0L }
+                    | "policy-limits" ->
+                        let paths =
+                            match field doc "protected_paths" with
+                            | Some (:? JsonArray as a) -> a |> Seq.choose (fun n -> try Some(n.GetValue<string>()) with _ -> None) |> List.ofSeq
+                            | _ -> []
+                        s <- { s with maxFilesEdited = intOf doc "max_files_edited"; maxLinesChanged = intOf doc "max_lines_changed"; protectedPaths = paths }
                     | "approval-denied" -> s <- { s with approvalsDenied = s.approvalsDenied + 1 }
                     | "git-commit" -> s <- { s with commits = s.commits + 1 }
                     | "spawn" -> s <- { s with spawns = s.spawns + 1 }
@@ -352,6 +366,18 @@ module Receipt =
                   if s.commits > 0 then sprintf "   (%s, undo with `jern undo`)" (plural s.commits "jern commit")
                   else ""
               yield "files touched", String.concat " · " s.filesTouched + commits
+          if s.maxFilesEdited.IsSome || s.maxLinesChanged.IsSome || s.linesChanged > 0L then
+              let files =
+                  match s.maxFilesEdited with
+                  | Some limit -> sprintf "%d files of at most %d" s.filesTouched.Length limit
+                  | None -> plural s.filesTouched.Length "file"
+              let lines =
+                  match s.maxLinesChanged with
+                  | Some limit -> sprintf "%d lines of at most %d" s.linesChanged limit
+                  | None -> sprintf "%d lines" s.linesChanged
+              let protectedNote =
+                  if s.protectedPaths.IsEmpty then "" else sprintf " · protected: %s" (String.concat ", " s.protectedPaths)
+              yield "blast radius", sprintf "%s · %s%s" files lines protectedNote
 
           let approved = max 0 (s.policyAsked - s.approvalsDenied)
           let denied = s.policyDeniedByRule + s.approvalsDenied
@@ -507,6 +533,15 @@ module Receipt =
         for f in s.filesTouched do files.Add(JsonValue.Create f)
         doc.["files_touched"] <- files
         doc.["commits"] <- JsonValue.Create s.commits
+        let blast = JsonObject()
+        blast.["files_edited"] <- JsonValue.Create s.filesTouched.Length
+        blast.["lines_changed"] <- JsonValue.Create s.linesChanged
+        blast.["max_files_edited"] <- (match s.maxFilesEdited with Some n -> JsonValue.Create n :> JsonNode | None -> null)
+        blast.["max_lines_changed"] <- (match s.maxLinesChanged with Some n -> JsonValue.Create n :> JsonNode | None -> null)
+        let protectedPaths = JsonArray()
+        for p in s.protectedPaths do protectedPaths.Add(JsonValue.Create p)
+        blast.["protected_paths"] <- protectedPaths
+        doc.["blast_radius"] <- blast
         let policy = JsonObject()
         policy.["allowed"] <- JsonValue.Create s.policyAllowed
         policy.["asked"] <- JsonValue.Create s.policyAsked

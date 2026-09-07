@@ -134,6 +134,102 @@ let ``edits_within denies writes outside the prefixes with a reason the model se
     finally
         Directory.Delete(root, true)
 
+[<Fact>]
+let ``blast radius keys parse, canonicalise, and describe as restrictions`` () =
+    let policy = parsePolicy """{"max_files_edited": 2, "protected_paths": ["migrations/"], "max_lines_changed": 40, "edits_within": ["src/"]}"""
+    Assert.Equal(Some 2, policy.maxFilesEdited)
+    Assert.Equal(Some 40, policy.maxLinesChanged)
+    Assert.Equal<string list>([ "migrations/" ], policy.protectedPaths)
+    Assert.True(PolicyConfig.hasRestrictions policy)
+    Assert.False(PolicyConfig.hasGrants policy)
+    Assert.Equal("""{"edits_within":["src/"],"max_files_edited":2,"max_lines_changed":40,"protected_paths":["migrations/"]}""", PolicyConfig.canonicalJson policy)
+    Assert.Equal(policy, PolicyConfig.restrictionsOnly policy)
+    Assert.Contains("max_files_edited: 2", PolicyConfig.describeRestrictions policy)
+    Assert.Contains("protected_paths: migrations/", PolicyConfig.describeRestrictions policy)
+    Assert.Contains("(jern/host-blast-radius call 2 40 \"jern.json\")", PolicyConfig.compile "jern.json" true policy)
+    for bad in [ """{"max_files_edited": 0}"""; """{"max_lines_changed": -1}"""; """{"max_files_edited": "two"}""" ] do
+        match PolicyConfig.parse (JsonNode.Parse(bad: string)) with
+        | Ok _ -> failwithf "accepted %s" bad
+        | Error message -> Assert.Contains("must be a positive integer", message)
+    let tight, loose = parsePolicy """{"max_files_edited": 1, "protected_paths": ["a/"]}""", parsePolicy """{"max_files_edited": 5, "max_lines_changed": 9, "protected_paths": ["b/"]}"""
+    Assert.Equal((Some 1, Some 9, [ "a/"; "b/" ]), PolicyConfig.effectiveLimits [ loose; tight ])
+
+[<Fact>]
+let ``a blast radius denies the edit that would cross it and counts only edits that landed`` () =
+    let root = makeRoot ()
+    try
+        Directory.CreateDirectory(Path.Combine(root, "src")) |> ignore
+        Directory.CreateDirectory(Path.Combine(root, "migrations")) |> ignore
+        File.WriteAllText(Path.Combine(root, "src", "a.txt"), "one\ntwo\n")
+        File.WriteAllText(Path.Combine(root, "src", "b.txt"), "one\n")
+        File.WriteAllText(Path.Combine(root, "migrations", "001.sql"), "select 1;\n")
+        let asked = ResizeArray<string>()
+        let session =
+            sessionWith root
+                [ baselineSource "base" (parsePolicy """{"max_files_edited": 2, "max_lines_changed": 6, "protected_paths": ["migrations/"]}""")
+                  workspaceSource "/w/jern.json" (parsePolicy """{"max_files_edited": 9}""") ]
+                (fun _ _ -> true) asked
+        // A protected path is denied whatever else allows it.
+        let protectedDenied =
+            call session """(call-tool "edit_file" (list :path "migrations/001.sql" :old_string "1" :new_string "2"))"""
+        Assert.True(isErrorOf protectedDenied)
+        Assert.Contains("policy: edits under migrations/ are denied (protected baseline: base protected_paths)", contentOf protectedDenied)
+        // Two lines out, two lines in: four of the six allowed.
+        let first = call session """(call-tool "edit_file" (list :path "src/a.txt" :old_string "one\ntwo" :new_string "uno\ndos"))"""
+        Assert.False(isErrorOf first)
+        // A failed edit changes nothing and counts nothing.
+        let missing = call session """(call-tool "edit_file" (list :path "src/b.txt" :old_string "absent" :new_string "x"))"""
+        Assert.True(isErrorOf missing)
+        // Three more lines would make seven: denied with the total named.
+        let tooMany = call session """(call-tool "write_file" (list :path "src/b.txt" :content "a\nb\nc\nd\n"))"""
+        Assert.True(isErrorOf tooMany)
+        Assert.Contains("at most 6 lines may change in this run (protected baseline: base max_lines_changed); this edit brings the total to 9", contentOf tooMany)
+        // A second file within both limits is fine; a third file is not, and
+        // the tighter of the two sources is the one that speaks.
+        let second = call session """(call-tool "edit_file" (list :path "src/b.txt" :old_string "one" :new_string "two"))"""
+        Assert.False(isErrorOf second)
+        let third = call session """(call-tool "write_file" (list :path "src/c.txt" :content "x"))"""
+        Assert.True(isErrorOf third)
+        Assert.Contains("at most 2 files may be edited in this run (protected baseline: base max_files_edited); src/c.txt would be file 3", contentOf third)
+        Assert.Equal("uno\ndos\n", File.ReadAllText(Path.Combine(root, "src", "a.txt")))
+        Assert.Equal("two\n", File.ReadAllText(Path.Combine(root, "src", "b.txt")))
+        Assert.False(File.Exists(Path.Combine(root, "src", "c.txt")))
+    finally
+        Directory.Delete(root, true)
+
+[<Fact>]
+let ``the receipt reports the blast radius against its limits`` () =
+    let root = makeRoot ()
+    try
+        Directory.CreateDirectory(Path.Combine(root, "src")) |> ignore
+        File.WriteAllText(Path.Combine(root, "src", "a.txt"), "one\n")
+        let trace = ResizeArray<string>()
+        let config =
+            { Session.configIn root noLlm with
+                policySources = [ baselineSource "base" (parsePolicy """{"max_files_edited": 3, "max_lines_changed": 50, "protected_paths": ["migrations/"]}""") ]
+                policyGrantTrust = (fun _ _ -> true)
+                approver = Some(fun _ -> true)
+                traceSink = Some trace.Add }
+        let session =
+            match Session.createWith config with
+            | Choice1Of2 error -> failwith (showError error)
+            | Choice2Of2 session -> session
+        call session """(call-tool "edit_file" (list :path "src/a.txt" :old_string "one" :new_string "uno\ndos"))""" |> ignore
+        let tracePath = Path.Combine(root, "trace.jsonl")
+        File.WriteAllLines(tracePath, trace)
+        match Receipt.ofTrace tracePath with
+        | Error message -> failwith message
+        | Ok receipt ->
+            Assert.Equal<string list>([ "src/a.txt" ], receipt.filesTouched)
+            Assert.Equal(3L, receipt.linesChanged)
+            Assert.Equal(Some 3, receipt.maxFilesEdited)
+            Assert.Equal(Some 50, receipt.maxLinesChanged)
+            Assert.Equal<string list>([ "migrations/" ], receipt.protectedPaths)
+            Assert.Contains("1 files of at most 3 · 3 lines of at most 50 · protected: migrations/", Receipt.renderMarkdown receipt)
+            Assert.Contains("\"blast_radius\"", Receipt.renderJson receipt)
+    finally
+        Directory.Delete(root, true)
+
 /// "." looks like "anywhere" and would otherwise match nothing, because no
 /// workspace-relative path begins with a dot.
 [<Fact>]
