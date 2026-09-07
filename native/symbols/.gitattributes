@@ -1,0 +1,3 @@
+# The helper builds from these on every platform; keep them LF so a
+# Windows checkout compares digests and runs scripts as written.
+* text eol=lf
