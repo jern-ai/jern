@@ -311,6 +311,35 @@
             }
           },
           {
+            "name": "policy_check",
+            "description": "What the policy would decide for a call, without making it: \u0027allow\u0027, \u0027ask\u0027 (needs the user\u0027s approval), or \u0027deny\u0027 with the rule\u0027s own reason and which layer decided. Ask before an edit or command you are unsure is allowed, instead of trying and being refused.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The tool the call would use, e.g. edit_file or shell"
+                },
+                "input": {
+                  "type": "object",
+                  "description": "The input that call would carry, e.g. {\u0022path\u0022: \u0022src/x.py\u0022} or {\u0022command\u0022: \u0022pytest\u0022}"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          {
+            "name": "session_status",
+            "description": "What this run has spent so far: model calls and tokens against their budgets, files edited and lines changed, and calls the policy denied.",
+            "input_schema": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          },
+          {
             "name": "memory_read",
             "description": "Read a note stored about this workspace under a key, by you or an earlier session: how it builds, how tests run, traps. Answers the note\u0027s text, or says nothing is stored. Notes live in the workspace memory, which the workspace policy may deny.",
             "input_schema": {
@@ -693,6 +722,35 @@
           {
             "name": "changed_set",
             "description": "The files this session has edited so far, with lines changed per file, from the run\u0027s own record rather than git. Use it before running tests or summarising the work.",
+            "input_schema": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          },
+          {
+            "name": "policy_check",
+            "description": "What the policy would decide for a call, without making it: \u0027allow\u0027, \u0027ask\u0027 (needs the user\u0027s approval), or \u0027deny\u0027 with the rule\u0027s own reason and which layer decided. Ask before an edit or command you are unsure is allowed, instead of trying and being refused.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The tool the call would use, e.g. edit_file or shell"
+                },
+                "input": {
+                  "type": "object",
+                  "description": "The input that call would carry, e.g. {\u0022path\u0022: \u0022src/x.py\u0022} or {\u0022command\u0022: \u0022pytest\u0022}"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          {
+            "name": "session_status",
+            "description": "What this run has spent so far: model calls and tokens against their budgets, files edited and lines changed, and calls the policy denied.",
             "input_schema": {
               "type": "object",
               "properties": {},
@@ -1108,6 +1166,35 @@
           {
             "name": "changed_set",
             "description": "The files this session has edited so far, with lines changed per file, from the run\u0027s own record rather than git. Use it before running tests or summarising the work.",
+            "input_schema": {
+              "type": "object",
+              "properties": {},
+              "required": []
+            }
+          },
+          {
+            "name": "policy_check",
+            "description": "What the policy would decide for a call, without making it: \u0027allow\u0027, \u0027ask\u0027 (needs the user\u0027s approval), or \u0027deny\u0027 with the rule\u0027s own reason and which layer decided. Ask before an edit or command you are unsure is allowed, instead of trying and being refused.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "The tool the call would use, e.g. edit_file or shell"
+                },
+                "input": {
+                  "type": "object",
+                  "description": "The input that call would carry, e.g. {\u0022path\u0022: \u0022src/x.py\u0022} or {\u0022command\u0022: \u0022pytest\u0022}"
+                }
+              },
+              "required": [
+                "name"
+              ]
+            }
+          },
+          {
+            "name": "session_status",
+            "description": "What this run has spent so far: model calls and tokens against their budgets, files edited and lines changed, and calls the policy denied.",
             "input_schema": {
               "type": "object",
               "properties": {},

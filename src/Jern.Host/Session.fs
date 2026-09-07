@@ -143,6 +143,8 @@ module Session =
             ((equal? name "git_log") :allow)
             ((equal? name "git_blame") :allow)
             ((equal? name "changed_set") :allow)
+            ((equal? name "policy_check") :allow)
+            ((equal? name "session_status") :allow)
             ((equal? name "kernel_eval") :allow) ; inner calls are still policed
             (#t :ask)))))
 """
@@ -600,6 +602,30 @@ module Session =
                         | _ -> answer true "jern/spawn needs a :task string"
                 | bad -> signal cont (NumArgs(1, bad))
 
+            // What the run has spent so far, for the session_status tool:
+            // the policy layer brings the Kernel-side counts (model calls,
+            // tokens, budget, denials); the host adds what it alone tracks.
+            let hostSessionStatus env cont = function
+                | [status] ->
+                    let number key =
+                        match Tools.plistTryGet key status with
+                        | Some (Obj v) -> (try Some(Convert.ToInt64 v) with _ -> None)
+                        | _ -> None
+                    let calls = defaultArg (number "llm_calls") 0L
+                    let tokens = defaultArg (number "tokens") 0L
+                    let denials = defaultArg (number "denials") 0L
+                    let ofAtMost key = match number key with Some limit -> sprintf " of at most %d" limit | None -> ""
+                    let lines =
+                        [ yield sprintf "model calls: %d%s" calls (ofAtMost "budget_llm_calls")
+                          yield sprintf "tokens: %d%s" tokens (ofAtMost "budget_tokens")
+                          match config.hardTokenBudget with
+                          | Some budget -> yield sprintf "hard token cap: %d of %d spent" budget.Spent budget.Limit
+                          | None -> ()
+                          yield sprintf "files edited: %d (%d lines changed)" editedFiles.Count linesChanged
+                          yield sprintf "calls denied: %d" denials ]
+                    bounceContinue env cont (Obj(String.concat "\n" lines :> obj))
+                | bad -> signal cont (NumArgs(1, bad))
+
             let hostApprove env cont = function
                 | [Obj (:? string as _)] when threadAbandoned () ->
                     signal cont (Default "abandoned program may not ask for approval")
@@ -620,6 +646,7 @@ module Session =
                      :: ("jern/host-blast-radius", AgentEnv.applicative hostBlastRadius)
                      :: ("jern/host-trace", AgentEnv.applicative hostTrace)
                      :: ("jern/host-approve", AgentEnv.applicative hostApprove)
+                     :: ("jern/host-session-status", AgentEnv.applicative hostSessionStatus)
                      :: ("jern/host-git-save-dirty", AgentEnv.applicative hostGitSaveDirty)
                      :: ("jern/host-git-commit", AgentEnv.applicative hostGitCommit)
                      :: ("jern/host-memory-get", AgentEnv.applicative hostMemoryGet)

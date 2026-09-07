@@ -132,6 +132,18 @@
   "The files this session has edited so far, with lines changed per file, from the run's own record rather than git. Use it before running tests or summarising the work."
   (list :type "object" :properties (list) :required (vector)))
 
+(define-tool "policy_check"
+  "What the policy would decide for a call, without making it: 'allow', 'ask' (needs the user's approval), or 'deny' with the rule's own reason and which layer decided. Ask before an edit or command you are unsure is allowed, instead of trying and being refused."
+  (list :type "object"
+        :properties
+        (list :name (list :type "string" :description "The tool the call would use, e.g. edit_file or shell")
+              :input (list :type "object" :description "The input that call would carry, e.g. {\"path\": \"src/x.py\"} or {\"command\": \"pytest\"}"))
+        :required (vector "name")))
+
+(define-tool "session_status"
+  "What this run has spent so far: model calls and tokens against their budgets, files edited and lines changed, and calls the policy denied."
+  (list :type "object" :properties (list) :required (vector)))
+
 (define-tool "memory_read"
   "Read a note stored about this workspace under a key, by you or an earlier session: how it builds, how tests run, traps. Answers the note's text, or says nothing is stored. Notes live in the workspace memory, which the workspace policy may deny."
   (list :type "object"

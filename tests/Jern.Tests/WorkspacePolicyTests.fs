@@ -186,3 +186,47 @@ let ``without a workspace policy the built-in rules stand`` () =
         Assert.Single asked |> ignore
     finally
         Directory.Delete(root, true)
+
+[<Fact>]
+let ``policy_check tells what a call would meet without making it`` () =
+    let root = newRoot ()
+    try
+        // A restriction layer, named as jern.json's compiler names them, and
+        // a base policy that leaves shell at :ask.
+        writePolicy root
+            """(add-policy-restriction! "jern.json edits_within"
+                 (lambda (call)
+                   (if (policy-file-write? call)
+                       (if (policy-path-within-any? call (list "src/"))
+                           :allow
+                           "policy: edits are limited to src/ (jern.json edits_within)")
+                       :allow)))"""
+        File.WriteAllText(Path.Combine(root, "a.txt"), "hello\n")
+        let asked = ResizeArray<string>()
+        let session = sessionIn root (Some(fun d -> asked.Add d; false))
+        let denied =
+            callTool session
+                """(call-tool "policy_check" (list :name "edit_file" :input (list :path "a.txt" :old_string "hello" :new_string "bye")))"""
+        Assert.Contains("deny: policy: edits are limited to src/ (jern.json edits_within) (decided by jern.json edits_within)", denied)
+        Assert.Contains("\"is_error\":false", denied)
+        let asks = callTool session """(call-tool "policy_check" (list :name "edit_file" :input (list :path "src/b.txt")))"""
+        // (Json.serialize writes the apostrophe as \u0027, so match around it.)
+        Assert.Contains("ask: edit_file needs the user", asks)
+        Assert.Contains("s approval (decided by tool-policy)", asks)
+        let allowed = callTool session """(call-tool "policy_check" (list :name "read_file" :input (list :path "a.txt")))"""
+        Assert.Contains("allow: read_file runs without approval (decided by tool-policy)", allowed)
+        let ask = callTool session """(call-tool "policy_check" (list :name "shell" :input (list :command "make")))"""
+        Assert.Contains("ask: shell needs the user", ask)
+        let bare = callTool session """(call-tool "policy_check" (list))"""
+        Assert.Contains("needs name", bare)
+        // Nothing ran and nobody was asked: the file is untouched.
+        Assert.Empty asked
+        Assert.Equal("hello\n", File.ReadAllText(Path.Combine(root, "a.txt")))
+        // A declined approval names the layer that asked, and counts.
+        let declined = callTool session """(call-tool "shell" (list :command "printf no"))"""
+        Assert.Contains("the user declined this action; tool-policy asks for approval for it", declined)
+        Assert.Single asked |> ignore
+        let status = callTool session """(call-tool "session_status" (list))"""
+        Assert.Contains("model calls: 0\\ntokens: 0\\nfiles edited: 0 (0 lines changed)\\ncalls denied: 1", status)
+    finally
+        Directory.Delete(root, true)

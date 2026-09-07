@@ -22,6 +22,14 @@
   ref, or numbers, never a git command line. `changed_set` lists the files
   this session has edited with lines changed per file, from the run's own
   record. All five are allowed by the base policy.
+- **`policy_check` and `session_status`.** `policy_check` answers what the
+  composed policy would decide for a call (`allow`, `ask`, or `deny` with
+  the rule's own reason) and which layer decided, without making it, so
+  the model asks instead of trying, being refused, and trying again. A
+  declined approval now names the layer that asked. `session_status`
+  reports model calls and tokens against their budgets, the hard token
+  cap when a host set one, files edited and lines changed, and calls
+  denied. Both are answered in the policy layer and traced.
 
 ## 0.17.0 — 2026-09-07
 
