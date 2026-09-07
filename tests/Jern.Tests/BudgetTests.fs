@@ -114,6 +114,38 @@ let ``token budgets account response usage`` () =
         Assert.Contains("80 tokens", showError error)
 
 [<Fact>]
+let ``hard token budget counts cache reads at a tenth and the receipt in full`` () =
+    let calls = ref 0
+    let trace = ResizeArray<string>()
+    let session, hardBudget =
+        sessionWithHardBudget 70L
+            (Some(fun _ -> true))
+            (fixedBridge (Some """{"input_tokens":20,"cache_creation_input_tokens":5,"cache_read_input_tokens":95,"output_tokens":10}""") calls)
+            (Some trace.Add)
+    let source =
+        """(sequence
+              (perform jern/llm-call (list :messages (vector)))
+              (perform jern/llm-call (list :messages (vector)))
+              "done")"""
+    match Session.runSource session "weighted-budget-test" source with
+    | Choice2Of2 value -> failwith ("expected the run to end, got " + showVal value)
+    | Choice1Of2 error ->
+        // 20 + 5 + 10 + ceil(95 / 10) = 45 per call: the second crosses 70.
+        Assert.Contains("hard token budget of 70 exceeded with 90 tokens", showError error)
+        Assert.Equal(2, calls.Value)
+        Assert.Equal(90L, hardBudget.Spent)
+        let tracePath = Path.Combine(Path.GetTempPath(), "jern-weighted-budget-receipt-" + Guid.NewGuid().ToString("N") + ".jsonl")
+        try
+            File.WriteAllLines(tracePath, trace)
+            match Receipt.ofTrace tracePath with
+            | Error message -> failwith message
+            | Ok receipt ->
+                Assert.Equal(240L, receipt.inputTokens)
+                Assert.Equal(20L, receipt.outputTokens)
+        finally
+            File.Delete tracePath
+
+[<Fact>]
 let ``hard token budget cannot be renewed by approval`` () =
     let calls = ref 0
     let asked = ref 0
