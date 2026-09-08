@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.19.0 — unreleased
+
+- **Context compaction.** Every model call carries the whole conversation,
+  so a long task paid for its history on every turn. Once the provider
+  reports a context past `compaction_tokens` (jern.json; default 100,000;
+  0 turns it off), the default agent summarizes its older turns with one
+  model call and continues on the task verbatim, the notes appended to it,
+  and the newest six turns kept whole, cut at an assistant message so no
+  tool result loses its call. The summary call crosses the handler stack
+  like any other, so it is traced, budgeted, and capped, and a
+  `context-compacted` log event records the context size and the counts.
+  Agent source gets `string-length` and `string-take` for the rendering.
+- **Long tool results are kept, not carried.** A result longer than
+  `limits.max_tool_result_chars` (default 16,000) reaches the model as its
+  head and tail plus a handle, and the session keeps the whole text: a
+  new `read_output` tool pages it back by line (`id`, `from_line`,
+  `lines` up to 2,000). The full text still lands in the trace as an
+  `output-offloaded` event. `read_output` is a read, allowed by the base
+  policy and part of `pack:read`. The default agent's fixture is
+  re-recorded for the new tool.
+
 ## 0.18.1 — 2026-09-07
 
 - **The baseline may name the test command.** A `--policy-baseline` file

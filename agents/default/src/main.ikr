@@ -70,6 +70,150 @@ fails, read the error and adapt. Never invent file contents you have not read.")
           (String.concat text
             (String.concat "\n\nWorkspace layout:\n" (plist-get tree :content)))))))
 
+; ---------------------------------------------------------------------------
+; Context compaction. Every call carries the whole conversation, so a long
+; task pays for its history on every turn. Once the provider reports a
+; context past compaction-tokens (jern.json "compaction_tokens"; default
+; 100k; 0 turns it off), the older turns are summarized by one model call
+; and replaced before the next call: the original task stays verbatim with
+; the notes appended, and the newest turns stay whole, cut at an assistant
+; message so no tool_result loses its tool_use. The summary call crosses
+; the handler stack like any other, so it is traced, budgeted, and capped;
+; a context-compacted log event records the sizes.
+
+(define configured-compaction (plist-get jern/workspace-config :compaction_tokens))
+(define compaction-tokens
+  (if (eqv? configured-compaction :null) 100000 configured-compaction))
+
+; Newest turns kept whole after a compaction, extended back to an
+; assistant message.
+(define compaction-keep 6)
+
+; The context the provider counted on the last call: fresh input plus
+; cache reads and writes. Zero until a response says, and again after a
+; compaction until the next response.
+(define *context-box* (vector 0))
+
+(define usage-tokens
+  (lambda (usage key)
+    (sequence
+      (define value (if (pair? usage) (plist-get usage key) :null))
+      (if (eqv? value :null) 0 value))))
+
+(define note-context!
+  (lambda (response)
+    (sequence
+      (define usage (plist-get response :usage))
+      (vector-set! *context-box* 0
+        (+ (usage-tokens usage :input_tokens)
+           (+ (usage-tokens usage :cache_read_input_tokens)
+              (usage-tokens usage :cache_creation_input_tokens)))))))
+
+(define list-append
+  (lambda (a b) (if (null? a) b (cons (car a) (list-append (cdr a) b)))))
+
+(define join-with
+  (lambda (sep items)
+    (if (null? items)
+        ""
+        (if (null? (cdr items))
+            (car items)
+            (String.concat (car items) (String.concat sep (join-with sep (cdr items))))))))
+
+(define clip
+  (lambda (text n)
+    (if (< n (string-length text)) (String.concat (string-take text n) " …") text)))
+
+; A transcript the summarizer can read: text whole up to a limit, tool
+; calls by name and input, results clipped, thinking left out.
+(define render-block
+  (lambda (block)
+    (sequence
+      (define type (plist-get block :type))
+      (cond ((equal? type "text") (clip (plist-get block :text) 1500))
+            ((equal? type "tool_use")
+             (String.concat "[tool_use "
+               (String.concat (plist-get block :name)
+                 (String.concat " " (String.concat (clip (jern/show (plist-get block :input)) 400) "]")))))
+            ((equal? type "tool_result")
+             (String.concat "[tool_result] " (clip (render-content (plist-get block :content)) 600)))
+            (#t "")))))
+
+(define render-content
+  (lambda (content)
+    (cond ((vector? content) (join-with "\n" (map render-block (vector->list content))))
+          ((eqv? content :null) "")
+          (#t content))))
+
+(define render-message
+  (lambda (message)
+    (String.concat (plist-get message :role)
+      (String.concat ": " (render-content (plist-get message :content))))))
+
+(define summary-prompt
+  "You are compacting the working memory of a coding agent partway through a task. From the transcript, write the notes the agent needs to continue without it: the goal and any constraints stated; what has been done, naming files, functions, and commands exactly; what was learned about the codebase that matters, such as paths, names, conventions, and errors seen with their causes; what remains to do, in order; and open questions or decisions. Be precise and terse, use exact identifiers, and do not invent anything the transcript does not contain.")
+
+(define summarize-messages
+  (lambda (older)
+    (sequence
+      (define response
+        (perform jern/llm-call
+          (list :system summary-prompt
+                :max_tokens 2000
+                :messages (vector (list :role "user"
+                                        :content (String.concat "Transcript to compact:\n\n"
+                                                   (String.concat (join-with "\n\n" (map render-message older))
+                                                                  "\n\nWrite the notes now.")))))))
+      (define text (response-text response))
+      (if (eqv? text :null) "" text))))
+
+; Splits newest-first messages into (tail . older): the tail is the newest
+; `n` messages extended back to an assistant message, so the kept turns
+; begin with the model's own words and every tool_result keeps its call.
+(define split-tail
+  (lambda (messages n)
+    (if (null? messages)
+        (cons () ())
+        (sequence
+          (define here (car messages))
+          (if (and? (<= n 1) (equal? (plist-get here :role) "assistant"))
+              (cons (list here) (cdr messages))
+              (sequence
+                (define rest (split-tail (cdr messages) (- n 1)))
+                (cons (cons here (car rest)) (cdr rest))))))))
+
+(define compact-messages
+  (lambda (messages)
+    (sequence
+      (define split (split-tail messages compaction-keep))
+      (define tail (car split))
+      (define older-oldest-first (reverse (cdr split)))
+      (if (null? older-oldest-first)
+          messages
+          (if (null? (cdr older-oldest-first))
+              messages
+              (sequence
+                (define first (car older-oldest-first))
+                (define body (cdr older-oldest-first))
+                (define context (vector-ref *context-box* 0))
+                (define summary (summarize-messages body))
+                (perform jern/log
+                  (list :event "context-compacted"
+                        :context_tokens context
+                        :summarized_messages (length body)
+                        :kept_messages (length tail)))
+                (vector-set! *context-box* 0 0)
+                (define compacted-first
+                  (list :role "user"
+                        :content (String.concat (render-content (plist-get first :content))
+                                   (String.concat "\n\n[Earlier turns were compacted to save context. Notes from the work so far:]\n" summary))))
+                (list-append tail (list compacted-first))))))))
+
+(define compaction-due?
+  (lambda ()
+    (and? (< 0 compaction-tokens)
+          (<= compaction-tokens (vector-ref *context-box* 0)))))
+
 ; The host streams assistant text to the terminal as it arrives, so there is
 ; nothing to print here; tool dispatch below still announces each call.
 ; (Make this print (response-blocks response "text") if your host doesn't
@@ -114,6 +258,9 @@ fails, read the error and adapt. Never invent file contents you have not read.")
           (perform jern/log (list :event "max-turns-reached"))
           messages)
         (sequence
+          ; A context past the compaction threshold is compacted before it
+          ; is sent again.
+          (define history (if (compaction-due?) (compact-messages messages) messages))
           ; :cache_control rides the request verbatim: Anthropic auto-places
           ; the cache breakpoint on the last cacheable block (so the whole
           ; conversation prefix caches turn over turn); other providers'
@@ -125,12 +272,13 @@ fails, read the error and adapt. Never invent file contents you have not read.")
                       :max_tokens response-max-tokens
                       :tools (tools-for-llm)
                       :cache_control (list :type "ephemeral")
-                      :messages (apply vector (reverse messages))))))
+                      :messages (apply vector (reverse history))))))
+          (note-context! response)
           (show-progress response)
           (define with-assistant
             (cons (list :role "assistant"
                         :content (plist-get response :content))
-                  messages))
+                  history))
           (define tool-uses (response-blocks response "tool_use"))
           (if (null? tool-uses)
               with-assistant

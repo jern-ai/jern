@@ -12,6 +12,15 @@
         (list :path (list :type "string" :description "Workspace-relative file path"))
         :required (vector "path")))
 
+(define-tool "read_output"
+  "Read part of a tool result the session kept whole because it was too long for the context: a result that ends with '[… output truncated …]' names an id such as out_3. Pages by line; lines up to 2000 per call."
+  (list :type "object"
+        :properties
+        (list :id (list :type "string" :description "The output id named in the truncated result, e.g. out_3")
+              :from_line (list :type "integer" :description "First line to return, 1-based; defaults to 1")
+              :lines (list :type "integer" :description "How many lines to return; defaults to 200, at most 2000"))
+        :required (vector "id")))
+
 (define-tool "list_dir"
   "List the entries of a workspace directory. Directories are suffixed with '/'."
   (list :type "object"

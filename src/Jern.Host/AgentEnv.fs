@@ -91,10 +91,28 @@ module AgentEnv =
             | bad -> signal cont (NumArgs(2, bad))
         name, applicative invoke
 
+    /// (string-length s): the character count. (string-take s n): the first
+    /// n characters, or all of them when the string is shorter. Both pure,
+    /// so agent source can clip a text it renders for the model.
+    let private stringLength env cont = function
+        | [Obj (:? string as s)] -> bounceContinue env cont (Obj(int64 s.Length :> obj))
+        | [bad] -> signal cont (TypeMismatch("string", bad))
+        | bad -> signal cont (NumArgs(1, bad))
+
+    let private stringTake env cont = function
+        | [Obj (:? string as s); Obj count] ->
+            let n = (try Convert.ToInt32 count with _ -> -1)
+            if n < 0 then signal cont (TypeMismatch("non-negative count", Obj count))
+            else bounceContinue env cont (Obj((if n >= s.Length then s else s.Substring(0, n)) :> obj))
+        | [_; _] as bad -> signal cont (TypeMismatch("a string and a count", ofList bad))
+        | bad -> signal cont (NumArgs(2, bad))
+
     let stringBindings =
         [ stringPredicate "string-contains?" (fun a b -> a.Contains(b, StringComparison.Ordinal))
           stringPredicate "string-prefix?" (fun a b -> a.StartsWith(b, StringComparison.Ordinal))
-          stringPredicate "string-suffix?" (fun a b -> a.EndsWith(b, StringComparison.Ordinal)) ]
+          stringPredicate "string-suffix?" (fun a b -> a.EndsWith(b, StringComparison.Ordinal))
+          "string-length", applicative stringLength
+          "string-take", applicative stringTake ]
 
     /// Everything the agent environment gets from the host.
     let baseBindings tags =

@@ -274,6 +274,7 @@
             ((equal? name "apply_patch") :ask)
             ((equal? name "write_file") :ask)
             ((equal? name "read_file") :allow)
+            ((equal? name "read_output") :allow)
             ((equal? name "list_dir") :allow)
             ((equal? name "file_tree") :allow)
             ((equal? name "grep") :allow)

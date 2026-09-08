@@ -22,6 +22,30 @@
             }
           },
           {
+            "name": "read_output",
+            "description": "Read part of a tool result the session kept whole because it was too long for the context: a result that ends with \u0027[\u2026 output truncated \u2026]\u0027 names an id such as out_3. Pages by line; lines up to 2000 per call.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The output id named in the truncated result, e.g. out_3"
+                },
+                "from_line": {
+                  "type": "integer",
+                  "description": "First line to return, 1-based; defaults to 1"
+                },
+                "lines": {
+                  "type": "integer",
+                  "description": "How many lines to return; defaults to 200, at most 2000"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          },
+          {
             "name": "list_dir",
             "description": "List the entries of a workspace directory. Directories are suffixed with \u0027/\u0027.",
             "input_schema": {
@@ -483,6 +507,30 @@
               },
               "required": [
                 "path"
+              ]
+            }
+          },
+          {
+            "name": "read_output",
+            "description": "Read part of a tool result the session kept whole because it was too long for the context: a result that ends with \u0027[\u2026 output truncated \u2026]\u0027 names an id such as out_3. Pages by line; lines up to 2000 per call.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The output id named in the truncated result, e.g. out_3"
+                },
+                "from_line": {
+                  "type": "integer",
+                  "description": "First line to return, 1-based; defaults to 1"
+                },
+                "lines": {
+                  "type": "integer",
+                  "description": "How many lines to return; defaults to 200, at most 2000"
+                }
+              },
+              "required": [
+                "id"
               ]
             }
           },
@@ -974,6 +1022,30 @@
               },
               "required": [
                 "path"
+              ]
+            }
+          },
+          {
+            "name": "read_output",
+            "description": "Read part of a tool result the session kept whole because it was too long for the context: a result that ends with \u0027[\u2026 output truncated \u2026]\u0027 names an id such as out_3. Pages by line; lines up to 2000 per call.",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The output id named in the truncated result, e.g. out_3"
+                },
+                "from_line": {
+                  "type": "integer",
+                  "description": "First line to return, 1-based; defaults to 1"
+                },
+                "lines": {
+                  "type": "integer",
+                  "description": "How many lines to return; defaults to 200, at most 2000"
+                }
+              },
+              "required": [
+                "id"
               ]
             }
           },
