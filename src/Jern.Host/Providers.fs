@@ -70,6 +70,11 @@ module Providers =
           /// OpenAI-style reasoning effort. Each bridge consumes its own.
           thinkingTokens: int option
           reasoningEffort: string option
+          /// Context compaction (jern.json "compaction_tokens"): the context
+          /// size, in tokens as the provider counted the last call, past
+          /// which the default agent summarizes its older turns before the
+          /// next call. None leaves the agent's default; 0 turns it off.
+          compactionTokens: int option
           /// Tool limits (jern.json "limits": {"max_file_bytes", …,
           /// "shell_timeout_seconds"}); applied via Tools.configureLimits.
           limits: Tools.Limits
@@ -89,6 +94,7 @@ module Providers =
           budgetTokens = None
           thinkingTokens = None
           reasoningEffort = None
+          compactionTokens = None
           limits = Tools.defaultLimits
           policySources = [] }
 
@@ -180,6 +186,13 @@ module Providers =
                 match doc.["reasoning_effort"] with
                 | null -> config.reasoningEffort
                 | e -> Some(e.GetValue<string>())
+            let compactionTokens =
+                match doc.["compaction_tokens"] with
+                | null -> config.compactionTokens
+                | t ->
+                    let value = t.GetValue<int>()
+                    if value < 0 then failwith "compaction_tokens must be 0 (off) or a positive token count"
+                    Some value
             let limits =
                 match doc.["limits"] with
                 | :? JsonObject as l ->
@@ -202,7 +215,8 @@ module Providers =
                       Tools.evalTimeoutSeconds =
                         (match l.["eval_timeout_seconds"] with
                          | null -> config.limits.evalTimeoutSeconds
-                         | v -> v.GetValue<float>()) }
+                         | v -> v.GetValue<float>())
+                      Tools.maxToolResultChars = intField "max_tool_result_chars" config.limits.maxToolResultChars }
                 | _ -> config.limits
             // A "policy" object contributes a source tagged with this file's
             // origin. A malformed one is a startup error, never a silent
@@ -238,6 +252,7 @@ module Providers =
               budgetTokens = budgetTokens
               thinkingTokens = thinkingTokens
               reasoningEffort = reasoningEffort
+              compactionTokens = compactionTokens
               limits = limits
               policySources = policySources }
 
@@ -346,6 +361,9 @@ module Providers =
            | None -> [])
         @ (match config.reasoningEffort with
            | Some effort -> [ Keyword "reasoning_effort"; Obj(effort :> obj) ]
+           | None -> [])
+        @ (match config.compactionTokens with
+           | Some tokens -> [ Keyword "compaction_tokens"; Obj(tokens :> obj) ]
            | None -> [])
         |> ofList
 

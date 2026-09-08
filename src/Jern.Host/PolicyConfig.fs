@@ -59,7 +59,7 @@ module PolicyConfig =
     /// expanded when the policy compiles; the JSON keeps the pack name.
     let packs : Map<string, string list> =
         Map.ofList
-            [ "read", [ "read_file"; "list_dir"; "file_tree"; "grep"; "symbols"; "outline"; "read_symbol"; "references" ]
+            [ "read", [ "read_file"; "read_output"; "list_dir"; "file_tree"; "grep"; "symbols"; "outline"; "read_symbol"; "references" ]
               "edit", [ "edit_file"; "edit_symbol"; "apply_patch"; "write_file" ]
               "verify", [ "run_tests" ]
               "git", [ "git_status"; "git_diff"; "git_log"; "git_blame"; "changed_set" ]

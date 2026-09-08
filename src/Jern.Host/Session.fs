@@ -353,6 +353,80 @@ module Session =
             let editedFiles = Collections.Generic.HashSet<string>(StringComparer.Ordinal)
             let linesByFile = Collections.Generic.Dictionary<string, int64>(StringComparer.Ordinal)
             let mutable linesChanged = 0L
+
+            // Tool results too long for the context are kept here whole and
+            // answered as head, tail, and a handle; read_output pages them.
+            // The full text still reaches the trace, as its own event.
+            let offloadedOutputs = Collections.Generic.Dictionary<string, string>(StringComparer.Ordinal)
+            let mutable offloadedCount = 0
+            let toolResult (isError: bool) (content: string) =
+                ofList [ Keyword "content"; Obj(content :> obj); Keyword "is_error"; Bool isError ]
+            let lineCountOf (text: string) =
+                if text.Length = 0 then 0 else text.Split('\n').Length - (if text.EndsWith "\n" then 1 else 0)
+            let offloadIfLong (toolName: string) (reply: LispVal) =
+                let cap = (Tools.currentLimits ()).maxToolResultChars
+                match Tools.plistTryGet "content" reply, Tools.plistTryGet "is_error" reply with
+                | Some (Obj (:? string as content)), isError when cap > 0 && content.Length > cap && toolName <> "read_output" ->
+                    offloadedCount <- offloadedCount + 1
+                    let id = sprintf "out_%d" offloadedCount
+                    offloadedOutputs.[id] <- content
+                    let lines = lineCountOf content
+                    // Head and tail on line boundaries: the start of a file
+                    // orients, the end of a log holds the verdict.
+                    let headBudget = cap * 5 / 8
+                    let tailBudget = cap / 8
+                    let headCut =
+                        let at = content.LastIndexOf('\n', headBudget - 1)
+                        if at > headBudget / 2 then at + 1 else headBudget
+                    let tailCut =
+                        let from = content.Length - tailBudget
+                        let at = content.IndexOf('\n', from)
+                        if at >= 0 && at < content.Length - tailBudget / 2 then at + 1 else from
+                    let headLines = lineCountOf (content.Substring(0, headCut))
+                    let tailLines = lineCountOf (content.Substring tailCut)
+                    let marker =
+                        sprintf "\n[… output truncated: %d characters, %d lines; showing the first %d and the last %d. The whole output is kept as %s: call read_output with id \"%s\" and from_line to read the rest …]\n"
+                            content.Length lines headLines tailLines id id
+                    emitTrace
+                        (ofList [ Keyword "event"; Obj("output-offloaded" :> obj)
+                                  Keyword "id"; Obj(id :> obj)
+                                  Keyword "tool"; Obj(toolName :> obj)
+                                  Keyword "chars"; Obj(int64 content.Length :> obj)
+                                  Keyword "lines"; Obj(int64 lines :> obj)
+                                  Keyword "content"; Obj(content :> obj) ])
+                    let clipped = content.Substring(0, headCut) + marker + content.Substring tailCut
+                    toolResult (match isError with Some (Bool true) -> true | _ -> false) clipped
+                | _ -> reply
+            let readOutput (call: LispVal) : ThrowsError<LispVal> =
+                let input = defaultArg (Tools.plistTryGet "input" call) Nil
+                let str key = Tools.plistTryGet key input |> Option.bind (function Obj (:? string as v) -> Some v | _ -> None)
+                let num key fallback =
+                    match Tools.plistTryGet key input with
+                    | Some (Obj v) -> (try Convert.ToInt32 v with _ -> fallback)
+                    | _ -> fallback
+                match str "id" with
+                | None -> Choice2Of2 (toolResult true "read_output needs id: the out_N named in a truncated result")
+                | Some id ->
+                    match offloadedOutputs.TryGetValue id with
+                    | false, _ ->
+                        Choice2Of2 (toolResult true (sprintf "no kept output '%s' in this session (kept: %s)" id (if offloadedOutputs.Count = 0 then "none" else String.concat ", " (Seq.sort offloadedOutputs.Keys))))
+                    | true, text ->
+                        let all = text.Split('\n')
+                        let total = lineCountOf text
+                        let fromLine = max 1 (num "from_line" 1)
+                        let count = min 2000 (max 1 (num "lines" 200))
+                        if fromLine > total then
+                            Choice2Of2 (toolResult true (sprintf "%s has %d lines; from_line %d is past the end" id total fromLine))
+                        else
+                            let lastLine = min total (fromLine + count - 1)
+                            let page = String.Join("\n", all.[fromLine - 1 .. lastLine - 1])
+                            let cap = (Tools.currentLimits ()).maxToolResultChars
+                            let body, note =
+                                if cap > 0 && page.Length > cap then
+                                    let cut = let at = page.LastIndexOf('\n', cap - 1) in if at > cap / 2 then at else cap
+                                    page.Substring(0, cut), sprintf " (cut at %d characters; ask for fewer lines)" cut
+                                else page, ""
+                            Choice2Of2 (toolResult false (sprintf "%s lines %d-%d of %d%s:\n%s" id fromLine lastLine total note body))
             let rootFull = Path.GetFullPath config.workspaceRoot
             let relativePath (path: string) =
                 try
@@ -442,10 +516,16 @@ module Session =
                         signal cont (Default "interrupted by user")
                     else
                         let projected = projectedEdit call
+                        let toolName =
+                            match Tools.plistTryGet "name" call with
+                            | Some (Obj (:? string as name)) -> name
+                            | _ -> ""
                         let dispatch =
                             match Tools.plistTryGet "name" call with
                             | Some (Obj (:? string as name)) when name = "kernel_eval" ->
                                 evalProgramRef.Value
+                            | Some (Obj (:? string as name)) when name = "read_output" ->
+                                readOutput
                             | nameVal ->
                                 match config.toolDispatch with
                                 | Some substitute -> substitute
@@ -472,6 +552,7 @@ module Session =
                         match dispatch call with
                         | Choice1Of2 error -> signal cont error
                         | Choice2Of2 reply ->
+                            let reply = offloadIfLong toolName reply
                             // An edit that succeeded widens the blast radius,
                             // and says so in the trace for the receipt.
                             match projected with

@@ -53,6 +53,13 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M26 — context that stays small** (v0.19): a long task no longer pays
+  for its whole history on every call. Past `compaction_tokens` of
+  context (default 100k) the default agent summarizes its older turns
+  with one traced model call and keeps the task, the notes, and the six
+  newest turns; a tool result longer than `limits.max_tool_result_chars`
+  (default 16k) reaches the model as head, tail, and a handle that
+  `read_output` pages by line, while the whole text stays in the trace.
 - **M25 — the run as data** (v0.18): tools that replace sloppy `shell`
   with structured, deniable-by-name answers. `run_tests` runs the
   repository's own `test_command`, never a model-written command line,

@@ -31,7 +31,12 @@ module Tools =
           testTimeoutSeconds: float
           /// Wall-clock cap on one kernel_eval program (model-authored
           /// Kernel code has no other stop for a pure loop).
-          evalTimeoutSeconds: float }
+          evalTimeoutSeconds: float
+          /// The most characters one tool result puts into the model's
+          /// context. A longer result is kept whole by the session and
+          /// answered as its head and tail plus a `read_output` handle, so
+          /// a test log or a large file does not ride every later call.
+          maxToolResultChars: int }
 
     let defaultLimits =
         { maxFileBytes = 262_144L
@@ -39,7 +44,8 @@ module Tools =
           maxTreeEntries = 200
           shellTimeoutSeconds = 120.0
           testTimeoutSeconds = 600.0
-          evalTimeoutSeconds = 30.0 }
+          evalTimeoutSeconds = 30.0
+          maxToolResultChars = 16_000 }
 
     let mutable private limits = defaultLimits
     let configureLimits (value: Limits) = limits <- value
