@@ -53,6 +53,12 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M27 — skills, on demand** (v0.20): playbooks under
+  `.jern/skills/<name>/SKILL.md`, each with front matter naming it and
+  saying when it applies. Only the name and description ride the system
+  prompt; the default agent reads a body with `read_file` when the task
+  matches, so a repository can carry many playbooks and pay context for
+  one. `CONVENTIONS.md` stays the always-on note.
 - **M26 — context that stays small** (v0.19): a long task no longer pays
   for its whole history on every call. Past `compaction_tokens` of
   context (default 100k) the default agent summarizes its older turns
