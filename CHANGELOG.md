@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.19.0 — unreleased
+## 0.20.0 — unreleased
+
+- **Skills, on demand.** A repository can keep playbooks under
+  `.jern/skills/<name>/SKILL.md`, each with front matter naming it and
+  saying when it applies. The default agent lists them once per run and
+  puts only the name and description on the system prompt, with the path
+  to read; the model reads a body with `read_file` when the task matches,
+  so a repository can carry many playbooks and pay context for one.
+  `CONVENTIONS.md` stays the always-on note. A skill without front matter
+  is named after its folder and described by its first line. Skills are
+  repository content under the same review as the code, and a protected
+  `.jern/` keeps the agent from editing them. Agent source gets
+  `string-split`, `string-trim`, and `string-drop` for the reading.
+
+## 0.19.0 — 2026-09-08
 
 - **Context compaction.** Every model call carries the whole conversation,
   so a long task paid for its history on every turn. Once the provider

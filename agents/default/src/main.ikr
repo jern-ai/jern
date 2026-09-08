@@ -17,15 +17,134 @@ fails, read the error and adapt. Never invent file contents you have not read.")
 ; Project conventions, aider-style: if the workspace has a CONVENTIONS.md,
 ; its contents ride along in the system prompt. Reads are policy-free, so
 ; this costs one tool call per model turn and no approvals.
-(define system-prompt-with-conventions
+(define conventions-section
   (lambda ()
     (sequence
       (define result (call-tool "read_file" (list :path "CONVENTIONS.md")))
       (if (eqv? (plist-get result :is_error) #t)
-          base-prompt
-          (String.concat base-prompt
-            (String.concat "\n\nProject conventions (from CONVENTIONS.md):\n"
-                           (plist-get result :content)))))))
+          ""
+          (String.concat "\n\nProject conventions (from CONVENTIONS.md):\n"
+                         (plist-get result :content))))))
+
+; ---------------------------------------------------------------------------
+; Skills, on demand. A playbook per folder under .jern/skills/, each a
+; SKILL.md whose front matter names it and says when it applies:
+;
+;   ---
+;   name: release-notes
+;   description: How to write the changelog entry for a release.
+;   ---
+;   (the playbook)
+;
+; Only the name and description ride the system prompt; the model reads a
+; body with read_file when the task matches, so a repository can carry many
+; playbooks and pay context for one. CONVENTIONS.md stays the always-on
+; note. Skills are repository content under the same review as the code,
+; read once per run so the prompt stays byte-stable for the cache.
+
+(define skills-dir ".jern/skills")
+
+(define *skills-box* (vector :null))
+
+(define string-empty? (lambda (text) (equal? (string-trim text) "")))
+
+(define filter
+  (lambda (keep? items)
+    (if (null? items)
+        ()
+        (if (keep? (car items))
+            (cons (car items) (filter keep? (cdr items)))
+            (filter keep? (cdr items))))))
+
+; The value of `key:` in the front matter lines, trimmed, or :null.
+(define front-matter-value
+  (lambda (lines key)
+    (if (null? lines)
+        :null
+        (sequence
+          (define line (string-trim (car lines)))
+          (if (string-prefix? line (String.concat key ":"))
+              (string-trim (string-drop line (+ 1 (string-length key))))
+              (front-matter-value (cdr lines) key))))))
+
+; The lines between the opening --- and the next ---, or () when the file
+; does not begin with front matter.
+(define front-matter-lines
+  (lambda (lines)
+    (sequence
+      (define take-until-close
+        (lambda (rest)
+          (if (null? rest)
+              ()
+              (if (equal? (string-trim (car rest)) "---")
+                  ()
+                  (cons (car rest) (take-until-close (cdr rest)))))))
+      (if (and? (pair? lines) (equal? (string-trim (car lines)) "---"))
+          (take-until-close (cdr lines))
+          ()))))
+
+; One line for the prompt: "- name: description (read <path>)", or :null
+; when the folder has no readable SKILL.md. A skill without front matter
+; is named after its folder and described by its first line of text.
+(define skill-line
+  (lambda (folder)
+    (sequence
+      (define path (String.concat skills-dir (String.concat "/" (String.concat folder "/SKILL.md"))))
+      (define result (call-tool "read_file" (list :path path)))
+      (if (eqv? (plist-get result :is_error) #t)
+          :null
+          (sequence
+            (define lines (string-split (plist-get result :content) "\n"))
+            (define matter (front-matter-lines lines))
+            (define named (front-matter-value matter "name"))
+            (define described (front-matter-value matter "description"))
+            (define first-text
+              (filter (lambda (line) (not? (string-empty? line)))
+                      (filter (lambda (line) (not? (string-prefix? (string-trim line) "---"))) lines)))
+            (define name (if (eqv? named :null) folder named))
+            (define description
+              (if (eqv? described :null)
+                  (if (null? first-text) "" (string-trim (car first-text)))
+                  described))
+            (String.concat "- " (String.concat name
+              (String.concat ": " (String.concat (clip description 300)
+                (String.concat " (read " (String.concat path ")")))))))))))
+
+; Folder names under skills-dir, from list_dir's one-entry-per-line listing
+; where a directory ends with "/".
+(define skill-folders
+  (lambda (listing)
+    (map (lambda (entry) (string-take entry (- (string-length entry) 1)))
+         (filter (lambda (entry) (and? (string-suffix? entry "/") (< 1 (string-length entry))))
+                 (string-split listing "\n")))))
+
+(define load-skills
+  (lambda ()
+    (sequence
+      (define listing (call-tool "list_dir" (list :path skills-dir)))
+      (if (eqv? (plist-get listing :is_error) #t)
+          ""
+          (sequence
+            (define lines
+              (filter (lambda (line) (not? (eqv? line :null)))
+                      (map skill-line (skill-folders (plist-get listing :content)))))
+            (if (null? lines)
+                ""
+                (String.concat "\n\nSkills: playbooks this repository keeps under .jern/skills/. When a task matches one, read its file before starting and follow it.\n"
+                               (join-with "\n" lines))))))))
+
+; Read once per run: the prompt must not change between turns.
+(define skills-section
+  (lambda ()
+    (sequence
+      (if (eqv? (vector-ref *skills-box* 0) :null)
+          (vector-set! *skills-box* 0 (load-skills))
+          #inert)
+      (vector-ref *skills-box* 0))))
+
+(define system-prompt-with-conventions
+  (lambda ()
+    (String.concat base-prompt (String.concat (conventions-section) (skills-section)))))
 
 (define max-turns 50)
 

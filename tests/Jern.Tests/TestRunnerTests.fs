@@ -39,7 +39,7 @@ let ``default agent suite passes on replay`` () =
     | Ok summary ->
         for o in summary.Failed do
             failwithf "%s: %s" o.name o.error.Value
-        Assert.Equal(3, summary.Passed.Length)
+        Assert.Equal(5, summary.Passed.Length)
 
 /// The flagship claim: a prompt regression is caught. Tamper with the default
 /// agent's system prompt in a copy; replay must fail with a divergence error.

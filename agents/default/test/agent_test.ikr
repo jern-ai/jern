@@ -22,3 +22,25 @@
     (assert-equal 3 (llm-call-count))
     (assert-equal 1 (length (tool-calls-named "edit_file")))
     (assert-edits-within "greeting.txt")))
+
+; Skills: a SKILL.md per folder under .jern/skills/ puts its name and
+; description on the system prompt; the body stays on disk for read_file.
+(deftest "skills ride the system prompt by name and description"
+  (setup-file ".jern/skills/release-notes/SKILL.md"
+    "---\nname: release-notes\ndescription: How to write the changelog entry for a release.\n---\n\nRead CHANGELOG.md first. Every entry names the user-visible change.\n")
+  (setup-file ".jern/skills/migrations/SKILL.md"
+    "Adding a database migration.\n\nMigrations live under db/migrations and are numbered.\n")
+  (setup-file ".jern/skills/notes.txt" "not a skill\n")
+  (vector-set! *skills-box* 0 :null)
+  (define prompt (system-prompt-with-conventions))
+  (assert-true (string-contains? prompt "- release-notes: How to write the changelog entry for a release. (read .jern/skills/release-notes/SKILL.md)")
+               "the front matter names the skill")
+  (assert-true (string-contains? prompt "- migrations: Adding a database migration. (read .jern/skills/migrations/SKILL.md)")
+               "a skill without front matter is named by its folder and its first line")
+  (assert-true (not? (string-contains? prompt "Every entry names")) "the body stays off the prompt")
+  (assert-true (not? (string-contains? prompt "notes.txt")) "a loose file under skills is not a skill")
+  (assert-true (string-prefix? prompt base-prompt) "the base prompt comes first"))
+
+(deftest "a workspace without skills gets the plain prompt"
+  (vector-set! *skills-box* 0 :null)
+  (assert-equal base-prompt (system-prompt-with-conventions)))

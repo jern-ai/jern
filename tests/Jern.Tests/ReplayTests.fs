@@ -64,7 +64,7 @@ let ``a faithful replay re-runs the whole recording offline`` () =
         | Ok (Replay.Diverged report) -> failwith ("unexpected divergence: " + report)
         | Ok (Replay.Completed (llmCalls, toolCalls)) ->
             Assert.Equal(3, llmCalls)
-            Assert.Equal(6, toolCalls)
+            Assert.Equal(7, toolCalls)
     finally
         File.Delete tracePath
 
@@ -94,7 +94,7 @@ let ``a recording replays after the runtime's tool list changed`` () =
         | Ok (Replay.Diverged report) -> failwith ("unexpected divergence: " + report)
         | Ok (Replay.Completed (llmCalls, toolCalls)) ->
             Assert.Equal(3, llmCalls)
-            Assert.Equal(6, toolCalls)
+            Assert.Equal(7, toolCalls)
     finally
         File.Delete tracePath
 

@@ -107,12 +107,41 @@ module AgentEnv =
         | [_; _] as bad -> signal cont (TypeMismatch("a string and a count", ofList bad))
         | bad -> signal cont (NumArgs(2, bad))
 
+    /// (string-drop s n): all but the first n characters, or "" when the
+    /// string is shorter. (string-trim s): without leading and trailing
+    /// whitespace. (string-split s sep): the pieces between occurrences of
+    /// a non-empty separator, as a list, empty pieces kept. Pure, so agent
+    /// source can read a small structured file such as a skill's front
+    /// matter without a host tool.
+    let private stringDrop env cont = function
+        | [Obj (:? string as s); Obj count] ->
+            let n = (try Convert.ToInt32 count with _ -> -1)
+            if n < 0 then signal cont (TypeMismatch("non-negative count", Obj count))
+            else bounceContinue env cont (Obj((if n >= s.Length then "" else s.Substring n) :> obj))
+        | [_; _] as bad -> signal cont (TypeMismatch("a string and a count", ofList bad))
+        | bad -> signal cont (NumArgs(2, bad))
+
+    let private stringTrim env cont = function
+        | [Obj (:? string as s)] -> bounceContinue env cont (Obj(s.Trim() :> obj))
+        | [bad] -> signal cont (TypeMismatch("string", bad))
+        | bad -> signal cont (NumArgs(1, bad))
+
+    let private stringSplit env cont = function
+        | [Obj (:? string as s); Obj (:? string as sep)] when sep <> "" ->
+            let pieces = s.Split(sep, StringSplitOptions.None) |> Array.map (fun piece -> Obj(piece :> obj)) |> List.ofArray
+            bounceContinue env cont (ofList pieces)
+        | [_; _] as bad -> signal cont (TypeMismatch("a string and a non-empty separator", ofList bad))
+        | bad -> signal cont (NumArgs(2, bad))
+
     let stringBindings =
         [ stringPredicate "string-contains?" (fun a b -> a.Contains(b, StringComparison.Ordinal))
           stringPredicate "string-prefix?" (fun a b -> a.StartsWith(b, StringComparison.Ordinal))
           stringPredicate "string-suffix?" (fun a b -> a.EndsWith(b, StringComparison.Ordinal))
           "string-length", applicative stringLength
-          "string-take", applicative stringTake ]
+          "string-take", applicative stringTake
+          "string-drop", applicative stringDrop
+          "string-trim", applicative stringTrim
+          "string-split", applicative stringSplit ]
 
     /// Everything the agent environment gets from the host.
     let baseBindings tags =

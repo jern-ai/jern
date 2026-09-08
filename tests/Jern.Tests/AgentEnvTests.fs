@@ -75,3 +75,22 @@ let ``agent can perform against a host-handled effect tag`` () =
            (perform jern/llm-call \"hello\"))"
     let value = evalIn env program
     Assert.Equal("(\"hello\" 42)", showVal value)
+
+[<Fact>]
+let ``string primitives split, trim, and drop`` () =
+    let env, _ = agentEnv ()
+    match evalIn env """(string-split "a:b::c" ":")""" with
+    | Pair _ as pieces -> Assert.Equal("(\"a\" \"b\" \"\" \"c\")", showVal pieces)
+    | other -> failwith ("expected a list, got " + showVal other)
+    match evalIn env """(string-trim "  name: x \n")""" with
+    | Obj o -> Assert.Equal("name: x", o :?> string)
+    | other -> failwith ("expected a string, got " + showVal other)
+    match evalIn env """(string-drop "description: y" 12)""" with
+    | Obj o -> Assert.Equal(" y", o :?> string)
+    | other -> failwith ("expected a string, got " + showVal other)
+    match evalIn env """(string-drop "ab" 5)""" with
+    | Obj o -> Assert.Equal("", o :?> string)
+    | other -> failwith ("expected a string, got " + showVal other)
+    match evalIn env """(string-split "abc" "")""" with
+    | Status _ -> ()
+    | other -> failwith ("expected an error for an empty separator, got " + showVal other)
