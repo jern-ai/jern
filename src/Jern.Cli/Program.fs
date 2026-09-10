@@ -39,6 +39,7 @@ Usage:
                       edited agent to see exactly where and how the run
                       would have diverged
   jern receipt [<trace.jsonl>] [--md | --json]
+  jern verify [--json] [--timeout SECONDS]      run the test command once as an acceptance check
                       What a run did: model calls and tokens against budget,
                       tools used, files touched, policy decisions, and the
                       trace it came from. Printed after every `jern run`;
@@ -779,6 +780,37 @@ let private runReceipt (tracePath: string option) (format: Args.ReceiptFormat) =
             | Args.Text -> printf "%s" (Receipt.render receiptPalette summary)
             0
 
+/// jern verify: the workspace's test command once, after the agent is done,
+/// as an acceptance check a receipt can quote. The protected baseline's
+/// command outranks jern.json's when --policy-baseline names one. Exit 0
+/// when the tests passed, 1 when they failed, 2 when nothing could run.
+let private runVerify (json: bool) (timeoutSeconds: int option) =
+    let config = loadProviders ()
+    match config.testCommand with
+    | None ->
+        if json then printfn """{"status":"not_run","reason":"no_test_command"}"""
+        else eprintfn "jern verify: no test_command is configured; there is nothing to run"
+        2
+    | Some command ->
+        let source = if cliPolicyBaseline.IsSome then "baseline" else "jern.json"
+        let timeout = TimeSpan.FromSeconds(float (defaultArg timeoutSeconds 600))
+        match Verification.run Environment.CurrentDirectory command source timeout with
+        | Error message ->
+            if json then printfn "%s" (System.Text.Json.JsonSerializer.Serialize {| status = "not_run"; reason = message |})
+            else eprintfn "jern verify: %s" message
+            2
+        | Ok result ->
+            if json then printfn "%s" (Verification.toJson result)
+            else
+                let counts =
+                    match result.report.passed, result.report.failed with
+                    | Some p, Some f -> sprintf " (%d passed, %d failed)" p f
+                    | _ -> ""
+                printfn "%s: %s%s in %.1fs" result.status result.command counts result.seconds
+                for failure in result.report.failures |> List.truncate 20 do
+                    printfn "  %s%s" failure.test (if failure.message = "" then "" else ": " + failure.message)
+            if result.exitCode = 0 then 0 else 1
+
 // --- golden sessions -------------------------------------------------------
 
 /// Replay one recording against the agent and policy in force *now*.
@@ -1190,6 +1222,7 @@ let main argv =
         | Args.Test(dir, record) -> runTests dir record model
         | Args.Replay(trace, policy, agent) -> runReplay trace policy agent
         | Args.Receipt(trace, format) -> runReceipt trace format
+        | Args.Verify(json, timeout) -> runVerify json timeout
         | Args.Golden(Args.GoldenRecord(task, slug)) ->
             runGoldenRecord task slug auto None model cliBudget
         | Args.Golden(Args.GoldenCheck(filter, markdown)) -> runGoldenCheck filter markdown None

@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.20.0 — unreleased
+## 0.21.0 — unreleased
+
+- **`jern verify`: the test command once, as an acceptance check.** After
+  the agent is done, a host can run the workspace's test command against
+  the tree the agent proposes and read the result as data: `jern verify
+  --json` prints the command, where it came from (the protected baseline
+  when `--policy-baseline` names one, else `jern.json`), the exit code,
+  the seconds, the runner recognised, the counts, the failures by name
+  with file, line, and message, and a tail of the output. Exit 0 when the
+  tests passed, 1 when they failed, 2 when nothing could run. The command
+  runs under the same sandbox as `run_tests`. This is what a receipt can
+  quote beside "policy respected": an acceptance check the agent did not
+  choose and cannot edit.
+
+## 0.20.0 — 2026-09-08
 
 - **Skills, on demand.** A repository can keep playbooks under
   `.jern/skills/<name>/SKILL.md`, each with front matter naming it and

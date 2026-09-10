@@ -13,6 +13,7 @@
     <Compile Include="TestReport.fs" />
     <Compile Include="Git.fs" />
     <Compile Include="Tools.fs" />
+    <Compile Include="Verification.fs" />
     <Compile Include="Approvals.fs" />
     <Compile Include="Mcp.fs" />
     <Compile Include="Trust.fs" />

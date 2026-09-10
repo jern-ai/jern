@@ -187,3 +187,18 @@ let ``policy governance flags are global and repeatable`` () =
     Assert.Equal<string list>([ "aa"; "bb" ], pinned.policyTrust)
     Assert.Equal(BadValue "--policy-baseline needs a file path", failure ["run"; "--policy-baseline"])
     Assert.Equal(BadValue "--policy-trust needs a sha256 policy digest", failure ["--policy-trust"])
+
+[<Fact>]
+let ``verify takes --json and a positive --timeout`` () =
+    match Args.parse [ "verify" ] with
+    | Ok(_, Args.Verify(false, None)) -> ()
+    | other -> failwithf "unexpected: %A" other
+    match Args.parse [ "--policy-baseline"; "b.json"; "verify"; "--json"; "--timeout"; "90" ] with
+    | Ok(globals, Args.Verify(true, Some 90)) -> Assert.Equal(Some "b.json", globals.policyBaseline)
+    | other -> failwithf "unexpected: %A" other
+    match Args.parse [ "verify"; "--timeout"; "0" ] with
+    | Error(Args.BadValue _) -> ()
+    | other -> failwithf "unexpected: %A" other
+    match Args.parse [ "verify"; "--md" ] with
+    | Error(Args.SubUsage _) -> ()
+    | other -> failwithf "unexpected: %A" other
