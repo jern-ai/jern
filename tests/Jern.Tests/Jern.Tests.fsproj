@@ -9,6 +9,7 @@
     <NoWarn>$(NoWarn);988</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="Parallelism.fs" />
     <Compile Include="JsonTests.fs" />
     <Compile Include="ArgsTests.fs" />
     <Compile Include="AgentEnvTests.fs" />
