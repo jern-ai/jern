@@ -53,6 +53,11 @@ $ jern test agents/default               # deterministic replay against
                                          # recorded LLM fixtures
 ```
 
+- **M28 — an acceptance check the agent cannot edit** (v0.21): `jern
+  verify` runs the test command once against the tree the agent proposes,
+  from the protected baseline when one is named, and reports it as data:
+  exit code, counts, failures by name. What a receipt quotes beside
+  "policy respected".
 - **M27 — skills, on demand** (v0.20): playbooks under
   `.jern/skills/<name>/SKILL.md`, each with front matter naming it and
   saying when it applies. Only the name and description ride the system

@@ -51,6 +51,7 @@ type Command =
     | Test of dir: string option * record: bool
     | Replay of trace: string * policy: string option * agent: string option
     | Receipt of trace: string option * format: ReceiptFormat
+    | Verify of json: bool * timeoutSeconds: int option
     | Golden of GoldenCommand
     | Mcp
     | Policy of init: bool * showCompiled: bool
@@ -161,6 +162,21 @@ let private parseReceipt rest =
         | _ -> Error(SubUsage receiptUsage)
     go None Text rest
 
+let private verifyUsage = "usage: jern verify [--json] [--timeout SECONDS]"
+
+/// jern verify [--json] [--timeout N]: run the test command once, as an
+/// acceptance check, and report it as text or as one JSON object.
+let private parseVerify rest =
+    let rec go json timeout = function
+        | "--json" :: more -> go true timeout more
+        | "--timeout" :: n :: more ->
+            match Int32.TryParse(n: string) with
+            | true, seconds when seconds > 0 -> go json (Some seconds) more
+            | _ -> Error(BadValue(sprintf "--timeout needs a positive number of seconds, got '%s'" n))
+        | [] -> Ok(Verify(json, timeout))
+        | _ -> Error(SubUsage verifyUsage)
+    go false None rest
+
 /// jern golden record "task" [--slug s] | check [--filter s] [--md] | list
 let private parseGolden rest =
     match rest with
@@ -204,6 +220,7 @@ let parse (argv: string list) : Result<Globals * Command, ParseError> =
             | "test" :: more -> parseTest more
             | "replay" :: more -> parseReplay more
             | "receipt" :: more -> parseReceipt more
+            | "verify" :: more -> parseVerify more
             | "golden" :: more -> parseGolden more
             | ["mcp"] -> Ok Mcp
             | ["policy"] -> Ok(Policy(false, false))

@@ -1103,6 +1103,12 @@ module Tools =
                             let text = TestReport.render exitCode seconds output report
                             if exitCode = 0 then ok text else toolError text
 
+    /// The test command run once as an acceptance check, outside the agent
+    /// loop: same sandbox and timeout handling as `run_tests`, no narrowing,
+    /// the raw output and exit code returned for `Verification` to read.
+    let runTestCommand (root: string) (command: string) (timeout: TimeSpan) =
+        runCommand root command timeout
+
     // -----------------------------------------------------------------------
     // Git as data. Read-only views over the repository so the model does
     // not spend turns on `git status && git diff && git log` through shell

@@ -228,3 +228,28 @@ let ``a filter or path rides the runner's own flag as one quoted argument`` () =
     match narrow "dotnet test" None (Some "tests") with
     | Error message -> Assert.Contains("use filter", message)
     | Ok c -> failwithf "accepted %s" c
+
+[<Fact>]
+let ``verification runs the command once and reports it as data`` () =
+    let root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "jern-verify-" + System.Guid.NewGuid().ToString("N"))
+    System.IO.Directory.CreateDirectory root |> ignore
+    try
+        match Verification.run root "printf 'ran\\n'; exit 0" "baseline" (System.TimeSpan.FromSeconds 30.0) with
+        | Error message -> failwith message
+        | Ok result ->
+            Assert.Equal("passed", result.status)
+            Assert.Equal(0, result.exitCode)
+            Assert.Equal("baseline", result.source)
+            let json = Verification.toJson result
+            Assert.Contains("\"status\":\"passed\"", json)
+            Assert.Contains("\"source\":\"baseline\"", json)
+            Assert.Contains("\"exit_code\":0", json)
+        match Verification.run root "printf 'boom\\n'; exit 3" "jern.json" (System.TimeSpan.FromSeconds 30.0) with
+        | Error message -> failwith message
+        | Ok result ->
+            Assert.Equal("failed", result.status)
+            Assert.Equal(3, result.exitCode)
+            Assert.Contains("boom", result.outputTail)
+            Assert.Contains("\"failures\":[]", Verification.toJson result)
+    finally
+        if System.IO.Directory.Exists root then System.IO.Directory.Delete(root, true)
