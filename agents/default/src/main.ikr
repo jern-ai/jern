@@ -160,8 +160,25 @@ fails, read the error and adapt. Never invent file contents you have not read.")
 (define thinking-tokens (plist-get jern/workspace-config :thinking_tokens))
 (define reasoning-effort (plist-get jern/workspace-config :reasoning_effort))
 
+; The per-response output limit. Anthropic's reasoning models think
+; before they answer even when the request asks for no thinking, and the
+; thinking counts against the limit, so the base leaves room for it; a
+; configured thinking budget grows it further.
 (define response-max-tokens
-  (if (eqv? thinking-tokens :null) 8192 (+ 8192 thinking-tokens)))
+  (if (eqv? thinking-tokens :null) 16000 (+ 16000 thinking-tokens)))
+
+; A response the provider cut off at the output limit with nothing to show
+; for it, no tool call and no text, because the model spent the whole limit
+; thinking. It is not the agent finishing, and must not read as one.
+(define cut-off?
+  (lambda (response)
+    (if (equal? (plist-get response :stop_reason) "max_tokens")
+        (if (null? (response-blocks response "tool_use"))
+            (sequence
+              (define text (response-text response))
+              (if (eqv? text :null) #t (equal? text "")))
+            #f)
+        #f)))
 
 (define with-reasoning
   (lambda (request)
@@ -384,14 +401,28 @@ fails, read the error and adapt. Never invent file contents you have not read.")
           ; the cache breakpoint on the last cacheable block (so the whole
           ; conversation prefix caches turn over turn); other providers'
           ; bridges simply ignore it. Prompt caching, from agent source.
+          (define llm-turn
+            (lambda (max-tokens)
+              (perform jern/llm-call
+                (with-reasoning
+                  (list :system (system-prompt-with-conventions)
+                        :max_tokens max-tokens
+                        :tools (tools-for-llm)
+                        :cache_control (list :type "ephemeral")
+                        :messages (apply vector (reverse history)))))))
+          ; A cut-off turn is asked again with twice the room. A second
+          ; cut-off ends the run as a failure that says so, rather than as
+          ; a completion that changed nothing.
+          (define first-response (llm-turn response-max-tokens))
           (define response
-            (perform jern/llm-call
-              (with-reasoning
-                (list :system (system-prompt-with-conventions)
-                      :max_tokens response-max-tokens
-                      :tools (tools-for-llm)
-                      :cache_control (list :type "ephemeral")
-                      :messages (apply vector (reverse history))))))
+            (if (cut-off? first-response)
+                (sequence
+                  (perform jern/log (list :event "response-cut-off" :max_tokens response-max-tokens))
+                  (define retried (llm-turn (* 2 response-max-tokens)))
+                  (if (cut-off? retried)
+                      (error "the model's response was cut off at the output limit twice: it produced no text and called no tool; raise thinking_tokens in jern.json or choose a model that answers within the limit")
+                      retried))
+                first-response))
           (note-context! response)
           (show-progress response)
           (define with-assistant

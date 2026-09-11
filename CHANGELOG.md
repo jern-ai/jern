@@ -1,6 +1,21 @@
 # Changelog
 
-## 0.21.0 — unreleased
+## 0.22.0 — unreleased
+
+- **A response cut off at the output limit is not the agent finishing.**
+  Anthropic's reasoning models think before they answer even when the
+  request asks for no thinking, and the thinking counts against the
+  per-response `max_tokens`. A model that spent the whole limit thinking
+  came back with `stop_reason: max_tokens`, no text and no tool call, and
+  the loop read that as done: a run that ended "ok" with nothing changed
+  and nothing said. The default agent now asks such a turn again with
+  twice the room, logs `response-cut-off`, and ends the run as a failure
+  that names the cause when the retry is cut off too. The default
+  per-response limit rises from 8,192 to 16,000 tokens (a configured
+  `thinking_tokens` still adds on top), so a thinking model has room to
+  think and answer in one turn.
+
+## 0.21.0 — 2026-09-09
 
 - **`jern verify`: the test command once, as an acceptance check.** After
   the agent is done, a host can run the workspace's test command against
