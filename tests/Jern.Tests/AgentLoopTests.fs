@@ -114,7 +114,7 @@ let ``configured thinking rides every request from agent source`` () =
             fun request ->
                 let json = Json.serialize request
                 Assert.Contains("\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":2048}", json)
-                Assert.Contains("\"max_tokens\":10240", json)
+                Assert.Contains("\"max_tokens\":18048", json)
                 sawThinking <- true
                 Choice2Of2(Json.deserialize """{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"ok"}]}""")
         let repoAgentDir = Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "agents", "default")
@@ -236,5 +236,70 @@ let ``default agent compacts its context past the threshold`` () =
         Assert.Contains("\"context_tokens\":150000", compacted.Head)
         Assert.Contains("\"summarized_messages\":2", compacted.Head)
         Assert.Contains("\"kept_messages\":6", compacted.Head)
+    finally
+        Directory.Delete(root, true)
+
+/// A response cut off at the output limit with nothing in it is asked
+/// again with twice the room; the retry's answer is the turn's answer.
+[<Fact>]
+let ``a turn cut off at the output limit is retried with twice the room`` () =
+    let root = Path.Combine(Path.GetTempPath(), "jern-cutoff-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory root |> ignore
+    let trace = ResizeArray<string>()
+    try
+        let mutable turn = 0
+        let bridge: AnthropicBridge.LlmBridge =
+            fun request ->
+                turn <- turn + 1
+                let json = Json.serialize request
+                match turn with
+                | 1 ->
+                    Assert.Contains("\"max_tokens\":16000", json)
+                    response """{"role":"assistant","stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"","signature":"sig"}],"usage":{"input_tokens":2,"output_tokens":16000}}"""
+                | _ ->
+                    Assert.Contains("\"max_tokens\":32000", json)
+                    response """{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"Nothing to change."}]}"""
+        let repoAgentDir = Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "agents", "default")
+        let config =
+            { Session.configIn root bridge with
+                traceSink = Some trace.Add
+                agentSources = Session.agentPackageSources repoAgentDir }
+        let session =
+            match Session.createWith config with
+            | Choice1Of2 error -> failwith (showError error)
+            | Choice2Of2 s -> s
+        match Session.runAgent session "Look around" with
+        | Choice1Of2 error -> failwith (showError error)
+        | Choice2Of2(Obj (:? string as text)) -> Assert.Equal("Nothing to change.", text)
+        | Choice2Of2 other -> failwith ("unexpected final value: " + showVal other)
+        Assert.Equal(2, turn)
+        Assert.Contains(trace, fun line -> line.Contains "response-cut-off")
+    finally
+        Directory.Delete(root, true)
+
+/// Two cut-offs in a row end the run as a failure that names the cause,
+/// never as a completion with no change.
+[<Fact>]
+let ``two cut-offs in a row fail the run and say why`` () =
+    let root = Path.Combine(Path.GetTempPath(), "jern-cutoff2-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory root |> ignore
+    try
+        let mutable turn = 0
+        let bridge: AnthropicBridge.LlmBridge =
+            fun _ ->
+                turn <- turn + 1
+                response """{"role":"assistant","stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"","signature":"sig"}]}"""
+        let repoAgentDir = Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "agents", "default")
+        let config =
+            { Session.configIn root bridge with
+                agentSources = Session.agentPackageSources repoAgentDir }
+        let session =
+            match Session.createWith config with
+            | Choice1Of2 error -> failwith (showError error)
+            | Choice2Of2 s -> s
+        match Session.runAgent session "Look around" with
+        | Choice1Of2 error -> Assert.Contains("cut off at the output limit twice", showError error)
+        | Choice2Of2 other -> failwith ("a doubly cut-off run completed: " + showVal other)
+        Assert.Equal(2, turn)
     finally
         Directory.Delete(root, true)
