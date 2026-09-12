@@ -2,6 +2,36 @@
 
 ## 0.22.0 — unreleased
 
+- **Governance fixes from an independent review.** Eight reproducible
+  gaps between what the rules promised and what the runtime enforced,
+  each closed with a regression test:
+  - The handler stack, prelude, tools, and built-in policy are read only
+    from the install beside the binary; a `kernel/` directory in the
+    workspace no longer replaces them (`JERN_KERNEL_DIR` names another
+    copy explicitly).
+  - An MCP server declared by the repository's `jern.json` is a grant:
+    its command, arguments, and environment are shown and trusted once
+    before it starts, like a policy relaxation (`--policy-trust <sha256>`
+    pins it headless), and a `mcp-server` trace event records the
+    decision. Servers from the user's own config need no answer. Replays
+    and golden checks start no servers.
+  - `edits_within`, `protected_paths`, and `path-within?` judge the
+    canonical path — `..` folded, symlinks resolved — at a directory
+    boundary, so `src/../outside.txt`, `srcs/x`, and a link under `src/`
+    pointing elsewhere no longer pass a `src/` rule.
+  - `grep`, `symbols`, `outline`, `read_symbol`, `references`, and
+    `file_tree` walk descendants through one confined traversal: a
+    symlink out of the workspace is skipped, a link back to an ancestor
+    is walked once.
+  - A change the user *staged* but did not commit is saved on its own
+    commit before the agent edits the file, so `jern undo` restores it.
+  - `max_files_edited` and `max_lines_changed` are one ledger for the
+    whole run, inherited by every spawned subagent.
+  - A recording in which the model paged an offloaded result with
+    `read_output` replays unchanged: the call answers from the trace.
+  - `jern verify` reports the provenance of the command it actually ran;
+    a baseline without a `test_command` no longer claims one.
+
 - **A response cut off at the output limit is not the agent finishing.**
   Anthropic's reasoning models think before they answer even when the
   request asks for no thinking, and the thinking counts against the

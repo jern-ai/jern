@@ -389,3 +389,38 @@ let ``a baseline may name the test command beside its policy`` () =
         Assert.True(Result.isError (Providers.baselineTestCommand (write "number.json" """{"policy":{},"test_command":3}""")))
         Assert.True(Result.isError (Providers.baselineTestCommand (write "blank.json" """{"policy":{},"test_command":"  "}""")))
     finally Directory.Delete(dir, true)
+
+/// `jern verify` reports where the command it ran came from. That travels
+/// with the command: a baseline that names none leaves the checkout's
+/// command *and* its provenance in place.
+[<Fact>]
+let ``the test command's provenance follows the command`` () =
+    let dir = Path.Combine(Path.GetTempPath(), "jern-baseline-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory dir |> ignore
+    try
+        let write (name: string) (content: string) =
+            let path = Path.Combine(dir, name)
+            File.WriteAllText(path, content)
+            path
+        write "jern.json" """{"test_command":"pytest"}""" |> ignore
+        let config =
+            match Providers.load dir with
+            | Ok config -> config
+            | Error message -> failwith message
+        Assert.Equal(Some "pytest", config.testCommand)
+        Assert.Equal(Some "jern.json", config.testCommandSource)
+        let withCommand = write "with.json" """{"policy":{},"test_command":"./build.sh"}"""
+        match Providers.withBaselineTestCommand config withCommand with
+        | Ok applied ->
+            Assert.Equal(Some "./build.sh", applied.testCommand)
+            Assert.Equal(Some "baseline", applied.testCommandSource)
+        | Error message -> failwith message
+        let without = write "without.json" """{"policy":{"edits_within":["src/"]}}"""
+        match Providers.withBaselineTestCommand config without with
+        | Ok applied ->
+            Assert.Equal(Some "pytest", applied.testCommand)
+            Assert.Equal(Some "jern.json", applied.testCommandSource)
+        | Error message -> failwith message
+        Assert.True(Result.isError (Providers.withBaselineTestCommand config (write "bad.json" """{"test_command":3}""")))
+        Assert.Equal(None, Providers.defaultConfig.testCommandSource)
+    finally Directory.Delete(dir, true)

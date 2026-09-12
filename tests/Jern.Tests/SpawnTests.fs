@@ -151,3 +151,40 @@ let ``spawned agents share the hard token budget`` () =
         Assert.Equal(30L, hardBudget.Spent)
     finally
         Directory.Delete(root, true)
+
+/// max_files_edited and max_lines_changed bound the *run*: a child's edits
+/// count against the same ledger as the parent's, so delegating cannot
+/// buy a fresh allowance.
+[<Fact>]
+let ``spawned agents share the run's edit limits`` () =
+    let root = makeRoot ()
+    try
+        let policy =
+            match PolicyConfig.parse (System.Text.Json.Nodes.JsonNode.Parse("""{"max_files_edited":1}""": string)) with
+            | Ok policy -> policy
+            | Error message -> failwith message
+        let agentDir =
+            writeAgent root "parent"
+                (String.concat "\n"
+                    [ "(define run-agent"
+                      "  (lambda (task)"
+                      "    (if (equal? task \"child\")"
+                      "        (plist-get (call-tool \"write_file\" (list :path \"b.txt\" :content \"b\")) :content)"
+                      "        (sequence"
+                      "          (call-tool \"write_file\" (list :path \"a.txt\" :content \"a\"))"
+                      "          (plist-get (spawn-agent \"child\") :content)))))"
+                      "" ])
+        let config =
+            { Session.configIn root noLlm with
+                agentSources = Session.agentPackageSources agentDir
+                policySources = [ { PolicyConfig.origin = PolicyConfig.Baseline "base"; PolicyConfig.policy = policy } ] }
+        let session =
+            match Session.createWith config with
+            | Choice1Of2 error -> failwith (showError error)
+            | Choice2Of2 session -> session
+        let answer = finalText (Session.runAgent session "go")
+        Assert.Contains("at most 1 files may be edited in this run", answer)
+        Assert.True(File.Exists(Path.Combine(root, "a.txt")))
+        Assert.False(File.Exists(Path.Combine(root, "b.txt")), "the child edited past the run's limit")
+    finally
+        Directory.Delete(root, true)

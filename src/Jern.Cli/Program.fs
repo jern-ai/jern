@@ -208,9 +208,8 @@ let private loadProviders () =
             match cliPolicyBaseline with
             | None -> config
             | Some file ->
-                match Providers.baselineTestCommand file with
-                | Ok (Some command) -> { config with testCommand = Some command }
-                | Ok None -> config
+                match Providers.withBaselineTestCommand config file with
+                | Ok config -> config
                 | Error message ->
                     eprintfn "jern: --policy-baseline '%s': %s" file message
                     exit 2
@@ -305,34 +304,48 @@ let private grantsAlreadyTrusted (identity: string) (canonical: string) =
     cliPolicyTrust |> List.exists (fun pin -> pin.Trim().ToLowerInvariant() = digest)
     || Trust.isTrusted (Trust.defaultStorePath ()) identity canonical
 
-/// First-use trust for the *grant* half of a repository-supplied policy.
-/// Restrictions never come here — tightening is free. Loosening is not: a
-/// cloned repo's jern.json can grant permissions exactly like its
-/// policy.ikr can, so it is shown and confirmed once. Declining (or having
-/// no terminal) drops the grants and keeps the restrictions.
+/// First-use trust for what a repository's configuration *grants*: the
+/// grant half of a jern.json policy, and each MCP server jern.json
+/// declares (starting one runs its command). Restrictions never come here
+/// — tightening is free. Loosening is not: a cloned repo's jern.json can
+/// grant permissions exactly like its policy.ikr can, so it is shown and
+/// confirmed once. Declining (or having no terminal) drops the grants —
+/// the relaxations, or the server — and keeps the restrictions.
 let private ttyPolicyGrantTrust (identity: string) (canonical: string) =
     if grantsAlreadyTrusted identity canonical then true
     else
         let digest = Trust.contentHash canonical
+        let isServer = identity.Contains "#mcp_servers/"
         if Console.IsInputRedirected then
             // Session names the source it dropped; add only the remedy.
-            eprintfn "jern: to allow that policy's grants in an unattended run: --policy-trust %s" digest
+            eprintfn "jern: to allow %s in an unattended run: --policy-trust %s"
+                (if isServer then "that MCP server" else "that policy's grants") digest
             false
         else
             let rule = Style.dim (String.replicate 60 "─")
             printfn ""
-            printfn "%s" (Style.yellow (sprintf "This workspace's policy grants extra permissions: %s" identity))
-            printfn "%s" (Style.dim "Its restrictions apply either way; only the relaxations need your yes.")
+            if isServer then
+                printfn "%s" (Style.yellow (sprintf "This workspace's configuration starts an MCP server: %s" identity))
+                printfn "%s" (Style.dim "Starting it runs this command on your machine; its tools still ask before each call.")
+            else
+                printfn "%s" (Style.yellow (sprintf "This workspace's policy grants extra permissions: %s" identity))
+                printfn "%s" (Style.dim "Its restrictions apply either way; only the relaxations need your yes.")
             printfn "%s" rule
             printfn "%s" canonical
             printfn "%s" rule
-            printf "%s %s " (Style.yellow "trust these policy grants?") (Style.bold "[y/N]")
+            printf "%s %s " (Style.yellow (if isServer then "start this MCP server?" else "trust these policy grants?")) (Style.bold "[y/N]")
             match Console.ReadLine() with
             | null -> false
             | answer when answer.Trim().ToLowerInvariant() = "y" ->
                 Trust.remember (Trust.defaultStorePath ()) identity canonical
                 true
             | _ -> false
+
+/// The first-use question for a workspace-declared server, on the terminal.
+let private ttyServerTrust (spec: Mcp.ServerSpec) =
+    match Mcp.trustIdentity spec with
+    | None -> true
+    | Some identity -> ttyPolicyGrantTrust identity (Mcp.canonicalJson spec)
 
 /// Open the run envelope on a trace: the header a receipt is read from.
 /// Everything here is what the run was *configured* with, so a summary never
@@ -704,7 +717,6 @@ let private runReplay (tracePath: string) (policyFile: string option) (agentDir:
                     agentDir = agent
                     policyFile = policyFile
                     agentConfig = Providers.agentConfig providers
-                    mcpServers = providers.mcpServers
                     policySources = policySources providers } with
         | Error message ->
             eprintfn "jern replay: %s" message
@@ -732,10 +744,13 @@ let private runMcp () =
                 let flat = String.Join(" ", spec.args).Replace("\n", " ")
                 if flat.Length > 60 then flat.Substring(0, 57) + "…" else flat
             printfn "%s: %s %s" spec.name spec.command argsSummary
-            match Mcp.connect spec with
+            let connection =
+                if ttyServerTrust spec then Mcp.connect spec
+                else Error "not started: this workspace-declared server is not trusted"
+            match connection with
             | Error reason ->
                 failures <- failures + 1
-                printfn "  FAILED: %s" reason
+                printfn "  %s" (if reason.StartsWith "not started" then reason else "FAILED: " + reason)
             | Ok server ->
                 match Mcp.listTools server with
                 | Error reason ->
@@ -792,7 +807,10 @@ let private runVerify (json: bool) (timeoutSeconds: int option) =
         else eprintfn "jern verify: no test_command is configured; there is nothing to run"
         2
     | Some command ->
-        let source = if cliPolicyBaseline.IsSome then "baseline" else "jern.json"
+        // Provenance travels with the command through configuration: a
+        // baseline that names no test_command ran the checkout's, and the
+        // report says so.
+        let source = defaultArg config.testCommandSource "jern.json"
         let timeout = TimeSpan.FromSeconds(float (defaultArg timeoutSeconds 600))
         match Verification.run Environment.CurrentDirectory command source timeout with
         | Error message ->
@@ -820,7 +838,6 @@ let private replayGolden (providers: Providers.Config) (agentDir: string option)
           agentDir = (match agentDir with Some dir -> dir | None -> Session.defaultAgentDir ())
           policyFile = None
           agentConfig = Providers.agentConfig providers
-          mcpServers = providers.mcpServers
           policySources = policySources providers }
 
 /// `jern golden record "task"` — run the task for real once and keep the
@@ -1048,6 +1065,10 @@ let private runUi (model: string option) (cliBudget: int option) (auto: bool) (p
                 ttyPolicyGrantTrust (PolicyConfig.trustIdentity source.origin)
                                     (PolicyConfig.canonicalJson source.policy) |> ignore
             | _ -> ()
+    // Workspace-declared MCP servers are asked about here too: the server
+    // never prompts, so a session it builds starts only what was answered.
+    for spec in providers.mcpServers do
+        ttyServerTrust spec |> ignore
     let server =
         Ui.start
             { root = root

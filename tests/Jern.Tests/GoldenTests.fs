@@ -67,7 +67,6 @@ let private checkAll root (agentDir: string) policySources =
                       agentDir = agentDir
                       policyFile = None
                       agentConfig = Nil
-                      mcpServers = []
                       policySources = policySources }))
 
 [<Fact>]

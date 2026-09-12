@@ -24,7 +24,35 @@ module Mcp =
         { name: string
           command: string
           args: string list
-          env: (string * string) list }
+          env: (string * string) list
+          /// The workspace configuration file (jern.json) that declared this
+          /// server, when it arrived with the repository. Starting a server
+          /// runs its command, so a workspace-declared one is a grant of the
+          /// same kind as a policy relaxation: the session asks the grant
+          /// trust hook before it starts. None for the user's own machine
+          /// config (and test stubs), whose servers need no such answer.
+          workspaceConfig: string option }
+
+    /// The trust-store key for a workspace-declared server.
+    let trustIdentity (spec: ServerSpec) =
+        match spec.workspaceConfig with
+        | Some path -> Some(path + "#mcp_servers/" + spec.name)
+        | None -> None
+
+    /// The server as canonical JSON — keys sorted, no insignificant
+    /// whitespace — so trust pins the exact command line and environment,
+    /// and a reformatted file is the same server while an edited one asks
+    /// again.
+    let canonicalJson (spec: ServerSpec) =
+        let o = System.Text.Json.Nodes.JsonObject()
+        o.["args"] <- System.Text.Json.Nodes.JsonArray(spec.args |> List.map (fun a -> System.Text.Json.Nodes.JsonValue.Create a :> System.Text.Json.Nodes.JsonNode) |> Array.ofList)
+        o.["command"] <- System.Text.Json.Nodes.JsonValue.Create spec.command
+        let env = System.Text.Json.Nodes.JsonObject()
+        for key, value in spec.env |> List.sortWith (fun (a, _) (b, _) -> String.CompareOrdinal(a, b)) do
+            env.[key] <- System.Text.Json.Nodes.JsonValue.Create value
+        o.["env"] <- env
+        o.["name"] <- System.Text.Json.Nodes.JsonValue.Create spec.name
+        o.ToJsonString()
 
     type Server =
         { spec: ServerSpec

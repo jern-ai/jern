@@ -236,7 +236,6 @@ let ``a run that used kernel_eval replays faithfully`` () =
                     agentDir = repoAgentDir
                     policyFile = None
                     agentConfig = Nil
-                    mcpServers = []
                     policySources = [] } with
         | Error message -> failwith message
         | Ok (Replay.Diverged report) -> failwith ("unexpected divergence: " + report)

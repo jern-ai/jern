@@ -35,7 +35,8 @@ let private mockSpec () : Mcp.ServerSpec =
     { name = "mock"
       command = "python3"
       args = [ "-c"; mockServerScript ]
-      env = [] }
+      env = []
+      workspaceConfig = None }
 
 [<Fact>]
 let ``mcp client connects, lists tools, and calls one`` () =
@@ -133,5 +134,90 @@ let ``agent loop calls an MCP tool through the policy stack`` () =
         Assert.Equal(2, turn)
         // The default policy ask-gated the MCP call.
         Assert.Contains("mcp__mock__echo", Assert.Single approvals)
+    finally
+        Directory.Delete(root, true)
+
+/// Starting a server runs the command its configuration names. A server
+/// the *repository* declares is therefore a grant, and crosses the same
+/// trust as a policy grant before anything runs: declined, it never
+/// starts — no process, no marker, no tools — and the trace says so.
+[<Fact>]
+let ``a workspace-declared server is not started until its grant is trusted`` () =
+    let root = Path.Combine(Path.GetTempPath(), "jern-mcptrust-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory root |> ignore
+    let marker = Path.Combine(root, "started.marker")
+    let bridge: AnthropicBridge.LlmBridge = fun _ -> Choice1Of2 (Default "no llm in this test")
+    try
+        // The planted command leaves its marker and exits at once, so a
+        // start that does happen fails the handshake on closed stdout
+        // immediately rather than waiting out the 30-second timeout (which
+        // would also leave a read pending on a killed process).
+        let spec: Mcp.ServerSpec =
+            { name = "planted"
+              command = "/bin/sh"
+              args = [ "-c"; sprintf "touch '%s'" marker ]
+              env = []
+              workspaceConfig = Some(Path.Combine(root, "jern.json")) }
+        let asked = ResizeArray<string * string>()
+        let trace = ResizeArray<string>()
+        let build trust =
+            Session.createWith
+                { Session.configIn root bridge with
+                    traceSink = Some trace.Add
+                    mcpServers = [ spec ]
+                    approver = Some(fun _ -> false)
+                    policyTrust = (fun _ _ -> false)
+                    policyGrantTrust = (fun identity canonical -> asked.Add((identity, canonical)); trust) }
+        match build false with
+        | Choice1Of2 error -> failwith (showError error)
+        | Choice2Of2 _ -> ()
+        Assert.False(File.Exists marker, "the untrusted server's command ran")
+        let identity, canonical = Assert.Single asked
+        Assert.Equal(Path.Combine(root, "jern.json") + "#mcp_servers/planted", identity)
+        Assert.Equal(Mcp.canonicalJson spec, canonical)
+        Assert.Contains(trace, fun (line: string) -> line.Contains "\"event\":\"mcp-server\"" && line.Contains "\"trusted\":false")
+        // Trusted, the same configuration starts (the handshake fails at
+        // once — it is not an MCP server — which is the ordinary skip, not
+        // a refusal).
+        match build true with
+        | Choice1Of2 error -> failwith (showError error)
+        | Choice2Of2 _ -> ()
+        Assert.True(File.Exists marker)
+        Assert.Contains(trace, fun (line: string) -> line.Contains "\"event\":\"mcp-server\"" && line.Contains "\"trusted\":true")
+        // The user's own configuration needs no answer.
+        asked.Clear()
+        match Session.createWith
+                  { Session.configIn root bridge with
+                      mcpServers = [ { spec with workspaceConfig = None; args = [ "-c"; "exit 0" ] } ]
+                      policyGrantTrust = (fun identity canonical -> asked.Add((identity, canonical)); false) } with
+        | Choice1Of2 error -> failwith (showError error)
+        | Choice2Of2 _ -> ()
+        Assert.Empty asked
+    finally
+        Directory.Delete(root, true)
+
+[<Fact>]
+let ``a server's canonical json is order-independent and pins command, args, and env`` () =
+    let spec: Mcp.ServerSpec =
+        { name = "gh"; command = "npx"; args = [ "-y"; "server" ]; env = [ "B", "2"; "A", "1" ]; workspaceConfig = Some "/w/jern.json" }
+    Assert.Equal("""{"args":["-y","server"],"command":"npx","env":{"A":"1","B":"2"},"name":"gh"}""", Mcp.canonicalJson spec)
+    Assert.Equal(Mcp.canonicalJson spec, Mcp.canonicalJson { spec with env = [ "A", "1"; "B", "2" ] })
+    Assert.NotEqual<string>(Mcp.canonicalJson spec, Mcp.canonicalJson { spec with args = [ "-y"; "other" ] })
+    Assert.Equal(Some "/w/jern.json#mcp_servers/gh", Mcp.trustIdentity spec)
+    Assert.Equal(None, Mcp.trustIdentity { spec with workspaceConfig = None })
+
+/// jern.json's servers carry the file as their origin; the user's own
+/// config carries none.
+[<Fact>]
+let ``jern.json mcp_servers carry the workspace file as their origin`` () =
+    let root = Path.Combine(Path.GetTempPath(), "jern-mcporigin-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory root |> ignore
+    try
+        File.WriteAllText(Path.Combine(root, "jern.json"), """{ "mcp_servers": { "gh": { "command": "npx" } } }""")
+        match Providers.load root with
+        | Error message -> failwith message
+        | Ok config ->
+            let spec = Assert.Single config.mcpServers
+            Assert.Equal(Some(Path.Combine(root, "jern.json")), spec.workspaceConfig)
     finally
         Directory.Delete(root, true)

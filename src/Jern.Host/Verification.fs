@@ -15,7 +15,10 @@ module Verification =
         { /// "passed" or "failed" from the exit code; the report may say more.
           status: string
           command: string
-          /// Where the command came from: "baseline" or "jern.json".
+          /// Where the command came from: "baseline" when a protected
+          /// baseline named it, else the config file that did ("jern.json",
+          /// "user config"). Resolved with the command itself, so a
+          /// baseline that names none reports the checkout's provenance.
           source: string
           exitCode: int
           seconds: float

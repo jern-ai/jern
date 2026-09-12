@@ -467,3 +467,37 @@ let ``scripted llm round-trip calls read_file and answers from its result`` () =
         match Session.runSource session "tool-roundtrip.ikr" script with
         | Choice1Of2 error -> failwith (showError error)
         | Choice2Of2 _ -> Assert.Equal(2, turn))
+
+/// A recursive tool validates its starting point, and every descendant is
+/// held to the same check: a link under the workspace that points outside
+/// is not searched, listed, or outlined, and a link back to an ancestor
+/// does not loop.
+[<Fact>]
+let ``recursive search does not follow symlinks out of the workspace`` () =
+    if not (OperatingSystem.IsWindows()) then
+        withWorkspace (fun root ->
+            let outside = Path.Combine(Path.GetTempPath(), "jern-outside-" + Guid.NewGuid().ToString("N"))
+            Directory.CreateDirectory outside |> ignore
+            File.WriteAllText(Path.Combine(outside, "canary.py"), "def canary_secret():\n    return 'CANARY-7731'\n")
+            try
+                Directory.CreateSymbolicLink(Path.Combine(root, "src", "esc"), outside) |> ignore
+                File.CreateSymbolicLink(Path.Combine(root, "esc.py"), Path.Combine(outside, "canary.py")) |> ignore
+                Directory.CreateSymbolicLink(Path.Combine(root, "src", "loop"), root) |> ignore
+                let session = newSession root
+                for tool in [ """(call-tool "grep" (list :pattern "CANARY"))"""
+                              """(call-tool "grep" (list :pattern "CANARY" :path "src"))"""
+                              """(call-tool "symbols" (list :query "canary"))"""
+                              """(call-tool "references" (list :name "canary_secret"))"""
+                              """(call-tool "file_tree" (list))""" ] do
+                    let result = run session tool
+                    Assert.DoesNotContain("canary.py", contentOf result)
+                    Assert.DoesNotContain("CANARY-7731", contentOf result)
+                    Assert.DoesNotContain("esc.py", contentOf result)
+                // Inside the workspace, search still works (and terminates).
+                Assert.Contains("main.txt:2: beta", contentOf (run session """(call-tool "grep" (list :pattern "beta"))"""))
+                // The starting point itself is still refused when it escapes.
+                let direct = run session """(call-tool "grep" (list :pattern "CANARY" :path "src/esc"))"""
+                Assert.True(isErrorOf direct)
+                Assert.Contains("outside the workspace", contentOf direct)
+            finally
+                Directory.Delete(outside, true))
