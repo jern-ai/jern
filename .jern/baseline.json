@@ -1,0 +1,40 @@
+{
+  "policy": {
+    "allow": [
+      "edit_file",
+      "edit_symbol",
+      "apply_patch",
+      "write_file",
+      "mcp__jern__ask_human"
+    ],
+    "deny": [],
+    "edits_within": [
+      "src/",
+      "tests/",
+      "native/",
+      "native/symbols/",
+      "ideas/",
+      "examples/",
+      "docs/",
+      "demo/",
+      "agents/",
+      "action/"
+    ],
+    "memory": "allow",
+    "shell_allow": [
+      "dotnet test",
+      "dotnet",
+      "head",
+      "tail",
+      "sed",
+      "ls",
+      "grep"
+    ]
+  },
+  "test_command": "dotnet test",
+  "environment": {
+    "network_allow": [
+      "api.nuget.org"
+    ]
+  }
+}
