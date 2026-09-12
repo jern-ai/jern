@@ -52,6 +52,9 @@ type Command =
     | Replay of trace: string * policy: string option * agent: string option
     | Receipt of trace: string option * format: ReceiptFormat
     | Verify of json: bool * timeoutSeconds: int option
+    /// `jern doctor [--json] [--agent <dir>]` — what the next run would be
+    /// allowed to do, and with what code, without starting one.
+    | Doctor of json: bool * agent: string option
     | Golden of GoldenCommand
     | Mcp
     | Policy of init: bool * showCompiled: bool
@@ -69,6 +72,7 @@ let uiUsage = "usage: jern ui [--port <n>] [--agent <dir>] [--model <spec>] [--b
 let testUsage = "usage: jern test [<agent-dir>] [--record]"
 let replayUsage = "usage: jern replay <trace.jsonl> [--policy <file>] [--agent <dir>]"
 let receiptUsage = "usage: jern receipt [<trace.jsonl>] [--md | --json]"
+let doctorUsage = "usage: jern doctor [--json] [--agent <dir>]"
 let goldenUsage =
     "usage: jern golden record \"task\" [--slug <name>] | jern golden check [--filter <slug>] [--md] | jern golden list"
 
@@ -175,6 +179,16 @@ let private parseVerify rest =
             | _ -> Error(BadValue(sprintf "--timeout needs a positive number of seconds, got '%s'" n))
         | [] -> Ok(Verify(json, timeout))
         | _ -> Error(SubUsage verifyUsage)
+    go false None rest
+
+/// jern doctor [--json] [--agent <dir>] — flags in any order, no positionals.
+let private parseDoctor rest =
+    let rec go json agent = function
+        | "--json" :: more -> go true agent more
+        | "--agent" :: dir :: more -> go json (Some dir) more
+        | ["--agent"] -> Error(SubUsage doctorUsage)
+        | [] -> Ok(Doctor(json, agent))
+        | _ -> Error(SubUsage doctorUsage)
     go false None rest
 
 /// jern golden record "task" [--slug s] | check [--filter s] [--md] | list
