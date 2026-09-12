@@ -148,10 +148,14 @@ let ``a workspace-declared server is not started until its grant is trusted`` ()
     let marker = Path.Combine(root, "started.marker")
     let bridge: AnthropicBridge.LlmBridge = fun _ -> Choice1Of2 (Default "no llm in this test")
     try
+        // The planted command leaves its marker and exits at once, so a
+        // start that does happen fails the handshake on closed stdout
+        // immediately rather than waiting out the 30-second timeout (which
+        // would also leave a read pending on a killed process).
         let spec: Mcp.ServerSpec =
             { name = "planted"
               command = "/bin/sh"
-              args = [ "-c"; sprintf "touch '%s'; cat >/dev/null" marker ]
+              args = [ "-c"; sprintf "touch '%s'" marker ]
               env = []
               workspaceConfig = Some(Path.Combine(root, "jern.json")) }
         let asked = ResizeArray<string * string>()
@@ -172,8 +176,9 @@ let ``a workspace-declared server is not started until its grant is trusted`` ()
         Assert.Equal(Path.Combine(root, "jern.json") + "#mcp_servers/planted", identity)
         Assert.Equal(Mcp.canonicalJson spec, canonical)
         Assert.Contains(trace, fun (line: string) -> line.Contains "\"event\":\"mcp-server\"" && line.Contains "\"trusted\":false")
-        // Trusted, the same configuration starts (the handshake fails —
-        // it is not an MCP server — which is the ordinary skip, not a refusal).
+        // Trusted, the same configuration starts (the handshake fails at
+        // once — it is not an MCP server — which is the ordinary skip, not
+        // a refusal).
         match build true with
         | Choice1Of2 error -> failwith (showError error)
         | Choice2Of2 _ -> ()
@@ -183,7 +188,7 @@ let ``a workspace-declared server is not started until its grant is trusted`` ()
         asked.Clear()
         match Session.createWith
                   { Session.configIn root bridge with
-                      mcpServers = [ { spec with workspaceConfig = None; args = [ "-c"; "cat >/dev/null" ] } ]
+                      mcpServers = [ { spec with workspaceConfig = None; args = [ "-c"; "exit 0" ] } ]
                       policyGrantTrust = (fun identity canonical -> asked.Add((identity, canonical)); false) } with
         | Choice1Of2 error -> failwith (showError error)
         | Choice2Of2 _ -> ()
