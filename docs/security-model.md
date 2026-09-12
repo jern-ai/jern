@@ -67,6 +67,15 @@ this whole stack, so their effects are governed exactly like the parent's.)
   model-call or token budget is renewable through approval. A cloud-authorized
   run also has a separate host-enforced token cap at the provider boundary;
   approval cannot renew it and spawned agents share the same counter.
+- The **blast radius** (`max_files_edited`, `max_lines_changed`) is a
+  run-wide ledger the host keeps and every spawned child inherits: a
+  subagent's edits count against the same limits as its parent's, so
+  delegating a task cannot buy a fresh allowance.
+- The handler stack, prelude, tools, and built-in policy are read from the
+  copy installed beside the binary — never from a `kernel/` directory in the
+  current workspace, since a cloned repository must not be able to replace
+  the trusted computing base. `JERN_KERNEL_DIR` names another copy
+  explicitly when a developer wants one.
 - Denials come back to the agent as error tool-results, not crashes.
 
 ### Policy is composed, not overwritten
@@ -121,6 +130,26 @@ The two halves are trusted differently, because they carry different risk:
 
 Malformed policy is a startup error, never a silent no-op: a typo in a rule
 meant to restrict must not look like it applied.
+
+Path rules (`edits_within`, `protected_paths`, and `path-within?` in a
+workspace policy) are judged on the **canonical** path — `.` and `..`
+folded, symlinks resolved, the same path the tool will act on — and at a
+directory boundary: `src/` covers `src/a.txt` and `src` itself, never
+`srcs/a.txt`, `src/../a.txt`, or a link under `src/` that points at
+`tests/`. A path that escapes the workspace is inside no prefix (and the
+tools refuse it regardless).
+
+**MCP servers are grants too.** Starting a server runs the command its
+configuration names, so a server declared by the repository's `jern.json`
+crosses the same first-use trust as a policy grant before it starts: the
+session shows the server's canonical JSON (command, arguments,
+environment) and asks once; a declined or unpinned server never runs and
+its tools never register. Servers from the user's own
+`~/.config/jern/config.json` need no answer. Headless runs pin a server
+with `--policy-trust <sha256>` exactly like a grant, and every session
+records an `mcp-server` trace event with the server's digest and whether
+it was trusted. Replays (`jern replay`, `jern golden check`) start no
+servers at all: every call answers from the recording.
 
 `allow` and `deny` take tool names, `mcp__*`-style prefixes, and tool
 packs (`pack:read`, `pack:edit`, `pack:verify`, `pack:git`,
@@ -219,7 +248,8 @@ one `run-finished` carrying its status and duration. Between them, every
 effect is recorded as JSONL at the same choke point that enforces policy: `llm-call`/`llm-response`, `tool-call`/`tool-result`,
 `policy-decision` (with the decision and the layer that made it),
 `policy-layer` (each layer's identity, digest, and whether its grants were
-trusted), `approval-denied`, `memory-recall`/`memory-remember`,
+trusted), `mcp-server` (each configured server's digest and whether it was
+trusted to start), `approval-denied`, `memory-recall`/`memory-remember`,
 `spawn`/`spawn-result`, and agent `log` events, each timestamped. `jern run` writes it to `.jern/trace-*.jsonl`. A
 side effect that bypassed policy would be a side effect with no
 `policy-decision` line — the trace makes the claim checkable. `jern receipt`
@@ -239,7 +269,12 @@ nothing that process does. jern's honest posture:
   target and every parent directory are resolved to their real paths before
   the containment check, so a link inside the workspace pointing outside —
   pre-existing or created by an approved shell command — cannot smuggle a
-  read or write past the root).
+  read or write past the root). The recursive tools — `grep`, `symbols`,
+  `outline`, `read_symbol`, `references`, `file_tree` — walk descendants
+  through one confined traversal that holds every entry to the same check
+  as the starting point: a linked file or directory whose real target lies
+  outside the workspace is skipped, and a link back to an ancestor is
+  walked once, not forever.
 - **macOS:** shell commands run under `sandbox-exec` with a deny-by-default
   write profile — writes only inside the workspace, temp, and `/dev`. Reads
   and network are **not** restricted in v1; do not run jern in a workspace

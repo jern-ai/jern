@@ -50,7 +50,6 @@ let private replay tracePath policyFile =
           agentDir = repoAgentDir ()
           policyFile = policyFile
           agentConfig = Nil
-          mcpServers = []
           policySources = [] }
 
 [<Fact>]
@@ -129,5 +128,46 @@ let ``a trace without a task is rejected with guidance`` () =
         match replay tracePath None with
         | Error message -> Assert.Contains("agent-started", message)
         | Ok _ -> failwith "expected an error for a taskless trace"
+    finally
+        File.Delete tracePath
+
+/// A long tool result is kept by the session and paged back with
+/// read_output. The replay session keeps nothing — the recording holds
+/// what the run read back — so read_output must answer from the trace like
+/// every other tool, or the recorded call goes unused.
+[<Fact>]
+let ``a run that paged an offloaded output replays unchanged`` () =
+    let root = Path.Combine(Path.GetTempPath(), "jern-rec-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory root |> ignore
+    let lines = [| for i in 1 .. 3000 -> sprintf "line %04d: %s" i (String.replicate 3 "lorem ipsum ") |]
+    File.WriteAllText(Path.Combine(root, "big.txt"), String.Join("\n", lines) + "\n")
+    let tracePath = Path.Combine(Path.GetTempPath(), "jern-rec-trace-" + Guid.NewGuid().ToString("N") + ".jsonl")
+    let scripted: AnthropicBridge.LlmBridge =
+        fun request ->
+            let json = Json.serialize request
+            if json.Contains "out_1 lines 1500-1501" then
+                response """{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"Read it."}]}"""
+            elif json.Contains "kept as out_1" then
+                response """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t2","name":"read_output","input":{"id":"out_1","from_line":1500,"lines":2}}]}"""
+            else
+                response """{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"read_file","input":{"path":"big.txt"}}]}"""
+    (use writer = new StreamWriter(tracePath, append = false, AutoFlush = true)
+     let config =
+         { Session.configIn root scripted with
+             traceSink = Some writer.WriteLine
+             agentSources = Session.agentPackageSources (repoAgentDir ()) }
+     match Session.createWith config with
+     | Choice1Of2 error -> failwith (showError error)
+     | Choice2Of2 session ->
+         match Session.runAgent session "Read the middle of big.txt" with
+         | Choice1Of2 error -> failwith (showError error)
+         | Choice2Of2 _ -> ())
+    Directory.Delete(root, true)
+    try
+        Assert.Contains(File.ReadAllLines tracePath, fun line -> line.Contains "\"name\":\"read_output\"")
+        match replay tracePath None with
+        | Error message -> failwith message
+        | Ok (Replay.Diverged report) -> failwith ("unexpected divergence: " + report)
+        | Ok (Replay.Completed (llmCalls, _)) -> Assert.Equal(3, llmCalls)
     finally
         File.Delete tracePath

@@ -67,3 +67,31 @@ let ``prelude plist-get works in the agent environment`` () =
     match run session """(plist-get (list :a 1 :b 2) :b)""" with
     | Obj o -> Assert.Equal(2, o :?> int)
     | other -> failwith ("unexpected: " + showVal other)
+
+/// The runtime source — prelude, tools, policy, handlers — runs privileged,
+/// so it comes from the install beside the binary and never from the
+/// current directory: a workspace that ships its own `kernel/` cannot
+/// replace the handler stack. A developer names another copy explicitly.
+[<Fact>]
+let ``kernel source is read from the install, never from the working directory`` () =
+    let installed = System.IO.Path.Combine(System.AppContext.BaseDirectory, "kernel", "policy.ikr")
+    Assert.Equal(installed, Session.kernelFile "policy.ikr")
+    // A `kernel/` in the working directory changes nothing.
+    let cwdKernel = System.IO.Path.Combine(System.Environment.CurrentDirectory, "kernel")
+    let created = not (System.IO.Directory.Exists cwdKernel)
+    if created then System.IO.Directory.CreateDirectory cwdKernel |> ignore
+    let planted = System.IO.Path.Combine(cwdKernel, "policy.ikr")
+    let plantedBefore = System.IO.File.Exists planted
+    try
+        if not plantedBefore then System.IO.File.WriteAllText(planted, "(define tool-policy (lambda (call) :allow))\n")
+        Assert.Equal(installed, Session.kernelFile "policy.ikr")
+    finally
+        if not plantedBefore then System.IO.File.Delete planted
+        if created then System.IO.Directory.Delete(cwdKernel, true)
+    // Only an explicit JERN_KERNEL_DIR points elsewhere.
+    let previous = System.Environment.GetEnvironmentVariable "JERN_KERNEL_DIR"
+    try
+        System.Environment.SetEnvironmentVariable("JERN_KERNEL_DIR", "/elsewhere/kernel")
+        Assert.Equal(System.IO.Path.Combine("/elsewhere/kernel", "policy.ikr"), Session.kernelFile "policy.ikr")
+    finally
+        System.Environment.SetEnvironmentVariable("JERN_KERNEL_DIR", previous)

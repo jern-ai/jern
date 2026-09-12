@@ -115,6 +115,40 @@ module Tools =
         else
             Error(sprintf "path '%s' is outside the workspace" path)
 
+    /// The canonical workspace-relative form of a model-authored path: `.`
+    /// and `..` segments folded, symlinks resolved, forward slashes, no
+    /// leading `./`; "." for the root itself. None when the path resolves
+    /// outside the workspace. This is the path *policy* judges — the same
+    /// one the tools will act on — so `src/../x` reads as `x` and a link
+    /// under `src/` that points at `tests/` reads as `tests/…`.
+    let workspaceRelativePath (root: string) (path: string) : string option =
+        try
+            let rootReal = realPath (Path.GetFullPath root)
+            let real = realPath (Path.GetFullPath(Path.Combine(root, path)))
+            if real = rootReal then Some "."
+            elif real.StartsWith(rootReal + string Path.DirectorySeparatorChar, StringComparison.Ordinal) then
+                Some(Path.GetRelativePath(rootReal, real).Replace('\\', '/'))
+            else None
+        with _ -> None
+
+    /// Is `path` (a model-authored, workspace-relative path) inside the
+    /// directory `prefix`, judged on canonical paths and at a directory
+    /// boundary: `src/` (or `src`) covers `src/a.txt` and `src` itself,
+    /// never `srcs/a.txt`; `.` or `` covers the whole workspace. A path
+    /// that escapes the workspace is inside nothing.
+    let pathWithin (root: string) (path: string) (prefix: string) : bool =
+        match workspaceRelativePath root path with
+        | None -> false
+        | Some canonical ->
+            let normalized =
+                let trimmed = prefix.Replace('\\', '/').Trim()
+                let trimmed = if trimmed.StartsWith "./" then trimmed.Substring 2 else trimmed
+                trimmed.TrimEnd('/')
+            if normalized = "" || normalized = "." then true
+            else
+                canonical = normalized
+                || canonical.StartsWith(normalized + "/", StringComparison.Ordinal)
+
     let private readFile root input =
         match stringArg "path" input with
         | Error e -> toolError e
@@ -151,6 +185,39 @@ module Tools =
                     ok (if entries = "" then "(empty directory)" else entries)
 
     let private skippedDirs = set [ ".git"; "bin"; "obj"; "node_modules"; ".vs"; ".idea"; ".jern" ]
+
+    /// Every file under `full` (a path `resolve` already confined), never
+    /// leaving the workspace: a symlinked file or directory whose real
+    /// target lies outside the root is skipped, and a directory is walked
+    /// once by its real path, so a link back to an ancestor cannot loop.
+    /// The one traversal every recursive tool uses — grep, symbols,
+    /// outline, read_symbol, references — so the descendants of a
+    /// validated starting point are held to the same check as the start.
+    let private confinedFiles (root: string) (full: string) : seq<string> =
+        let rootReal = realPath (Path.GetFullPath root)
+        let inside (real: string) =
+            real = rootReal
+            || real.StartsWith(rootReal + string Path.DirectorySeparatorChar, StringComparison.Ordinal)
+        if File.Exists full then Seq.singleton full
+        elif Directory.Exists full then
+            // The visited set belongs to one enumeration: the sequence is
+            // lazy and may be walked more than once.
+            let rec walk (visited: Collections.Generic.HashSet<string>) (dir: string) (realDir: string) = seq {
+                if inside realDir && visited.Add realDir then
+                    for entry in Directory.EnumerateFiles dir do
+                        let isLink = (try (FileInfo entry).LinkTarget <> null with _ -> true)
+                        if not isLink || inside (realPath entry) then yield entry
+                    for sub in Directory.EnumerateDirectories dir do
+                        if not (skippedDirs.Contains(Path.GetFileName sub)) then
+                            let isLink = (try (DirectoryInfo sub).LinkTarget <> null with _ -> true)
+                            let realSub =
+                                if isLink then realPath sub
+                                else Path.Combine(realDir, Path.GetFileName sub)
+                            yield! walk visited sub realSub }
+            seq {
+                let visited = Collections.Generic.HashSet<string>(StringComparer.Ordinal)
+                yield! walk visited full (realPath full) }
+        else Seq.empty
 
     /// An indented, depth-limited tree of the workspace (or a subdirectory),
     /// for cheap first-turn context and for the model to orient itself.
@@ -210,15 +277,21 @@ module Tools =
                         | None ->
                             let lines = ResizeArray<string>()
                             let mutable truncated = false
+                            let rootReal = realPath (Path.GetFullPath root)
+                            let inside (real: string) =
+                                real = rootReal
+                                || real.StartsWith(rootReal + string Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                            let visited = Collections.Generic.HashSet<string>(StringComparer.Ordinal)
                             let rec walk dir depth =
-                                if depth <= 3 && not truncated then
+                                if depth <= 3 && not truncated && visited.Add(realPath dir) then
                                     let entries =
                                         Directory.EnumerateFileSystemEntries dir
                                         |> Seq.sortBy (fun e -> Path.GetFileName e)
                                         |> List.ofSeq
                                     for entry in entries do
                                         if lines.Count >= limits.maxTreeEntries then truncated <- true
-                                        else
+                                        // A link that leaves the workspace is not part of its tree.
+                                        elif inside (realPath entry) then
                                             let name = Path.GetFileName entry
                                             let indent = String.replicate depth "  "
                                             if Directory.Exists entry then
@@ -247,16 +320,7 @@ module Tools =
                 match regex with
                 | Error e -> toolError (sprintf "invalid pattern: %s" e)
                 | Ok regex ->
-                    let files =
-                        if File.Exists full then Seq.singleton full
-                        elif Directory.Exists full then
-                            let rec walk dir = seq {
-                                for entry in Directory.EnumerateFiles dir do yield entry
-                                for sub in Directory.EnumerateDirectories dir do
-                                    if not (skippedDirs.Contains(Path.GetFileName sub)) then
-                                        yield! walk sub }
-                            walk full
-                        else Seq.empty
+                    let files = confinedFiles root full
                     if Seq.isEmpty files && not (File.Exists full) && not (Directory.Exists full) then
                         toolError (sprintf "path '%s' does not exist" path)
                     else
@@ -334,16 +398,7 @@ module Tools =
             match resolve root path with
             | Error e -> toolError e
             | Ok full ->
-                let files =
-                    if File.Exists full then Seq.singleton full
-                    elif Directory.Exists full then
-                        let rec walk dir = seq {
-                            for entry in Directory.EnumerateFiles dir do yield entry
-                            for sub in Directory.EnumerateDirectories dir do
-                                if not (skippedDirs.Contains(Path.GetFileName sub)) then
-                                    yield! walk sub }
-                        walk full
-                    else Seq.empty
+                let files = confinedFiles root full
                 if not (File.Exists full) && not (Directory.Exists full) then
                     toolError (sprintf "path '%s' does not exist" path)
                 else
@@ -488,16 +543,7 @@ module Tools =
     let private hasDefinitions (file: string) =
         symbolPatterns.ContainsKey(Path.GetExtension(file).ToLowerInvariant()) || Symbols.supports file
 
-    let private walkFiles (full: string) =
-        if File.Exists full then Seq.singleton full
-        elif Directory.Exists full then
-            let rec walk dir = seq {
-                for entry in Directory.EnumerateFiles dir do yield entry
-                for sub in Directory.EnumerateDirectories dir do
-                    if not (skippedDirs.Contains(Path.GetFileName sub)) then
-                        yield! walk sub }
-            walk full
-        else Seq.empty
+    let private walkFiles (root: string) (full: string) = confinedFiles root full
 
     /// Every definition in one file with its kind, extent, and signature line.
     let private outline root input =
@@ -568,7 +614,7 @@ module Tools =
                 if not (File.Exists full) && not (Directory.Exists full) then
                     toolError (sprintf "path '%s' does not exist" path)
                 else
-                    let files = walkFiles full |> List.ofSeq
+                    let files = walkFiles root full |> List.ofSeq
                     let candidates =
                         match definitionsNamed files name true with
                         | [] -> definitionsNamed files name false
@@ -606,7 +652,7 @@ module Tools =
                     if not (File.Exists full) && not (Directory.Exists full) then
                         toolError (sprintf "path '%s' does not exist" path)
                     else
-                        let files = walkFiles full |> List.ofSeq
+                        let files = walkFiles root full |> List.ofSeq
                         let supported, others = files |> List.partition Symbols.supports
                         let exact, others =
                             match Symbols.references supported name with

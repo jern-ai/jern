@@ -44,6 +44,35 @@ module Session =
             lock gate (fun () ->
                 if violation.IsNone then violation <- Some message)
 
+    /// The blast radius of one *run*: every file edited and every line
+    /// changed, across the session that started the run and every subagent
+    /// it spawned. max_files_edited and max_lines_changed are run-wide
+    /// limits, so the ledger is shared down the spawn tree: a child cannot
+    /// start from zero and spend what the parent could not.
+    type EditLedger() =
+        let gate = obj ()
+        let files = Collections.Generic.HashSet<string>(StringComparer.Ordinal)
+        let linesByFile = Collections.Generic.Dictionary<string, int64>(StringComparer.Ordinal)
+        let mutable linesChanged = 0L
+
+        member _.FileCount = lock gate (fun () -> files.Count)
+        member _.LinesChanged = lock gate (fun () -> linesChanged)
+        member _.Contains(path: string) = lock gate (fun () -> files.Contains path)
+
+        /// Files edited so far with their line counts, sorted by path.
+        member _.Entries =
+            lock gate (fun () ->
+                files
+                |> Seq.sort
+                |> Seq.map (fun path -> path, (match linesByFile.TryGetValue path with | true, n -> n | _ -> 0L))
+                |> List.ofSeq)
+
+        member _.Record(path: string, delta: int64) =
+            lock gate (fun () ->
+                files.Add path |> ignore
+                linesByFile.[path] <- (match linesByFile.TryGetValue path with | true, n -> n | _ -> 0L) + delta
+                linesChanged <- linesChanged + delta)
+
     type Config =
         { workspaceRoot: string
           bridge: AnthropicBridge.LlmBridge
@@ -85,10 +114,12 @@ module Session =
           /// protected CI baseline). Their *restrictions* always apply;
           /// their *grants* apply only when policyGrantTrust agrees.
           policySources: PolicyConfig.Source list
-          /// Consulted for the grant half of a repository-supplied policy:
-          /// (trust identity, canonical JSON) -> trusted? Restrictions never
-          /// consult it. The default trusts everything — the CLI front-ends
-          /// install a first-use prompt (and a headless digest check).
+          /// Consulted for the grant half of a repository-supplied policy,
+          /// and for each MCP server the repository's jern.json declares
+          /// before its command is started: (trust identity, canonical
+          /// JSON) -> trusted? Restrictions never consult it. The default
+          /// trusts everything — the CLI front-ends install a first-use
+          /// prompt (and a headless digest check).
           policyGrantTrust: string -> string -> bool
           /// Replaces the executor for every jern/tool-call that reaches the
           /// host (built-in and MCP tools alike). None = the real tools.
@@ -98,7 +129,11 @@ module Session =
           /// How many jern/spawn ancestors this session has: 0 for a session
           /// the user started, incremented for each child. Capped host-side
           /// so agents cannot fork without bound.
-          spawnDepth: int }
+          spawnDepth: int
+          /// The run's edit accounting. None starts a fresh ledger (a session
+          /// the user started); a spawned child inherits its parent's, so
+          /// max_files_edited and max_lines_changed count the whole run.
+          editLedger: EditLedger option }
 
     type Session =
         { agentEnv: LispVal
@@ -151,10 +186,18 @@ module Session =
             (#t :ask)))))
 """
 
-    let kernelFile name =
-        let local = Path.Combine("kernel", name)
-        let installed = Path.Combine(AppContext.BaseDirectory, "kernel", name)
-        if File.Exists local then local else installed
+    /// Where the trusted runtime source — prelude, tools, policy, handlers —
+    /// is read from: the copy installed beside the binary. These files run
+    /// privileged (the handler stack *is* the trusted computing base), so
+    /// they are never taken from the current directory: a workspace carrying
+    /// its own `kernel/` must not replace them. A developer who does want
+    /// another copy names it explicitly with JERN_KERNEL_DIR.
+    let kernelDir () =
+        match Environment.GetEnvironmentVariable "JERN_KERNEL_DIR" with
+        | null | "" -> Path.Combine(AppContext.BaseDirectory, "kernel")
+        | dir -> Path.GetFullPath dir
+
+    let kernelFile name = Path.Combine(kernelDir (), name)
 
     /// Parse and evaluate every form of Kernel source in `env`; `path` is
     /// for error reporting only — the given source is what runs.
@@ -219,17 +262,45 @@ module Session =
             | Some (Obj (:? string as command)) -> Tools.configureTestCommand(Some command)
             | _ -> ()
 
-            // Connect configured MCP servers. A server that fails to start is
-            // skipped with a warning — a dead integration must not brick the
-            // session — and its tools simply don't register.
+            let emitTrace (event: LispVal) =
+                match config.traceSink with
+                | None -> ()
+                | Some sink -> Trace.event sink event
+
+            // Connect configured MCP servers. Starting one runs the command
+            // its configuration names, so a server the *repository* declares
+            // (jern.json) is a grant of the same kind as a policy relaxation
+            // and crosses the same trust: policyGrantTrust is asked with the
+            // server's identity and canonical JSON before anything starts,
+            // and a server it declines never runs. The user's own machine
+            // config needs no answer. A server that fails to start is skipped
+            // with a warning — a dead integration must not brick the session
+            // — and its tools simply don't register.
             let mcpServers =
                 config.mcpServers
                 |> List.choose (fun spec ->
-                    match Mcp.connect spec with
-                    | Ok server -> Some server
-                    | Error reason ->
-                        eprintfn "jern: %s (skipping this MCP server)" reason
-                        None)
+                    let canonical = Mcp.canonicalJson spec
+                    let digest = Trust.contentHash canonical
+                    let trusted =
+                        match Mcp.trustIdentity spec with
+                        | None -> true
+                        | Some identity -> config.policyGrantTrust identity canonical
+                    emitTrace
+                        (ofList [ Keyword "event"; Obj("mcp-server" :> obj)
+                                  Keyword "name"; Obj(spec.name :> obj)
+                                  Keyword "command"; Obj(spec.command :> obj)
+                                  Keyword "digest"; Obj(digest :> obj)
+                                  Keyword "trusted"; Bool trusted ])
+                    if not trusted then
+                        eprintfn "jern: MCP server '%s' (declared by %s) is not trusted — not started"
+                            spec.name (defaultArg spec.workspaceConfig "the workspace")
+                        None
+                    else
+                        match Mcp.connect spec with
+                        | Ok server -> Some server
+                        | Error reason ->
+                            eprintfn "jern: %s (skipping this MCP server)" reason
+                            None)
             let mcpByName =
                 mcpServers |> List.map (fun s -> s.spec.name, s) |> Map.ofList
 
@@ -254,11 +325,6 @@ module Session =
             let abandonedThreads = System.Collections.Concurrent.ConcurrentDictionary<int, byte>()
             let threadAbandoned () =
                 abandonedThreads.ContainsKey System.Threading.Thread.CurrentThread.ManagedThreadId
-
-            let emitTrace (event: LispVal) =
-                match config.traceSink with
-                | None -> ()
-                | Some sink -> Trace.event sink event
 
             let hardBudgetError (budget: HardTokenBudget) message =
                 emitTrace
@@ -350,9 +416,7 @@ module Session =
             // max_files_edited and max_lines_changed restrictions. Counted here,
             // where every edit's success is seen, and asked from the policy
             // layer before an edit runs.
-            let editedFiles = Collections.Generic.HashSet<string>(StringComparer.Ordinal)
-            let linesByFile = Collections.Generic.Dictionary<string, int64>(StringComparer.Ordinal)
-            let mutable linesChanged = 0L
+            let ledger = match config.editLedger with Some shared -> shared | None -> EditLedger()
 
             // Tool results too long for the context are kept here whole and
             // answered as head, tail, and a handle; read_output pages them.
@@ -428,13 +492,11 @@ module Session =
                                 else page, ""
                             Choice2Of2 (toolResult false (sprintf "%s lines %d-%d of %d%s:\n%s" id fromLine lastLine total note body))
             let rootFull = Path.GetFullPath config.workspaceRoot
+            // The canonical, symlink-resolved form a path is accounted and
+            // policed under; a path outside the workspace stays as written
+            // (the tools refuse it).
             let relativePath (path: string) =
-                try
-                    let full = Path.GetFullPath(Path.Combine(rootFull, path))
-                    if full.StartsWith(rootFull + string Path.DirectorySeparatorChar, StringComparison.Ordinal) || full = rootFull then
-                        Path.GetRelativePath(rootFull, full).Replace('\\', '/')
-                    else path
-                with _ -> path
+                Tools.workspaceRelativePath config.workspaceRoot path |> Option.defaultValue path
             let lineCount (text: string) =
                 if String.IsNullOrEmpty text then 0L
                 else
@@ -497,8 +559,8 @@ module Session =
                     match projectedEdit call with
                     | None -> bounceContinue env cont (Keyword "allow")
                     | Some (path, delta) ->
-                        let filesAfter = int64 editedFiles.Count + (if editedFiles.Contains path then 0L else 1L)
-                        let linesAfter = linesChanged + delta
+                        let filesAfter = int64 ledger.FileCount + (if ledger.Contains path then 0L else 1L)
+                        let linesAfter = ledger.LinesChanged + delta
                         if maxFiles > 0L && filesAfter > maxFiles then
                             bounceContinue env cont
                                 (Obj(sprintf "policy: at most %d files may be edited in this run (%s max_files_edited); %s would be file %d"
@@ -524,29 +586,30 @@ module Session =
                             match Tools.plistTryGet "name" call with
                             | Some (Obj (:? string as name)) when name = "kernel_eval" ->
                                 evalProgramRef.Value
-                            | Some (Obj (:? string as name)) when name = "read_output" ->
-                                readOutput
                             | nameVal ->
                                 match config.toolDispatch with
+                                // A substitute answers every ordinary tool,
+                                // read_output included: a replay session has
+                                // no kept outputs of its own — the recording
+                                // holds what the run read back — so the call
+                                // must come from the trace like the rest.
                                 | Some substitute -> substitute
                                 | None ->
                                     match nameVal with
+                                    | Some (Obj (:? string as name)) when name = "read_output" ->
+                                        readOutput
                                     | Some (Obj (:? string as name)) when name.StartsWith "mcp__" ->
                                         Mcp.dispatch mcpByName
                                     | Some (Obj (:? string as name)) when name = "changed_set" ->
-                                        // What this session has edited, from the
-                                        // tracker (not git: it sees the run, not the tree).
+                                        // What this run has edited, from the
+                                        // ledger (not git: it sees the run, not the tree).
                                         fun _ ->
                                             let listed =
-                                                editedFiles
-                                                |> Seq.sort
-                                                |> Seq.map (fun path ->
-                                                    let lines = match linesByFile.TryGetValue path with | true, n -> n | _ -> 0L
-                                                    sprintf "  %s (%d lines changed)" path lines)
-                                                |> List.ofSeq
+                                                ledger.Entries
+                                                |> List.map (fun (path, lines) -> sprintf "  %s (%d lines changed)" path lines)
                                             let text =
                                                 if listed.IsEmpty then "no files edited in this session yet"
-                                                else sprintf "%d files edited in this session, %d lines changed:\n%s" editedFiles.Count linesChanged (String.concat "\n" listed)
+                                                else sprintf "%d files edited in this session, %d lines changed:\n%s" ledger.FileCount ledger.LinesChanged (String.concat "\n" listed)
                                             Choice2Of2 (ofList [ Keyword "content"; Obj(text :> obj); Keyword "is_error"; Bool false ])
                                     | _ -> Tools.dispatch config.workspaceRoot
                         match dispatch call with
@@ -557,9 +620,7 @@ module Session =
                             // and says so in the trace for the receipt.
                             match projected with
                             | Some (path, delta) when (match Tools.plistTryGet "is_error" reply with Some (Bool true) -> false | _ -> true) ->
-                                editedFiles.Add path |> ignore
-                                linesByFile.[path] <- (match linesByFile.TryGetValue path with | true, n -> n | _ -> 0L) + delta
-                                linesChanged <- linesChanged + delta
+                                ledger.Record(path, delta)
                                 emitTrace
                                     (ofList [ Keyword "event"; Obj("edit-applied" :> obj)
                                               Keyword "path"; Obj(path :> obj)
@@ -682,7 +743,12 @@ module Session =
                                         // servers, so children run without
                                         // MCP tools for now.
                                         mcpServers = []
-                                        spawnDepth = config.spawnDepth + 1 }
+                                        spawnDepth = config.spawnDepth + 1
+                                        // One run, one blast radius: the
+                                        // child's edits count against the
+                                        // same max_files_edited and
+                                        // max_lines_changed as the parent's.
+                                        editLedger = Some ledger }
                                 match createWith childConfig with
                                 | Choice1Of2 error -> answer true (sprintf "spawn failed: %s" (showError error))
                                 | Choice2Of2 child ->
@@ -712,10 +778,21 @@ module Session =
                           match config.hardTokenBudget with
                           | Some budget -> yield sprintf "hard token cap: %d of %d spent" budget.Spent budget.Limit
                           | None -> ()
-                          yield sprintf "files edited: %d (%d lines changed)" editedFiles.Count linesChanged
+                          yield sprintf "files edited: %d (%d lines changed)" ledger.FileCount ledger.LinesChanged
                           yield sprintf "calls denied: %d" denials ]
                     bounceContinue env cont (Obj(String.concat "\n" lines :> obj))
                 | bad -> signal cont (NumArgs(1, bad))
+
+            // The policy's path test, answered on the canonical path: the
+            // same resolution the tools apply (`..` folded, symlinks
+            // followed), compared at a directory boundary — so
+            // (path-within? call "src/") cannot be satisfied by
+            // "src/../secret" or by a link under src/ that points elsewhere.
+            let hostPathWithin env cont = function
+                | [Obj (:? string as path); Obj (:? string as prefix)] ->
+                    bounceContinue env cont (Bool(Tools.pathWithin config.workspaceRoot path prefix))
+                | [_; _] -> bounceContinue env cont (Bool false)
+                | bad -> signal cont (NumArgs(2, bad))
 
             let hostApprove env cont = function
                 | [Obj (:? string as _)] when threadAbandoned () ->
@@ -737,6 +814,7 @@ module Session =
                      :: ("jern/host-blast-radius", AgentEnv.applicative hostBlastRadius)
                      :: ("jern/host-trace", AgentEnv.applicative hostTrace)
                      :: ("jern/host-approve", AgentEnv.applicative hostApprove)
+                     :: ("jern/host-path-within?", AgentEnv.applicative hostPathWithin)
                      :: ("jern/host-session-status", AgentEnv.applicative hostSessionStatus)
                      :: ("jern/host-git-save-dirty", AgentEnv.applicative hostGitSaveDirty)
                      :: ("jern/host-git-commit", AgentEnv.applicative hostGitCommit)
@@ -999,7 +1077,8 @@ module Session =
           policySources = []
           policyGrantTrust = fun _ _ -> true
           toolDispatch = None
-          spawnDepth = 0 }
+          spawnDepth = 0
+          editLedger = None }
 
     /// Build a session around an LLM bridge with tools scoped to `root`.
     let createIn (root: string) (bridge: AnthropicBridge.LlmBridge) : ThrowsError<Session> =

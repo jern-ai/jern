@@ -37,17 +37,16 @@ module Git =
         | Ok "true" -> true
         | _ -> false
 
-    /// Does `path` have uncommitted changes (tracked modifications only —
-    /// a brand-new file the agent is about to edit has no user history to save)?
+    /// Does `path` carry uncommitted user work — staged, unstaged, or both?
+    /// Judged from `git status`, which sees the index as well as the
+    /// working tree: a change the user staged but did not commit is theirs
+    /// to keep just as much as an unstaged one, and a `diff` against the
+    /// index alone would miss it. Untracked files are not dirty — a
+    /// brand-new file the agent is about to edit has no user history to save.
     let isFileDirty (root: string) (path: string) =
-        match run root [ "diff"; "--quiet"; "--"; path ] with
-        | Ok _ -> false
-        | Error _ ->
-            // diff --quiet exits 1 when there are changes; distinguish that
-            // from a real failure by asking again with output.
-            match run root [ "status"; "--porcelain"; "--"; path ] with
-            | Ok status -> status <> "" && not (status.StartsWith "??")
-            | Error _ -> false
+        match run root [ "status"; "--porcelain"; "--"; path ] with
+        | Ok status -> status <> "" && not (status.StartsWith "??")
+        | Error _ -> false
 
     /// Stage and commit just `path`. Returns the new commit hash, or None
     /// when there was nothing to commit.

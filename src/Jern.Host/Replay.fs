@@ -42,10 +42,6 @@ module Replay =
           /// configuration the recording ran with (test_command, thinking…)
           /// or the requests will differ for that reason alone.
           agentConfig: LispVal
-          /// MCP servers to connect for toolset parity in the requests;
-          /// their tools are advertised but never invoked — every call is
-          /// answered from the recording.
-          mcpServers: Mcp.ServerSpec list
           /// Policy from configuration, so a replay is judged by the rules
           /// in force *now*. Grants are taken as given: a replay performs no
           /// real effects (every call answers from the trace), so there is
@@ -223,7 +219,14 @@ module Replay =
                         { Session.configIn scratch bridge with
                             agentSources = Session.agentPackageSources options.agentDir
                             agentConfig = options.agentConfig
-                            mcpServers = options.mcpServers
+                            // No MCP servers: starting one runs a command,
+                            // which a side-effect-free replay must not do
+                            // (a golden check in CI would be running the
+                            // pull request's jern.json). Every call answers
+                            // from the recording, and the tool list is left
+                            // out of the request comparison, so nothing is
+                            // lost by not advertising them.
+                            mcpServers = []
                             policySources = options.policySources
                             toolDispatch = Some toolDispatch
                             // The recording already answers everything, so

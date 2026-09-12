@@ -259,3 +259,27 @@ let ``file_tree inside a repository leaves ignored files out`` () =
         Assert.Equal(".gitignore\nnew.txt\nsrc/\n  a.txt", tree)
         let sub = contentOf (run session """(call-tool "file_tree" (list :path "src"))""")
         Assert.Equal("a.txt", sub))
+
+/// A change the user staged but did not commit is theirs to keep just as
+/// much as an unstaged one: it is saved on its own commit before the agent
+/// edits, so undo restores the staged version, not the baseline.
+[<Fact>]
+let ``staged user changes are saved on their own commit first`` () =
+    withRepo (fun root ->
+        File.WriteAllText(Path.Combine(root, "a.txt"), "zero\n")
+        sh root "git add a.txt && git -c user.name=u -c user.email=u@x commit -qm files" |> ignore
+        // The user edited a.txt and staged it — the working tree matches the index.
+        File.WriteAllText(Path.Combine(root, "a.txt"), "one\n")
+        sh root "git add a.txt" |> ignore
+        Assert.True(Git.isFileDirty root "a.txt")
+        let session = newSession root (editBridge ())
+        Session.runAgent session "task" |> ignore
+        let subjects = sh root "git log --format=%s" |> fun s -> s.Split '\n'
+        Assert.Equal<string[]>(
+            [| "jern: edit a.txt"
+               "jern: save your uncommitted changes to a.txt"
+               "files"; "root" |], subjects)
+        match Git.undoLast root with
+        | Error e -> failwith e
+        | Ok subject -> Assert.Equal("jern: edit a.txt", subject)
+        Assert.Equal("one\n", File.ReadAllText(Path.Combine(root, "a.txt"))))

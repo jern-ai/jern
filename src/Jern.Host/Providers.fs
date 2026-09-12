@@ -58,6 +58,11 @@ module Providers =
           /// run_tests runs and the default agent runs after every edit;
           /// exposed to agent source.
           testCommand: string option
+          /// Where testCommand came from — "jern.json", "user config", or
+          /// "baseline" once a protected baseline's copy has been applied —
+          /// so `jern verify` reports the provenance of the command it
+          /// actually ran. None when there is no command.
+          testCommandSource: string option
           /// MCP servers (jern.json "mcp_servers"); their tools register as
           /// mcp__<server>__<tool> and go through the normal policy stack.
           mcpServers: Mcp.ServerSpec list
@@ -89,6 +94,7 @@ module Providers =
           aliases = Map.empty
           providers = builtIns |> List.map (fun p -> p.name, p) |> Map.ofList
           testCommand = None
+          testCommandSource = None
           mcpServers = []
           budgetLlmCalls = None
           budgetTokens = None
@@ -138,10 +144,17 @@ module Providers =
                             Map.add kv.Key provider acc)
                         config.providers
                 | _ -> config.providers
-            let testCommand =
+            let testCommand, testCommandSource =
                 match doc.["test_command"] with
-                | null -> config.testCommand
-                | t -> Some(t.GetValue<string>())
+                | null -> config.testCommand, config.testCommandSource
+                | t -> Some(t.GetValue<string>()), Some(PolicyConfig.originLabel (origin path))
+            // A server declared by the repository's own jern.json carries
+            // that file as its origin: starting it runs its command, so the
+            // session asks the grant trust hook first (Mcp.ServerSpec).
+            let workspaceConfig =
+                match origin path with
+                | PolicyConfig.Workspace configPath -> Some configPath
+                | _ -> None
             let mcpServers =
                 match doc.["mcp_servers"] with
                 | :? JsonObject as o ->
@@ -163,7 +176,8 @@ module Providers =
                                 match spec.["env"] with
                                 | :? JsonObject as e ->
                                     e |> Seq.map (fun ev -> ev.Key, ev.Value.GetValue<string>()) |> List.ofSeq
-                                | _ -> [] })
+                                | _ -> []
+                              Mcp.workspaceConfig = workspaceConfig })
                         |> List.ofSeq
                     // Later files override same-named servers from earlier ones.
                     let names = parsed |> List.map (fun s -> s.name) |> Set.ofList
@@ -247,6 +261,7 @@ module Providers =
               aliases = aliases
               providers = providers
               testCommand = testCommand
+              testCommandSource = testCommandSource
               mcpServers = mcpServers
               budgetLlmCalls = budgetLlmCalls
               budgetTokens = budgetTokens
@@ -328,6 +343,17 @@ module Providers =
                 | _ -> Error "test_command must be a string"
             | _ -> Ok None
         with ex -> Error("not readable JSON: " + ex.Message)
+
+    /// The configuration with a protected baseline's test command applied
+    /// over the checkout's, when the baseline names one: the command and
+    /// its provenance change together, so a baseline without a
+    /// `test_command` leaves both as the checkout's. An unreadable or
+    /// malformed baseline is the caller's error to report.
+    let withBaselineTestCommand (config: Config) (baselinePath: string) : Result<Config, string> =
+        baselineTestCommand baselinePath
+        |> Result.map (function
+            | Some command -> { config with testCommand = Some command; testCommandSource = Some "baseline" }
+            | None -> config)
 
     /// `alias | provider/model | claude-*` -> provider + bare model id.
     let resolve (config: Config) (modelSpec: string) : Result<Provider * string, string> =

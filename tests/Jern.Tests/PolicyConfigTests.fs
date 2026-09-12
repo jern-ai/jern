@@ -460,3 +460,66 @@ let ``a tool pack in allow or deny expands when the policy compiles`` () =
     match PolicyConfig.parse (JsonNode.Parse """{"deny":["pack:nope"]}""") with
     | Ok _ -> failwith "expected the unknown pack to be rejected"
     | Error message -> Assert.Contains("unknown tool pack pack:nope", message)
+
+/// The policy judges the canonical path — the one the tool will act on —
+/// so a prefix rule cannot be satisfied by traversal, by a near-miss name,
+/// or by a link under the prefix that points elsewhere.
+[<Fact>]
+let ``edits_within judges the canonical path at a directory boundary`` () =
+    let root = makeRoot ()
+    try
+        Directory.CreateDirectory(Path.Combine(root, "src")) |> ignore
+        Directory.CreateDirectory(Path.Combine(root, "srcs")) |> ignore
+        Directory.CreateDirectory(Path.Combine(root, "tests")) |> ignore
+        let asked = ResizeArray<string>()
+        let session =
+            sessionWith root [ workspaceSource "/w/jern.json" (parsePolicy """{"edits_within":["src/"]}""") ]
+                        (fun _ _ -> true) asked
+        let write path =
+            call session (sprintf """(call-tool "write_file" (list :path "%s" :content "y\n"))""" path)
+        // Traversal out of the prefix is denied by the policy, not merely
+        // by the tool: the file is never written.
+        let traversal = write "src/../outside.txt"
+        Assert.True(isErrorOf traversal)
+        Assert.Contains("policy: edits are limited to src/", contentOf traversal)
+        Assert.False(File.Exists(Path.Combine(root, "outside.txt")))
+        Assert.True(isErrorOf (write "./src/../srcs/near.txt"))
+        Assert.True(isErrorOf (write "srcs/near.txt"))          // a name that merely starts with src
+        Assert.Empty asked
+        // Inside, in any spelling, the ordinary rules apply.
+        Assert.False(isErrorOf (write "src/./deep/../a.txt"))
+        Assert.True(File.Exists(Path.Combine(root, "src", "a.txt")))
+        if not (OperatingSystem.IsWindows()) then
+            // A link under src/ that points at tests/ is an edit under tests/.
+            Directory.CreateSymbolicLink(Path.Combine(root, "src", "link"), Path.Combine(root, "tests")) |> ignore
+            let viaLink = write "src/link/b.txt"
+            Assert.True(isErrorOf viaLink)
+            Assert.Contains("policy: edits are limited to src/", contentOf viaLink)
+            Assert.False(File.Exists(Path.Combine(root, "tests", "b.txt")))
+        // policy_check answers the same way, before any attempt.
+        let probe =
+            call session """(call-tool "policy_check" (list :name "write_file" :input (list :path "src/../outside.txt" :content "y")))"""
+        Assert.StartsWith("deny: policy: edits are limited to src/", contentOf probe)
+    finally
+        Directory.Delete(root, true)
+
+[<Fact>]
+let ``pathWithin folds traversal, resolves links, and stops at directory boundaries`` () =
+    let root = makeRoot ()
+    try
+        Directory.CreateDirectory(Path.Combine(root, "src")) |> ignore
+        Assert.True(Tools.pathWithin root "src/a.txt" "src/")
+        Assert.True(Tools.pathWithin root "src/a.txt" "src")
+        Assert.True(Tools.pathWithin root "./src/x/../a.txt" "./src/")
+        Assert.True(Tools.pathWithin root "src" "src/")
+        Assert.True(Tools.pathWithin root "anything/at/all.txt" ".")
+        Assert.False(Tools.pathWithin root "src/../a.txt" "src/")
+        Assert.False(Tools.pathWithin root "srcs/a.txt" "src/")
+        Assert.False(Tools.pathWithin root "../escape.txt" "src/")
+        Assert.False(Tools.pathWithin root "../escape.txt" ".")
+        Assert.False(Tools.pathWithin root "/etc/passwd" ".")
+        Assert.Equal(Some "src/a.txt", Tools.workspaceRelativePath root "src/./a.txt")
+        Assert.Equal(Some ".", Tools.workspaceRelativePath root ".")
+        Assert.Equal(None, Tools.workspaceRelativePath root "../x")
+    finally
+        Directory.Delete(root, true)
