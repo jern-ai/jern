@@ -205,7 +205,10 @@ let mutable private cliEffort : string option = None
 let mutable private cliPolicyBaseline : string option = None
 let mutable private cliPolicyTrust : string list = []
 
-let private canPromptOnTerminal () = not Console.IsInputRedirected
+let private canPromptOnTerminal () =
+    not Console.IsInputRedirected
+    && not Console.IsOutputRedirected
+    && not Console.IsErrorRedirected
 
 let private loadProviders () =
     match Providers.load Environment.CurrentDirectory with

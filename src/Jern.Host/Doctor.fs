@@ -291,7 +291,7 @@ module Doctor =
             if Directory.Exists src then src else input.agentDir
         let agentFiles, unreadableAgentEntries =
             if Directory.Exists agentSourceDir then
-                enumerateIkrFiles "agent/" input.agentDir agentSourceDir false
+                enumerateIkrFiles "agent/" input.agentDir agentSourceDir true
             else [], []
         let agentFiles =
             agentFiles |> List.sortBy (fun file -> Path.GetRelativePath(input.agentDir, file).Replace('\\', '/'))
@@ -306,7 +306,7 @@ module Doctor =
         let unreadableAgent =
             hashedAgent |> List.filter (fun source -> source.sha256 = unreadableHash) |> List.length
         let runtime = hashedKernel @ hashedAgent
-        if kernelFiles.IsEmpty then
+        if kernelFiles.IsEmpty && unreadableKernelEntries.IsEmpty then
             add Risk "runtime.kernel-missing"
                 (sprintf "no handler stack at %s — the policy and prelude jern runs cannot be read" input.kernelDir)
                 (Some "reinstall jern, or point JERN_KERNEL_DIR at a good copy")
@@ -315,7 +315,7 @@ module Doctor =
                 (sprintf "%d handler stack file(s) under %s could not be read and use a sentinel in the runtime fingerprint"
                     unreadableKernel input.kernelDir)
                 (Some "fix file permissions or reinstall jern so every Kernel source can be hashed")
-        if agentFiles.IsEmpty then
+        if agentFiles.IsEmpty && unreadableAgentEntries.IsEmpty then
             add Risk "runtime.agent-missing"
                 (sprintf "no agent source at %s — there is no loop to run" input.agentDir)
                 (Some "reinstall jern, or pass --agent <dir>")
