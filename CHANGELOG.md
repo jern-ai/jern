@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.22.0 — unreleased
+## 0.23.0 — 2026-09-13
 
 - **Governance fixes from an independent review.** Eight reproducible
   gaps between what the rules promised and what the runtime enforced,

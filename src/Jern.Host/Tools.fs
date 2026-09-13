@@ -977,6 +977,40 @@ module Tools =
               "(allow file-write* (subpath \"/private/var/folders\"))"
               "(allow file-write* (subpath \"/dev\"))" ]
 
+    /// How long after the command exits its output is still collected
+    /// before a pipe held open by something it left behind is given up on.
+    let private outputGraceAfterExit = 2000
+
+    /// A command's output stream read on its own thread, so the caller can
+    /// stop waiting for it while something else still holds the pipe. `Text`
+    /// is whatever has arrived so far. The thread ends with the pipe,
+    /// whenever that is; closing the reader early would wait on the same
+    /// read, so nothing does.
+    type private DrainedStream =
+        { Wait: int -> bool
+          Text: unit -> string }
+
+    let private drainInBackground (reader: StreamReader) : DrainedStream =
+        let buffer = Text.StringBuilder()
+        let finished = new Threading.ManualResetEventSlim(false)
+        let thread =
+            Threading.Thread(
+                (fun () ->
+                    try
+                        try
+                            let chunk = Array.zeroCreate<char> 4096
+                            let mutable n = reader.Read(chunk, 0, chunk.Length)
+                            while n > 0 do
+                                lock buffer (fun () -> buffer.Append(chunk, 0, n) |> ignore)
+                                n <- reader.Read(chunk, 0, chunk.Length)
+                        with _ -> ()
+                    finally
+                        finished.Set()),
+                IsBackground = true)
+        thread.Start()
+        { Wait = fun (milliseconds: int) -> finished.Wait milliseconds
+          Text = fun () -> lock buffer (fun () -> buffer.ToString()) }
+
     /// One command run the way `shell` runs it: `/bin/sh -c` (cmd.exe on
     /// Windows) under the OS sandbox when there is one, in the workspace,
     /// with a wall-clock cap. Output and exit code, or the timeout.
@@ -1032,13 +1066,26 @@ module Tools =
         try
             let started = Diagnostics.Stopwatch.StartNew()
             proc.Start() |> ignore
-            let stdout = proc.StandardOutput.ReadToEndAsync()
-            let stderr = proc.StandardError.ReadToEndAsync()
+            let stdout = drainInBackground proc.StandardOutput
+            let stderr = drainInBackground proc.StandardError
             if proc.WaitForExit(int timeout.TotalMilliseconds) then
+                // The streams end when the last holder of the pipe is gone,
+                // not when the command exits: a build server or a test
+                // host's worker node left behind keeps them open, and
+                // reading to the end would wait on it for as long as it
+                // lives. The command has exited, so what it wrote is
+                // already in the pipe; a short grace collects it, and
+                // whatever a straggler writes later is not the command's.
+                let drained = stdout.Wait outputGraceAfterExit && stderr.Wait outputGraceAfterExit
                 let output =
-                    [ stdout.Result; stderr.Result ]
+                    [ stdout.Text(); stderr.Text() ]
                     |> List.filter (fun s -> s <> "")
                     |> String.concat "\n"
+                let output =
+                    if drained then output
+                    else
+                        let note = "(output ends here: a process the command left running still held its output open)"
+                        if output = "" then note else output + "\n" + note
                 Ok(output, proc.ExitCode, started.Elapsed.TotalSeconds)
             else
                 try proc.Kill(true) with _ -> ()
