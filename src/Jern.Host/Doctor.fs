@@ -55,7 +55,8 @@ module Doctor =
           message: string
           remedy: string option }
 
-    /// One file of the trusted computing base, hashed as it sits on disk.
+    /// One runtime source entry of the trusted computing base, hashed as it
+    /// sits on disk or marked unreadable with a stable sentinel.
     type SourceHash =
         { /// Install-relative, so the same deployment reports the same names
           /// whatever the absolute paths are ("kernel/policy.ikr").
@@ -143,6 +144,43 @@ module Doctor =
         Convert.ToHexString(SHA256.HashData stream).ToLowerInvariant()
 
     let private unreadableHash = "unreadable"
+
+    let private unreadableSource (prefix: string) (dir: string) (path: string) =
+        let relative = Path.GetRelativePath(dir, path).Replace('\\', '/')
+        let name =
+            if relative = "." then prefix + "**"
+            elif String.Equals(Path.GetExtension path, ".ikr", StringComparison.OrdinalIgnoreCase) then prefix + relative
+            else prefix + relative + "/**"
+        { name = name
+          path = path
+          sha256 = unreadableHash
+          bytes = -1L }
+
+    let private enumerateIkrFiles (prefix: string) (root: string) =
+        let rec loop (dir: string) =
+            let entries =
+                try
+                    Choice1Of2 (Directory.EnumerateFileSystemEntries(dir) |> Seq.toList)
+                with _ ->
+                    Choice2Of2 (unreadableSource prefix root dir)
+            match entries with
+            | Choice2Of2 unreadable -> [], [ unreadable ]
+            | Choice1Of2 paths ->
+                let mutable files = []
+                let mutable unreadable = []
+                for path in paths do
+                    try
+                        let attrs = File.GetAttributes path
+                        if attrs.HasFlag FileAttributes.Directory then
+                            let nestedFiles, nestedUnreadable = loop path
+                            files <- nestedFiles @ files
+                            unreadable <- nestedUnreadable @ unreadable
+                        elif String.Equals(Path.GetExtension path, ".ikr", StringComparison.OrdinalIgnoreCase) then
+                            files <- path :: files
+                    with _ ->
+                        unreadable <- unreadableSource prefix root path :: unreadable
+                files, unreadable
+        loop root
 
     /// Hash a set of files under `dir`, naming each one `prefix` + its path
     /// relative to `dir`. A file that cannot be read stays in the list with
@@ -243,16 +281,16 @@ module Doctor =
 
         // 1. Runtime source hashes: the handler stack and the agent that
         //    would be loaded, in that order.
-        let kernelFiles =
+        let kernelFiles, unreadableKernelEntries =
             if Directory.Exists input.kernelDir then
-                Directory.EnumerateFiles(input.kernelDir, "*.ikr", SearchOption.AllDirectories)
-                |> Seq.sortBy (fun file -> Path.GetRelativePath(input.kernelDir, file).Replace('\\', '/'))
-                |> List.ofSeq
-            else []
+                enumerateIkrFiles "kernel/" input.kernelDir
+            else [], []
         let agentFiles =
             Session.agentPackageSources input.agentDir
             |> List.sortBy (fun file -> Path.GetRelativePath(input.agentDir, file).Replace('\\', '/'))
-        let hashedKernel = hashUnder "kernel/" input.kernelDir kernelFiles
+        let hashedKernel =
+            (hashUnder "kernel/" input.kernelDir kernelFiles @ unreadableKernelEntries)
+            |> List.sortBy (fun source -> source.name)
         let hashedAgent = hashUnder "agent/" input.agentDir agentFiles
         let unreadableKernel =
             hashedKernel |> List.filter (fun source -> source.sha256 = unreadableHash) |> List.length
