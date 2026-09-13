@@ -1,5 +1,7 @@
 module Jern.Tests.ArgsTests
 
+open System
+open System.IO
 open Xunit
 open Jern.Cli
 open Jern.Cli.Args
@@ -202,3 +204,82 @@ let ``verify takes --json and a positive --timeout`` () =
     match Args.parse [ "verify"; "--md" ] with
     | Error(Args.SubUsage _) -> ()
     | other -> failwithf "unexpected: %A" other
+
+[<Fact>]
+let ``doctor parses optional flags in any order`` () =
+    Assert.Equal(Doctor(false, None), command ["doctor"])
+    Assert.Equal(Doctor(true, Some "agents/default"), command ["doctor"; "--json"; "--agent"; "agents/default"])
+    Assert.Equal(Doctor(true, Some "agents/default"), command ["doctor"; "--agent"; "agents/default"; "--json"])
+    Assert.Equal(Doctor(true, Some "b"), command ["doctor"; "--agent"; "a"; "--json"; "--agent"; "b"; "--json"])
+
+[<Fact>]
+let ``doctor rejects invalid shapes`` () =
+    Assert.Equal(SubUsage doctorUsage, failure ["doctor"; "--agent"])
+    Assert.Equal(SubUsage doctorUsage, failure ["doctor"; "extra"])
+
+[<Collection("Process state")>]
+type DoctorDispatchTests() =
+    [<Fact>]
+    member _.``doctor dispatch writes json and returns the report exit code`` () =
+        let root = Path.Combine(Path.GetTempPath(), "jern-cli-" + Guid.NewGuid().ToString("N"))
+        let kernelDir = Path.Combine(root, "kernel")
+        let agentRoot = Path.Combine(root, "agent")
+        let agentDir = Path.Combine(agentRoot, "src")
+        Directory.CreateDirectory(kernelDir) |> ignore
+        Directory.CreateDirectory(agentDir) |> ignore
+        for name in [ "prelude.ikr"; "tools.ikr"; "policy.ikr"; "handlers.ikr" ] do
+            File.WriteAllText(Path.Combine(kernelDir, name), "(display 1)\n")
+        File.WriteAllText(Path.Combine(agentDir, "loop.ikr"), "(display 2)\n")
+        let oldCwd = Environment.CurrentDirectory
+        let oldKernel = Environment.GetEnvironmentVariable "JERN_KERNEL_DIR"
+        let oldOut = Console.Out
+        try
+            Directory.SetCurrentDirectory root
+            Environment.SetEnvironmentVariable("JERN_KERNEL_DIR", kernelDir)
+            use writer = new StringWriter()
+            Console.SetOut writer
+            let exitCode = Program.main [| "doctor"; "--json"; "--agent"; agentRoot |]
+            let output = writer.ToString().Replace("\r", "")
+            Assert.Equal(1, exitCode)
+            Assert.Contains("\"status\":\"risk\"", output)
+            Assert.Contains("\"runtime\"", output)
+            Assert.Contains("\"sources\"", output)
+        finally
+            Console.SetOut oldOut
+            Environment.SetEnvironmentVariable("JERN_KERNEL_DIR", oldKernel)
+            Directory.SetCurrentDirectory oldCwd
+            Directory.Delete(root, true)
+
+    [<Fact>]
+    member _.``doctor dispatch can render text for an interactive terminal`` () =
+        let root = Path.Combine(Path.GetTempPath(), "jern-cli-" + Guid.NewGuid().ToString("N"))
+        let kernelDir = Path.Combine(root, "kernel")
+        let agentRoot = Path.Combine(root, "agent")
+        let agentDir = Path.Combine(agentRoot, "src")
+        Directory.CreateDirectory(kernelDir) |> ignore
+        Directory.CreateDirectory(agentDir) |> ignore
+        for name in [ "prelude.ikr"; "tools.ikr"; "policy.ikr"; "handlers.ikr" ] do
+            File.WriteAllText(Path.Combine(kernelDir, name), "(display 1)\n")
+        File.WriteAllText(Path.Combine(agentDir, "loop.ikr"), "(display 2)\n")
+        let oldCwd = Environment.CurrentDirectory
+        let oldKernel = Environment.GetEnvironmentVariable "JERN_KERNEL_DIR"
+        let oldOut = Console.Out
+        let oldProbe = Program.terminalAllowsPrompt
+        try
+            Directory.SetCurrentDirectory root
+            Environment.SetEnvironmentVariable("JERN_KERNEL_DIR", kernelDir)
+            Program.terminalAllowsPrompt <- fun () -> true
+            use writer = new StringWriter()
+            Console.SetOut writer
+            let exitCode = Program.main [| "doctor"; "--agent"; agentRoot |]
+            let output = writer.ToString().Replace("\r", "")
+            Assert.Equal(1, exitCode)
+            Assert.Contains("jern doctor", output)
+            Assert.Contains("runtime", output)
+            Assert.Contains("trust", output)
+        finally
+            Program.terminalAllowsPrompt <- oldProbe
+            Console.SetOut oldOut
+            Environment.SetEnvironmentVariable("JERN_KERNEL_DIR", oldKernel)
+            Directory.SetCurrentDirectory oldCwd
+            Directory.Delete(root, true)

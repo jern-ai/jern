@@ -15,4 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="../Jern.Host/Jern.Host.fsproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Jern.Tests" />
+  </ItemGroup>
 </Project>

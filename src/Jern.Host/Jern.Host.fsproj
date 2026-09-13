@@ -28,6 +28,7 @@
     <Compile Include="Replay.fs" />
     <Compile Include="Receipt.fs" />
     <Compile Include="Golden.fs" />
+    <Compile Include="Doctor.fs" />
   </ItemGroup>
   <ItemGroup>
     <!-- Host-owned Kernel source: the agent prelude and the handler stack. -->

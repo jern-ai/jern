@@ -1,3 +1,4 @@
+[<Xunit.Collection("Process state")>]
 module Jern.Tests.ToolTests
 
 open System
@@ -239,6 +240,107 @@ let ``a command whose output closes with it reports it whole`` () =
             Assert.Equal(0, exitCode)
             Assert.Equal("one\n\ntwo\n", output.Replace("\r", ""))
             Assert.DoesNotContain("output ends here", output))
+
+[<Fact>]
+let ``doctor fingerprints nested kernel files`` () =
+    withWorkspace (fun root ->
+        let writeKernel root =
+            let kernelDir = Path.Combine(root, "kernel")
+            let nestedDir = Path.Combine(kernelDir, "nested")
+            let agentDir = Path.Combine(root, "agent")
+            Directory.CreateDirectory(nestedDir) |> ignore
+            Directory.CreateDirectory(agentDir) |> ignore
+            File.WriteAllText(Path.Combine(kernelDir, "prelude.ikr"), "(display 1)\n")
+            File.WriteAllText(Path.Combine(nestedDir, "tools.ikr"), "(display 2)\n")
+            kernelDir, agentDir
+        let inspect root =
+            let kernelDir, agentDir = writeKernel root
+            Doctor.inspect
+                { root = root
+                  version = "test"
+                  kernelDir = kernelDir
+                  kernelDirOverridden = false
+                  agentDir = agentDir
+                  config = Providers.defaultConfig
+                  policySources = []
+                  grantsTrusted = fun _ _ -> false
+                  trustStorePath = Path.Combine(root, "trust.json")
+                  interactive = false }
+        let report = inspect root
+        Assert.Contains(report.runtime, fun source -> source.name = "kernel/prelude.ikr")
+        Assert.Contains(report.runtime, fun source -> source.name = "kernel/nested/tools.ikr")
+        withWorkspace (fun otherRoot ->
+            let other = inspect otherRoot
+            Assert.Equal(report.runtimeDigest, other.runtimeDigest)))
+
+[<Fact>]
+let ``doctor reports unreadable kernel files`` () =
+    if OperatingSystem.IsWindows() then ()
+    else
+        withWorkspace (fun root ->
+            let inspect root =
+                let kernelDir = Path.Combine(root, "kernel")
+                let agentDir = Path.Combine(root, "agent")
+                Directory.CreateDirectory(kernelDir) |> ignore
+                Directory.CreateDirectory(agentDir) |> ignore
+                File.WriteAllText(Path.Combine(kernelDir, "prelude.ikr"), "(display 1)\n")
+                let unreadable = Path.Combine(kernelDir, "secret.ikr")
+                File.WriteAllText(unreadable, "(display 2)\n")
+                let mode = File.GetUnixFileMode unreadable
+                File.SetUnixFileMode(unreadable, UnixFileMode.None)
+                try
+                    Doctor.inspect
+                        { root = root
+                          version = "test"
+                          kernelDir = kernelDir
+                          kernelDirOverridden = false
+                          agentDir = agentDir
+                          config = Providers.defaultConfig
+                          policySources = []
+                          grantsTrusted = fun _ _ -> false
+                          trustStorePath = Path.Combine(root, "trust.json")
+                          interactive = false }
+                finally
+                    File.SetUnixFileMode(unreadable, mode)
+            let report = inspect root
+            let secret = report.runtime |> List.find (fun source -> source.name = "kernel/secret.ikr")
+            Assert.Equal("unreadable", secret.sha256)
+            Assert.Contains(report.findings, fun finding -> finding.code = "runtime.kernel-unreadable")
+            withWorkspace (fun otherRoot ->
+                let other = inspect otherRoot
+                Assert.Equal(report.runtimeDigest, other.runtimeDigest)))
+
+[<Fact>]
+let ``doctor reports unreadable kernel directories`` () =
+    if OperatingSystem.IsWindows() then ()
+    else
+        withWorkspace (fun root ->
+            let kernelDir = Path.Combine(root, "kernel")
+            let nestedDir = Path.Combine(kernelDir, "nested")
+            let agentDir = Path.Combine(root, "agent")
+            Directory.CreateDirectory(nestedDir) |> ignore
+            Directory.CreateDirectory(agentDir) |> ignore
+            File.WriteAllText(Path.Combine(kernelDir, "prelude.ikr"), "(display 1)\n")
+            File.WriteAllText(Path.Combine(nestedDir, "secret.ikr"), "(display 2)\n")
+            let mode = File.GetUnixFileMode nestedDir
+            File.SetUnixFileMode(nestedDir, UnixFileMode.UserExecute)
+            try
+                let report =
+                    Doctor.inspect
+                        { root = root
+                          version = "test"
+                          kernelDir = kernelDir
+                          kernelDirOverridden = false
+                          agentDir = agentDir
+                          config = Providers.defaultConfig
+                          policySources = []
+                          grantsTrusted = fun _ _ -> false
+                          trustStorePath = Path.Combine(root, "trust.json")
+                          interactive = false }
+                Assert.Contains(report.runtime, fun source -> source.name = "kernel/nested/**")
+                Assert.Contains(report.findings, fun finding -> finding.code = "runtime.kernel-unreadable")
+            finally
+                File.SetUnixFileMode(nestedDir, mode))
 
 [<Fact>]
 let ``run_tests runs only the workspace test command and parses its output`` () =
