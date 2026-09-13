@@ -160,20 +160,15 @@ module Doctor =
         let files = ResizeArray<string>()
         let unreadable = ResizeArray<SourceHash>()
         let rec loop (dir: string) =
-            let entries =
-                try
-                    Choice1Of2 (Directory.EnumerateFileSystemEntries(dir) |> Seq.toList)
-                with _ ->
-                    Choice2Of2 (unreadableSource prefix root dir true)
-            match entries with
-            | Choice2Of2 entry -> unreadable.Add entry
-            | Choice1Of2 paths ->
-                for path in paths do
+            try
+                for path in Directory.EnumerateFileSystemEntries(dir) do
                     if Directory.Exists path then
                         if recursive then loop path
                     elif String.Equals(Path.GetExtension path, ".ikr", StringComparison.OrdinalIgnoreCase) then
                         if File.Exists path then files.Add path
                         else unreadable.Add(unreadableSource prefix root path false)
+            with _ ->
+                unreadable.Add(unreadableSource prefix root dir true)
         loop startDir
         List.ofSeq files, List.ofSeq unreadable
 
