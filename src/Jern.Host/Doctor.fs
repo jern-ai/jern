@@ -156,7 +156,7 @@ module Doctor =
           sha256 = unreadableHash
           bytes = -1L }
 
-    let private enumerateIkrFiles (prefix: string) (root: string) =
+    let private enumerateIkrFiles (prefix: string) (root: string) (startDir: string) (recursive: bool) =
         let rec loop (dir: string) =
             let entries =
                 try
@@ -172,15 +172,16 @@ module Doctor =
                     try
                         let attrs = File.GetAttributes path
                         if attrs.HasFlag FileAttributes.Directory then
-                            let nestedFiles, nestedUnreadable = loop path
-                            files <- nestedFiles @ files
-                            unreadable <- nestedUnreadable @ unreadable
+                            if recursive then
+                                let nestedFiles, nestedUnreadable = loop path
+                                files <- nestedFiles @ files
+                                unreadable <- nestedUnreadable @ unreadable
                         elif String.Equals(Path.GetExtension path, ".ikr", StringComparison.OrdinalIgnoreCase) then
                             files <- path :: files
                     with _ ->
                         unreadable <- unreadableSource prefix root path :: unreadable
                 files, unreadable
-        loop root
+        loop startDir
 
     /// Hash a set of files under `dir`, naming each one `prefix` + its path
     /// relative to `dir`. A file that cannot be read stays in the list with
@@ -283,15 +284,23 @@ module Doctor =
         //    would be loaded, in that order.
         let kernelFiles, unreadableKernelEntries =
             if Directory.Exists input.kernelDir then
-                enumerateIkrFiles "kernel/" input.kernelDir
+                enumerateIkrFiles "kernel/" input.kernelDir input.kernelDir true
+            else [], []
+        let agentSourceDir =
+            let src = Path.Combine(input.agentDir, "src")
+            if Directory.Exists src then src else input.agentDir
+        let agentFiles, unreadableAgentEntries =
+            if Directory.Exists agentSourceDir then
+                enumerateIkrFiles "agent/" input.agentDir agentSourceDir false
             else [], []
         let agentFiles =
-            Session.agentPackageSources input.agentDir
-            |> List.sortBy (fun file -> Path.GetRelativePath(input.agentDir, file).Replace('\\', '/'))
+            agentFiles |> List.sortBy (fun file -> Path.GetRelativePath(input.agentDir, file).Replace('\\', '/'))
         let hashedKernel =
             (hashUnder "kernel/" input.kernelDir kernelFiles @ unreadableKernelEntries)
             |> List.sortBy (fun source -> source.name)
-        let hashedAgent = hashUnder "agent/" input.agentDir agentFiles
+        let hashedAgent =
+            (hashUnder "agent/" input.agentDir agentFiles @ unreadableAgentEntries)
+            |> List.sortBy (fun source -> source.name)
         let unreadableKernel =
             hashedKernel |> List.filter (fun source -> source.sha256 = unreadableHash) |> List.length
         let unreadableAgent =
@@ -706,18 +715,22 @@ module Doctor =
             line ("  " + palette.good "no findings — nothing unsafe or unset that doctor can see")
         else
             line ("  " + palette.label "findings")
+            let mutable risks = 0
+            let mutable notes = 0
             for finding in r.findings do
                 let tag =
                     match finding.severity with
-                    | Risk -> palette.bad "risk"
-                    | Note -> palette.warn "note"
+                    | Risk ->
+                        risks <- risks + 1
+                        palette.bad "risk"
+                    | Note ->
+                        notes <- notes + 1
+                        palette.warn "note"
                 line ("    " + tag + "  " + palette.dim finding.code)
                 line ("          " + finding.message)
                 match finding.remedy with
                 | Some remedy -> line ("          " + palette.dim ("→ " + remedy))
                 | None -> ()
-            let risks = r.findings |> List.filter (fun f -> f.severity = Risk) |> List.length
-            let notes = r.findings.Length - risks
             line ""
             let verdict = sprintf "%s, %s" (plural risks "risk") (plural notes "note")
             line ("  " + (if risks > 0 then palette.bad verdict else palette.warn verdict))
