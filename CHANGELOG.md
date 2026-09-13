@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.22.0 — unreleased
+## 0.23.0 — 2026-09-12
 
 - **A command's output is collected for two seconds after it exits, not
   until its last reader is gone.** `shell`, `run_tests`, and `jern verify`
@@ -39,6 +39,8 @@
     `read_output` replays unchanged: the call answers from the trace.
   - `jern verify` reports the provenance of the command it actually ran;
     a baseline without a `test_command` no longer claims one.
+
+## 0.22.0 — 2026-09-11
 
 - **A response cut off at the output limit is not the agent finishing.**
   Anthropic's reasoning models think before they answer even when the
