@@ -31,7 +31,7 @@
       "grep"
     ]
   },
-  "test_command": "dotnet test",
+  "test_command": "dotnet test -m:1",
   "environment": {
     "network_allow": [
       "api.nuget.org"
