@@ -208,6 +208,7 @@ let ``doctor parses optional flags in any order`` () =
     Assert.Equal(Doctor(false, None), command ["doctor"])
     Assert.Equal(Doctor(true, Some "agents/default"), command ["doctor"; "--json"; "--agent"; "agents/default"])
     Assert.Equal(Doctor(true, Some "agents/default"), command ["doctor"; "--agent"; "agents/default"; "--json"])
+    Assert.Equal(Doctor(true, Some "b"), command ["doctor"; "--agent"; "a"; "--json"; "--agent"; "b"; "--json"])
 
 [<Fact>]
 let ``doctor rejects invalid shapes`` () =

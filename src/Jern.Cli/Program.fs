@@ -205,6 +205,8 @@ let mutable private cliEffort : string option = None
 let mutable private cliPolicyBaseline : string option = None
 let mutable private cliPolicyTrust : string list = []
 
+let private canPromptOnTerminal () = not Console.IsInputRedirected
+
 let private loadProviders () =
     match Providers.load Environment.CurrentDirectory with
     | Error message ->
@@ -325,7 +327,7 @@ let private ttyPolicyGrantTrust (identity: string) (canonical: string) =
     else
         let digest = Trust.contentHash canonical
         let isServer = identity.Contains "#mcp_servers/"
-        if Console.IsInputRedirected then
+        if not (canPromptOnTerminal ()) then
             // Session names the source it dropped; add only the remedy.
             eprintfn "jern: to allow %s in an unattended run: --policy-trust %s"
                 (if isServer then "that MCP server" else "that policy's grants") digest
@@ -454,7 +456,7 @@ let private makeTtyApprover (auto: bool) =
         if memory.Covers description then
             printfn "%s %s" (Style.dim "auto-approved:") (Style.dim (Approvals.key description))
             true
-        elif Console.IsInputRedirected then
+        elif not (canPromptOnTerminal ()) then
             eprintfn "jern: denied (no terminal to ask on; use --auto): %s" description
             false
         else
@@ -482,7 +484,7 @@ let private makeTtyApprover (auto: bool) =
 let private ttyPolicyTrust (path: string) (content: string) =
     let store = Trust.defaultStorePath ()
     if Trust.isTrusted store path content then true
-    elif Console.IsInputRedirected then
+    elif not (canPromptOnTerminal ()) then
         eprintfn "jern: workspace policy %s is not trusted yet — run jern interactively once to review it" path
         false
     else
@@ -1054,12 +1056,9 @@ let private runPolicy (init: bool) (showCompiled: bool) =
 
 let private runDoctor (json: bool) (agentDir: string option) =
     let providers = loadProviders ()
-    let canPrompt =
-        Environment.UserInteractive
-        && not Console.IsInputRedirected
     let report =
         Doctor.inputsFor Environment.CurrentDirectory providers (policySources providers) agentDir
-            grantsAlreadyTrusted canPrompt
+            grantsAlreadyTrusted (canPromptOnTerminal ())
         |> Doctor.inspect
     if json then
         printfn "%s" (Doctor.renderJson report)
