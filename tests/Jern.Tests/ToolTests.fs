@@ -243,14 +243,17 @@ let ``a command whose output closes with it reports it whole`` () =
 [<Fact>]
 let ``doctor fingerprints nested kernel files`` () =
     withWorkspace (fun root ->
-        let kernelDir = Path.Combine(root, "kernel")
-        let nestedDir = Path.Combine(kernelDir, "nested")
-        let agentDir = Path.Combine(root, "agent")
-        Directory.CreateDirectory(nestedDir) |> ignore
-        Directory.CreateDirectory(agentDir) |> ignore
-        File.WriteAllText(Path.Combine(kernelDir, "prelude.ikr"), "(display 1)\n")
-        File.WriteAllText(Path.Combine(nestedDir, "tools.ikr"), "(display 2)\n")
-        let report =
+        let writeKernel root =
+            let kernelDir = Path.Combine(root, "kernel")
+            let nestedDir = Path.Combine(kernelDir, "nested")
+            let agentDir = Path.Combine(root, "agent")
+            Directory.CreateDirectory(nestedDir) |> ignore
+            Directory.CreateDirectory(agentDir) |> ignore
+            File.WriteAllText(Path.Combine(kernelDir, "prelude.ikr"), "(display 1)\n")
+            File.WriteAllText(Path.Combine(nestedDir, "tools.ikr"), "(display 2)\n")
+            kernelDir, agentDir
+        let inspect root =
+            let kernelDir, agentDir = writeKernel root
             Doctor.inspect
                 { root = root
                   version = "test"
@@ -262,8 +265,12 @@ let ``doctor fingerprints nested kernel files`` () =
                   grantsTrusted = fun _ _ -> false
                   trustStorePath = Path.Combine(root, "trust.json")
                   interactive = false }
+        let report = inspect root
         Assert.Contains(report.runtime, fun source -> source.name = "kernel/prelude.ikr")
-        Assert.Contains(report.runtime, fun source -> source.name = "kernel/nested/tools.ikr"))
+        Assert.Contains(report.runtime, fun source -> source.name = "kernel/nested/tools.ikr")
+        withWorkspace (fun otherRoot ->
+            let other = inspect otherRoot
+            Assert.Equal(report.runtimeDigest, other.runtimeDigest)))
 
 [<Fact>]
 let ``run_tests runs only the workspace test command and parses its output`` () =

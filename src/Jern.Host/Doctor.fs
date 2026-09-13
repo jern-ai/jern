@@ -239,7 +239,7 @@ module Doctor =
         let kernelFiles =
             if Directory.Exists input.kernelDir then
                 Directory.EnumerateFiles(input.kernelDir, "*.ikr", SearchOption.AllDirectories)
-                |> Seq.sort
+                |> Seq.sortBy (fun file -> Path.GetRelativePath(input.kernelDir, file).Replace('\\', '/'))
                 |> List.ofSeq
             else []
         let agentFiles = Session.agentPackageSources input.agentDir
