@@ -1,3 +1,4 @@
+[<Xunit.Collection("Process state")>]
 module Jern.Tests.ToolTests
 
 open System
