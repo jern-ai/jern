@@ -847,4 +847,4 @@ module Doctor =
             f.["remedy"] <- optional finding.remedy
             findings.Add f
         doc.["findings"] <- findings
-        doc.ToJsonString(System.Text.Json.JsonSerializerOptions(WriteIndented = true))
+        doc.ToJsonString()

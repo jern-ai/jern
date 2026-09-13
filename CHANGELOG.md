@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.23.0 — 2026-09-13
+## 0.24.0 — unreleased
+
+- **`jern doctor` says what the next run would be allowed to do, and with
+  what code, before it starts.** Without opening a session, calling a
+  provider, prompting, or writing to the trust store, it reports the
+  SHA-256 of every Kernel source that carries authority and one digest
+  over the set (what a deployment pins), the trust decision the session
+  would take on each workspace policy, config grant, and workspace MCP
+  server, every policy layer with its digest and provenance and the
+  grants in force, what would confine a shell command here, and findings
+  with stable codes for configuration that weakens the run. `--json`
+  prints the same facts as one line of data; the exit code is 1 when a
+  finding is a risk. `--agent <dir>` inspects another agent package.
+
+## 0.23.0 — 2026-09-12
 
 - **A command's output is collected for two seconds after it exits, not
   until its last reader is gone.** `shell`, `run_tests`, and `jern verify`
