@@ -156,17 +156,29 @@ module Doctor =
           sha256 = unreadableHash
           bytes = -1L }
 
+    let private isUnreadableDirectory (path: string) =
+        try
+            use _ = Directory.EnumerateFileSystemEntries(path).GetEnumerator()
+            true
+        with
+        | :? UnauthorizedAccessException -> true
+        | :? IOException -> false
+        | :? ArgumentException -> false
+
     let private enumerateIkrFiles (prefix: string) (root: string) (startDir: string) (recursive: bool) =
         let files = ResizeArray<string>()
         let unreadable = ResizeArray<SourceHash>()
         let rec loop (dir: string) =
             try
                 for path in Directory.EnumerateFileSystemEntries(dir) do
-                    if Directory.Exists path then
-                        if recursive then loop path
-                    elif String.Equals(Path.GetExtension path, ".ikr", StringComparison.OrdinalIgnoreCase) then
-                        if File.Exists path then files.Add path
-                        else unreadable.Add(unreadableSource prefix root path false)
+                    try
+                        let attrs = File.GetAttributes path
+                        if attrs.HasFlag FileAttributes.Directory then
+                            if recursive then loop path
+                        elif String.Equals(Path.GetExtension path, ".ikr", StringComparison.OrdinalIgnoreCase) then
+                            files.Add path
+                    with _ ->
+                        unreadable.Add(unreadableSource prefix root path (isUnreadableDirectory path))
             with _ ->
                 unreadable.Add(unreadableSource prefix root dir true)
         loop startDir
@@ -324,11 +336,12 @@ module Doctor =
         if File.Exists workspacePolicyPath then
             match try Some(File.ReadAllText workspacePolicyPath) with _ -> None with
             | Some content ->
-                let trusted = Trust.isTrusted input.trustStorePath workspacePolicyPath content
+                let identity = Path.GetFullPath workspacePolicyPath
+                let trusted = input.grantsTrusted identity content
                 trust.Add
                     { subject = ".jern/policy.ikr"
                       kind = "workspace-policy"
-                      identity = Path.GetFullPath workspacePolicyPath
+                      identity = identity
                       digest = Trust.contentHash content
                       trusted = trusted
                       effect = if trusted then "loaded" else "skipped; the built-in rules stand" }
@@ -341,10 +354,11 @@ module Doctor =
                         ".jern/policy.ikr is not trusted yet, so it is skipped and the built-in rules stand"
                         (Some "run jern interactively once to review it")
             | None ->
+                let identity = Path.GetFullPath workspacePolicyPath
                 trust.Add
                     { subject = ".jern/policy.ikr"
                       kind = "workspace-policy"
-                      identity = Path.GetFullPath workspacePolicyPath
+                      identity = identity
                       digest = unreadableHash
                       trusted = false
                       effect = "unreadable; skipped" }
