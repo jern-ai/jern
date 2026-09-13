@@ -286,23 +286,35 @@ module Doctor =
 
         let workspacePolicyPath = Path.Combine(input.root, ".jern", "policy.ikr")
         if File.Exists workspacePolicyPath then
-            let content = try File.ReadAllText workspacePolicyPath with _ -> ""
-            let trusted = Trust.isTrusted input.trustStorePath workspacePolicyPath content
-            trust.Add
-                { subject = ".jern/policy.ikr"
-                  kind = "workspace-policy"
-                  identity = Path.GetFullPath workspacePolicyPath
-                  digest = Trust.contentHash content
-                  trusted = trusted
-                  effect = if trusted then "loaded" else "skipped; the built-in rules stand" }
-            if trusted then
-                add Note "policy.workspace-kernel"
-                    ".jern/policy.ikr is trusted: arbitrary Kernel runs with jern's authority (restrictions from config still win)"
-                    (Some "review it with: jern policy --show-compiled")
-            else
-                add Note "policy.workspace-untrusted"
-                    ".jern/policy.ikr is not trusted yet, so it is skipped and the built-in rules stand"
-                    (Some "run jern interactively once to review it")
+            match try Some(File.ReadAllText workspacePolicyPath) with _ -> None with
+            | Some content ->
+                let trusted = Trust.isTrusted input.trustStorePath workspacePolicyPath content
+                trust.Add
+                    { subject = ".jern/policy.ikr"
+                      kind = "workspace-policy"
+                      identity = Path.GetFullPath workspacePolicyPath
+                      digest = Trust.contentHash content
+                      trusted = trusted
+                      effect = if trusted then "loaded" else "skipped; the built-in rules stand" }
+                if trusted then
+                    add Note "policy.workspace-kernel"
+                        ".jern/policy.ikr is trusted: arbitrary Kernel runs with jern's authority (restrictions from config still win)"
+                        (Some "review it with: jern policy --show-compiled")
+                else
+                    add Note "policy.workspace-untrusted"
+                        ".jern/policy.ikr is not trusted yet, so it is skipped and the built-in rules stand"
+                        (Some "run jern interactively once to review it")
+            | None ->
+                trust.Add
+                    { subject = ".jern/policy.ikr"
+                      kind = "workspace-policy"
+                      identity = Path.GetFullPath workspacePolicyPath
+                      digest = unreadableHash
+                      trusted = false
+                      effect = "unreadable; skipped" }
+                add Risk "policy.workspace-unreadable"
+                    ".jern/policy.ikr exists but could not be read, so it is skipped and the built-in rules stand"
+                    (Some "fix file permissions or remove it")
 
         for source in input.policySources do
             if PolicyConfig.hasGrants source.policy then

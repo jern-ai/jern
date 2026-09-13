@@ -277,17 +277,17 @@ let ``doctor reports unreadable kernel files`` () =
     if OperatingSystem.IsWindows() then ()
     else
         withWorkspace (fun root ->
-            let kernelDir = Path.Combine(root, "kernel")
-            let agentDir = Path.Combine(root, "agent")
-            Directory.CreateDirectory(kernelDir) |> ignore
-            Directory.CreateDirectory(agentDir) |> ignore
-            File.WriteAllText(Path.Combine(kernelDir, "prelude.ikr"), "(display 1)\n")
-            let unreadable = Path.Combine(kernelDir, "secret.ikr")
-            File.WriteAllText(unreadable, "(display 2)\n")
-            let mode = File.GetUnixFileMode unreadable
-            File.SetUnixFileMode(unreadable, UnixFileMode.None)
-            try
-                let report =
+            let inspect root =
+                let kernelDir = Path.Combine(root, "kernel")
+                let agentDir = Path.Combine(root, "agent")
+                Directory.CreateDirectory(kernelDir) |> ignore
+                Directory.CreateDirectory(agentDir) |> ignore
+                File.WriteAllText(Path.Combine(kernelDir, "prelude.ikr"), "(display 1)\n")
+                let unreadable = Path.Combine(kernelDir, "secret.ikr")
+                File.WriteAllText(unreadable, "(display 2)\n")
+                let mode = File.GetUnixFileMode unreadable
+                File.SetUnixFileMode(unreadable, UnixFileMode.None)
+                try
                     Doctor.inspect
                         { root = root
                           version = "test"
@@ -299,10 +299,15 @@ let ``doctor reports unreadable kernel files`` () =
                           grantsTrusted = fun _ _ -> false
                           trustStorePath = Path.Combine(root, "trust.json")
                           interactive = false }
-                Assert.Contains(report.runtime, fun source -> source.name = "kernel/secret.ikr")
-                Assert.Contains(report.findings, fun finding -> finding.code = "runtime.kernel-unreadable")
-            finally
-                File.SetUnixFileMode(unreadable, mode))
+                finally
+                    File.SetUnixFileMode(unreadable, mode)
+            let report = inspect root
+            let secret = report.runtime |> List.find (fun source -> source.name = "kernel/secret.ikr")
+            Assert.Equal("unreadable", secret.sha256)
+            Assert.Contains(report.findings, fun finding -> finding.code = "runtime.kernel-unreadable")
+            withWorkspace (fun otherRoot ->
+                let other = inspect otherRoot
+                Assert.Equal(report.runtimeDigest, other.runtimeDigest)))
 
 [<Fact>]
 let ``run_tests runs only the workspace test command and parses its output`` () =
