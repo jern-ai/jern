@@ -158,7 +158,8 @@ module Doctor =
 
     let private isUnreadableDirectory (path: string) =
         try
-            use _ = Directory.EnumerateFileSystemEntries(path).GetEnumerator()
+            use entries = Directory.EnumerateFileSystemEntries(path).GetEnumerator()
+            entries.MoveNext() |> ignore
             false
         with
         | :? UnauthorizedAccessException -> true
