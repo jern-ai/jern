@@ -286,12 +286,9 @@ module Doctor =
             if Directory.Exists input.kernelDir then
                 enumerateIkrFiles "kernel/" input.kernelDir input.kernelDir true
             else [], []
-        let agentSourceDir =
-            let src = Path.Combine(input.agentDir, "src")
-            if Directory.Exists src then src else input.agentDir
         let agentFiles, unreadableAgentEntries =
-            if Directory.Exists agentSourceDir then
-                enumerateIkrFiles "agent/" input.agentDir agentSourceDir true
+            if Directory.Exists input.agentDir then
+                enumerateIkrFiles "agent/" input.agentDir input.agentDir true
             else [], []
         let agentFiles =
             agentFiles |> List.sortBy (fun file -> Path.GetRelativePath(input.agentDir, file).Replace('\\', '/'))

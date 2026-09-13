@@ -247,3 +247,35 @@ let ``doctor dispatch writes json and returns the report exit code`` () =
         Environment.SetEnvironmentVariable("JERN_KERNEL_DIR", oldKernel)
         Directory.SetCurrentDirectory oldCwd
         Directory.Delete(root, true)
+
+[<Fact>]
+let ``doctor dispatch can report an interactive terminal`` () =
+    let root = Path.Combine(Path.GetTempPath(), "jern-cli-" + Guid.NewGuid().ToString("N"))
+    let kernelDir = Path.Combine(root, "kernel")
+    let agentRoot = Path.Combine(root, "agent")
+    let agentDir = Path.Combine(agentRoot, "src")
+    Directory.CreateDirectory(kernelDir) |> ignore
+    Directory.CreateDirectory(agentDir) |> ignore
+    for name in [ "prelude.ikr"; "tools.ikr"; "policy.ikr"; "handlers.ikr" ] do
+        File.WriteAllText(Path.Combine(kernelDir, name), "(display 1)\n")
+    File.WriteAllText(Path.Combine(agentDir, "loop.ikr"), "(display 2)\n")
+    let oldCwd = Environment.CurrentDirectory
+    let oldKernel = Environment.GetEnvironmentVariable "JERN_KERNEL_DIR"
+    let oldOut = Console.Out
+    let oldProbe = Program.terminalAllowsPrompt
+    try
+        Directory.SetCurrentDirectory root
+        Environment.SetEnvironmentVariable("JERN_KERNEL_DIR", kernelDir)
+        Program.terminalAllowsPrompt <- fun () -> true
+        use writer = new StringWriter()
+        Console.SetOut writer
+        let exitCode = Program.main [| "doctor"; "--json"; "--agent"; agentRoot |]
+        let output = writer.ToString().Replace("\r", "")
+        Assert.Equal(1, exitCode)
+        Assert.Contains("\"interactive\":true", output)
+    finally
+        Program.terminalAllowsPrompt <- oldProbe
+        Console.SetOut oldOut
+        Environment.SetEnvironmentVariable("JERN_KERNEL_DIR", oldKernel)
+        Directory.SetCurrentDirectory oldCwd
+        Directory.Delete(root, true)
