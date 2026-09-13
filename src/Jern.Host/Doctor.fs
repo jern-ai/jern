@@ -249,7 +249,9 @@ module Doctor =
                 |> Seq.sortBy (fun file -> Path.GetRelativePath(input.kernelDir, file).Replace('\\', '/'))
                 |> List.ofSeq
             else []
-        let agentFiles = Session.agentPackageSources input.agentDir
+        let agentFiles =
+            Session.agentPackageSources input.agentDir
+            |> List.sortBy (fun file -> Path.GetRelativePath(input.agentDir, file).Replace('\\', '/'))
         let hashedKernel = hashUnder "kernel/" input.kernelDir kernelFiles
         let hashedAgent = hashUnder "agent/" input.agentDir agentFiles
         let unreadableKernel =
