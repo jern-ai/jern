@@ -205,11 +205,11 @@ let mutable private cliEffort : string option = None
 let mutable private cliPolicyBaseline : string option = None
 let mutable private cliPolicyTrust : string list = []
 
+/// Whether a question can be asked on this terminal: stdin is one. Output
+/// piped through tee or into a log still leaves a person at the keyboard,
+/// so only the input side decides. Tests swap the probe in.
 let mutable internal terminalAllowsPrompt: unit -> bool =
-    fun () ->
-        not Console.IsInputRedirected
-        && not Console.IsOutputRedirected
-        && not Console.IsErrorRedirected
+    fun () -> not Console.IsInputRedirected
 
 let private canPromptOnTerminal () =
     terminalAllowsPrompt ()
