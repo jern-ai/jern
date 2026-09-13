@@ -2,6 +2,14 @@
 
 ## 0.22.0 — unreleased
 
+- **A command's output is collected for two seconds after it exits, not
+  until its last reader is gone.** `shell`, `run_tests`, and `jern verify`
+  read the command's streams to their end, which ends when every process
+  holding the pipe has gone; a test host that aborted left its MSBuild
+  worker nodes behind with the pipe open, and the read outlasted the
+  timeout it was meant to honour. The output now ends with a note when a
+  straggler still held it open, and the command's exit code is reported
+  as before.
 - **Governance fixes from an independent review.** Eight reproducible
   gaps between what the rules promised and what the runtime enforced,
   each closed with a regression test:
