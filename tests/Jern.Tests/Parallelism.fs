@@ -8,4 +8,8 @@ module Jern.Tests.Parallelism
 open Xunit
 
 [<assembly: CollectionBehavior(DisableTestParallelization = true)>]
+
+[<CollectionDefinition("Process state", DisableParallelization = true)>]
+type ProcessStateCollection() = class end
+
 do ()
