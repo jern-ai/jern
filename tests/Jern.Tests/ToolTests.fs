@@ -299,6 +299,7 @@ let ``doctor reports unreadable kernel files`` () =
                           grantsTrusted = fun _ _ -> false
                           trustStorePath = Path.Combine(root, "trust.json")
                           interactive = false }
+                Assert.Contains(report.runtime, fun source -> source.name = "kernel/secret.ikr")
                 Assert.Contains(report.findings, fun finding -> finding.code = "runtime.kernel-unreadable")
             finally
                 File.SetUnixFileMode(unreadable, mode))

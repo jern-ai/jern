@@ -142,19 +142,26 @@ module Doctor =
         use stream = File.OpenRead path
         Convert.ToHexString(SHA256.HashData stream).ToLowerInvariant()
 
+    let private unreadableHash = "unreadable"
+
     /// Hash a set of files under `dir`, naming each one `prefix` + its path
-    /// relative to `dir`. A file that cannot be read is skipped rather than
-    /// failing the report — its absence shows in the list.
+    /// relative to `dir`. A file that cannot be read stays in the list with
+    /// a stable sentinel hash, so the runtime digest still covers the full
+    /// declared source set.
     let private hashUnder (prefix: string) (dir: string) (files: string list) =
         files
-        |> List.choose (fun file ->
-            try
-                Some
-                    { name = prefix + Path.GetRelativePath(dir, file).Replace('\\', '/')
-                      path = file
-                      sha256 = hashFile file
-                      bytes = FileInfo(file).Length }
-            with _ -> None)
+        |> List.map (fun file ->
+            let name = prefix + Path.GetRelativePath(dir, file).Replace('\\', '/')
+            let bytes =
+                try FileInfo(file).Length
+                with _ -> -1L
+            let sha256 =
+                try hashFile file
+                with _ -> unreadableHash
+            { name = name
+              path = file
+              sha256 = sha256
+              bytes = bytes })
 
     /// The digest of a source set: names and hashes only, so it is
     /// independent of where the install lives.
@@ -245,24 +252,28 @@ module Doctor =
         let agentFiles = Session.agentPackageSources input.agentDir
         let hashedKernel = hashUnder "kernel/" input.kernelDir kernelFiles
         let hashedAgent = hashUnder "agent/" input.agentDir agentFiles
+        let unreadableKernel =
+            hashedKernel |> List.filter (fun source -> source.sha256 = unreadableHash) |> List.length
+        let unreadableAgent =
+            hashedAgent |> List.filter (fun source -> source.sha256 = unreadableHash) |> List.length
         let runtime = hashedKernel @ hashedAgent
         if kernelFiles.IsEmpty then
             add Risk "runtime.kernel-missing"
                 (sprintf "no handler stack at %s — the policy and prelude jern runs cannot be read" input.kernelDir)
                 (Some "reinstall jern, or point JERN_KERNEL_DIR at a good copy")
-        elif hashedKernel.Length <> kernelFiles.Length then
+        elif unreadableKernel > 0 then
             add Risk "runtime.kernel-unreadable"
-                (sprintf "%d handler stack file(s) under %s could not be read and were omitted from the runtime fingerprint"
-                    (kernelFiles.Length - hashedKernel.Length) input.kernelDir)
+                (sprintf "%d handler stack file(s) under %s could not be read and use a sentinel in the runtime fingerprint"
+                    unreadableKernel input.kernelDir)
                 (Some "fix file permissions or reinstall jern so every Kernel source can be hashed")
         if agentFiles.IsEmpty then
             add Risk "runtime.agent-missing"
                 (sprintf "no agent source at %s — there is no loop to run" input.agentDir)
                 (Some "reinstall jern, or pass --agent <dir>")
-        elif hashedAgent.Length <> agentFiles.Length then
+        elif unreadableAgent > 0 then
             add Risk "runtime.agent-unreadable"
-                (sprintf "%d agent source file(s) under %s could not be read and were omitted from the runtime fingerprint"
-                    (agentFiles.Length - hashedAgent.Length) input.agentDir)
+                (sprintf "%d agent source file(s) under %s could not be read and use a sentinel in the runtime fingerprint"
+                    unreadableAgent input.agentDir)
                 (Some "fix file permissions or pass --agent <dir> pointing at a readable package")
         if input.kernelDirOverridden then
             add Risk "runtime.kernel-overridden"
@@ -542,7 +553,8 @@ module Doctor =
         if digest.Length >= 12 then digest.Substring(0, 12) else digest
 
     let private bytesText (n: int64) =
-        if n >= 1024L then sprintf "%.1fkB" (float n / 1024.0) else sprintf "%dB" n
+        if n < 0L then "?"
+        elif n >= 1024L then sprintf "%.1fkB" (float n / 1024.0) else sprintf "%dB" n
 
     let private plural n singular =
         if n = 1 then sprintf "1 %s" singular else sprintf "%d %ss" n singular
