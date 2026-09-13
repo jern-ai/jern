@@ -241,6 +241,31 @@ let ``a command whose output closes with it reports it whole`` () =
             Assert.DoesNotContain("output ends here", output))
 
 [<Fact>]
+let ``doctor fingerprints nested kernel files`` () =
+    withWorkspace (fun root ->
+        let kernelDir = Path.Combine(root, "kernel")
+        let nestedDir = Path.Combine(kernelDir, "nested")
+        let agentDir = Path.Combine(root, "agent")
+        Directory.CreateDirectory(nestedDir) |> ignore
+        Directory.CreateDirectory(agentDir) |> ignore
+        File.WriteAllText(Path.Combine(kernelDir, "prelude.ikr"), "(display 1)\n")
+        File.WriteAllText(Path.Combine(nestedDir, "tools.ikr"), "(display 2)\n")
+        let report =
+            Doctor.inspect
+                { root = root
+                  version = "test"
+                  kernelDir = kernelDir
+                  kernelDirOverridden = false
+                  agentDir = agentDir
+                  config = Providers.defaultConfig
+                  policySources = []
+                  grantsTrusted = fun _ _ -> false
+                  trustStorePath = Path.Combine(root, "trust.json")
+                  interactive = false }
+        Assert.Contains(report.runtime, fun source -> source.name = "kernel/prelude.ikr")
+        Assert.Contains(report.runtime, fun source -> source.name = "kernel/nested/tools.ikr"))
+
+[<Fact>]
 let ``run_tests runs only the workspace test command and parses its output`` () =
     withWorkspace (fun root ->
         // A stand-in suite: prints pytest-like output and fails.

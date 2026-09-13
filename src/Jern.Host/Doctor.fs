@@ -238,7 +238,9 @@ module Doctor =
         //    would be loaded, in that order.
         let kernelFiles =
             if Directory.Exists input.kernelDir then
-                Directory.EnumerateFiles(input.kernelDir, "*.ikr") |> Seq.sort |> List.ofSeq
+                Directory.EnumerateFiles(input.kernelDir, "*.ikr", SearchOption.AllDirectories)
+                |> Seq.sort
+                |> List.ofSeq
             else []
         let agentFiles = Session.agentPackageSources input.agentDir
         let runtime =
