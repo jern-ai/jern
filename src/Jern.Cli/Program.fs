@@ -1057,7 +1057,6 @@ let private runDoctor (json: bool) (agentDir: string option) =
     let canPrompt =
         Environment.UserInteractive
         && not Console.IsInputRedirected
-        && not Console.IsOutputRedirected
     let report =
         Doctor.inputsFor Environment.CurrentDirectory providers (policySources providers) agentDir
             grantsAlreadyTrusted canPrompt
