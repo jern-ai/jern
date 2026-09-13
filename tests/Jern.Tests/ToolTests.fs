@@ -215,6 +215,32 @@ let ``references tell definitions, calls, and mentions apart`` () =
         Assert.True(isErrorOf bad))
 
 [<Fact>]
+let ``a command that leaves a process holding its output open still returns when it exits`` () =
+    withWorkspace (fun root ->
+        // The background sleep inherits the command's stdout and stderr and
+        // outlives the shell, like a build server or a test host's worker
+        // left behind: reading the streams to their end would wait for it.
+        let started = Diagnostics.Stopwatch.StartNew()
+        match Tools.runTestCommand root "sleep 30 & echo before; echo trouble >&2; exit 3" (TimeSpan.FromSeconds 20.0) with
+        | Error message -> failwith message
+        | Ok (output, exitCode, _) ->
+            Assert.True(started.Elapsed < TimeSpan.FromSeconds 12.0, sprintf "took %O" started.Elapsed)
+            Assert.Equal(3, exitCode)
+            Assert.Contains("before", output)
+            Assert.Contains("trouble", output)
+            Assert.EndsWith("(output ends here: a process the command left running still held its output open)", output))
+
+[<Fact>]
+let ``a command whose output closes with it reports it whole`` () =
+    withWorkspace (fun root ->
+        match Tools.runTestCommand root "echo one; echo two >&2; exit 0" (TimeSpan.FromSeconds 20.0) with
+        | Error message -> failwith message
+        | Ok (output, exitCode, _) ->
+            Assert.Equal(0, exitCode)
+            Assert.Equal("one\n\ntwo\n", output.Replace("\r", ""))
+            Assert.DoesNotContain("output ends here", output))
+
+[<Fact>]
 let ``run_tests runs only the workspace test command and parses its output`` () =
     withWorkspace (fun root ->
         // A stand-in suite: prints pytest-like output and fails.
