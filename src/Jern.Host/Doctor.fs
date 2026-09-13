@@ -335,7 +335,10 @@ module Doctor =
 
         let workspacePolicyPath = Path.Combine(input.root, ".jern", "policy.ikr")
         if File.Exists workspacePolicyPath then
-            match try Some(File.ReadAllText workspacePolicyPath) with _ -> None with
+            let workspacePolicyContent =
+                try Some(File.ReadAllText workspacePolicyPath)
+                with _ -> None
+            match workspacePolicyContent with
             | Some content ->
                 let identity = Path.GetFullPath workspacePolicyPath
                 let trusted = input.grantsTrusted identity content
