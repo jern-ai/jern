@@ -273,6 +273,37 @@ let ``doctor fingerprints nested kernel files`` () =
             Assert.Equal(report.runtimeDigest, other.runtimeDigest)))
 
 [<Fact>]
+let ``doctor reports unreadable kernel files`` () =
+    if OperatingSystem.IsWindows() then ()
+    else
+        withWorkspace (fun root ->
+            let kernelDir = Path.Combine(root, "kernel")
+            let agentDir = Path.Combine(root, "agent")
+            Directory.CreateDirectory(kernelDir) |> ignore
+            Directory.CreateDirectory(agentDir) |> ignore
+            File.WriteAllText(Path.Combine(kernelDir, "prelude.ikr"), "(display 1)\n")
+            let unreadable = Path.Combine(kernelDir, "secret.ikr")
+            File.WriteAllText(unreadable, "(display 2)\n")
+            let mode = File.GetUnixFileMode unreadable
+            File.SetUnixFileMode(unreadable, UnixFileMode.None)
+            try
+                let report =
+                    Doctor.inspect
+                        { root = root
+                          version = "test"
+                          kernelDir = kernelDir
+                          kernelDirOverridden = false
+                          agentDir = agentDir
+                          config = Providers.defaultConfig
+                          policySources = []
+                          grantsTrusted = fun _ _ -> false
+                          trustStorePath = Path.Combine(root, "trust.json")
+                          interactive = false }
+                Assert.Contains(report.findings, fun finding -> finding.code = "runtime.kernel-unreadable")
+            finally
+                File.SetUnixFileMode(unreadable, mode))
+
+[<Fact>]
 let ``run_tests runs only the workspace test command and parses its output`` () =
     withWorkspace (fun root ->
         // A stand-in suite: prints pytest-like output and fails.

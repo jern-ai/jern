@@ -243,17 +243,27 @@ module Doctor =
                 |> List.ofSeq
             else []
         let agentFiles = Session.agentPackageSources input.agentDir
-        let runtime =
-            hashUnder "kernel/" input.kernelDir kernelFiles
-            @ hashUnder "agent/" input.agentDir agentFiles
+        let hashedKernel = hashUnder "kernel/" input.kernelDir kernelFiles
+        let hashedAgent = hashUnder "agent/" input.agentDir agentFiles
+        let runtime = hashedKernel @ hashedAgent
         if kernelFiles.IsEmpty then
             add Risk "runtime.kernel-missing"
                 (sprintf "no handler stack at %s — the policy and prelude jern runs cannot be read" input.kernelDir)
                 (Some "reinstall jern, or point JERN_KERNEL_DIR at a good copy")
+        elif hashedKernel.Length <> kernelFiles.Length then
+            add Risk "runtime.kernel-unreadable"
+                (sprintf "%d handler stack file(s) under %s could not be read and were omitted from the runtime fingerprint"
+                    (kernelFiles.Length - hashedKernel.Length) input.kernelDir)
+                (Some "fix file permissions or reinstall jern so every Kernel source can be hashed")
         if agentFiles.IsEmpty then
             add Risk "runtime.agent-missing"
                 (sprintf "no agent source at %s — there is no loop to run" input.agentDir)
                 (Some "reinstall jern, or pass --agent <dir>")
+        elif hashedAgent.Length <> agentFiles.Length then
+            add Risk "runtime.agent-unreadable"
+                (sprintf "%d agent source file(s) under %s could not be read and were omitted from the runtime fingerprint"
+                    (agentFiles.Length - hashedAgent.Length) input.agentDir)
+                (Some "fix file permissions or pass --agent <dir> pointing at a readable package")
         if input.kernelDirOverridden then
             add Risk "runtime.kernel-overridden"
                 (sprintf "JERN_KERNEL_DIR replaces the trusted computing base with %s" input.kernelDir)
