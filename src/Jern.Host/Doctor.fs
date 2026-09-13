@@ -157,31 +157,30 @@ module Doctor =
           bytes = -1L }
 
     let private enumerateIkrFiles (prefix: string) (root: string) (startDir: string) (recursive: bool) =
+        let files = ResizeArray<string>()
+        let unreadable = ResizeArray<SourceHash>()
         let rec loop (dir: string) =
             let directories =
                 try
                     Choice1Of2 (Directory.EnumerateDirectories(dir) |> Seq.toList)
                 with _ ->
                     Choice2Of2 (unreadableSource prefix root dir true)
-            let files =
+            let entries =
                 try
                     Choice1Of2 (Directory.EnumerateFiles(dir, "*.ikr") |> Seq.toList)
                 with _ ->
                     Choice2Of2 (unreadableSource prefix root dir true)
-            match directories, files with
-            | Choice2Of2 unreadable, _ -> [], [ unreadable ]
-            | _, Choice2Of2 unreadable -> [], [ unreadable ]
+            match directories, entries with
+            | Choice2Of2 entry, _ -> unreadable.Add entry
+            | _, Choice2Of2 entry -> unreadable.Add entry
             | Choice1Of2 subdirs, Choice1Of2 paths ->
-                let mutable files = []
-                let mutable unreadable = []
-                files <- paths
+                for path in paths do
+                    files.Add path
                 if recursive then
                     for path in subdirs do
-                        let nestedFiles, nestedUnreadable = loop path
-                        files <- nestedFiles @ files
-                        unreadable <- nestedUnreadable @ unreadable
-                files, unreadable
+                        loop path
         loop startDir
+        List.ofSeq files, List.ofSeq unreadable
 
     /// Hash a set of files under `dir`, naming each one `prefix` + its path
     /// relative to `dir`. A file that cannot be read stays in the list with
