@@ -145,12 +145,12 @@ module Doctor =
 
     let private unreadableHash = "unreadable"
 
-    let private unreadableSource (prefix: string) (dir: string) (path: string) =
+    let private unreadableSource (prefix: string) (dir: string) (path: string) (isDirectory: bool) =
         let relative = Path.GetRelativePath(dir, path).Replace('\\', '/')
         let name =
             if relative = "." then prefix + "**"
-            elif String.Equals(Path.GetExtension path, ".ikr", StringComparison.OrdinalIgnoreCase) then prefix + relative
-            else prefix + relative + "/**"
+            elif isDirectory then prefix + relative + "/**"
+            else prefix + relative
         { name = name
           path = path
           sha256 = unreadableHash
@@ -158,28 +158,28 @@ module Doctor =
 
     let private enumerateIkrFiles (prefix: string) (root: string) (startDir: string) (recursive: bool) =
         let rec loop (dir: string) =
-            let entries =
+            let directories =
                 try
-                    Choice1Of2 (Directory.EnumerateFileSystemEntries(dir) |> Seq.toList)
+                    Choice1Of2 (Directory.EnumerateDirectories(dir) |> Seq.toList)
                 with _ ->
-                    Choice2Of2 (unreadableSource prefix root dir)
-            match entries with
-            | Choice2Of2 unreadable -> [], [ unreadable ]
-            | Choice1Of2 paths ->
+                    Choice2Of2 (unreadableSource prefix root dir true)
+            let files =
+                try
+                    Choice1Of2 (Directory.EnumerateFiles(dir, "*.ikr") |> Seq.toList)
+                with _ ->
+                    Choice2Of2 (unreadableSource prefix root dir true)
+            match directories, files with
+            | Choice2Of2 unreadable, _ -> [], [ unreadable ]
+            | _, Choice2Of2 unreadable -> [], [ unreadable ]
+            | Choice1Of2 subdirs, Choice1Of2 paths ->
                 let mutable files = []
                 let mutable unreadable = []
-                for path in paths do
-                    try
-                        let attrs = File.GetAttributes path
-                        if attrs.HasFlag FileAttributes.Directory then
-                            if recursive then
-                                let nestedFiles, nestedUnreadable = loop path
-                                files <- nestedFiles @ files
-                                unreadable <- nestedUnreadable @ unreadable
-                        elif String.Equals(Path.GetExtension path, ".ikr", StringComparison.OrdinalIgnoreCase) then
-                            files <- path :: files
-                    with _ ->
-                        unreadable <- unreadableSource prefix root path :: unreadable
+                files <- paths
+                if recursive then
+                    for path in subdirs do
+                        let nestedFiles, nestedUnreadable = loop path
+                        files <- nestedFiles @ files
+                        unreadable <- nestedUnreadable @ unreadable
                 files, unreadable
         loop startDir
 
@@ -206,6 +206,7 @@ module Doctor =
     /// independent of where the install lives.
     let digestOf (sources: SourceHash list) =
         sources
+        |> List.sortBy (fun s -> s.name)
         |> List.map (fun s -> s.name + " " + s.sha256)
         |> String.concat "\n"
         |> Trust.contentHash
