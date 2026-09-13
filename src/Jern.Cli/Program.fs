@@ -1054,9 +1054,13 @@ let private runPolicy (init: bool) (showCompiled: bool) =
 
 let private runDoctor (json: bool) (agentDir: string option) =
     let providers = loadProviders ()
+    let canPrompt =
+        Environment.UserInteractive
+        && not Console.IsInputRedirected
+        && not Console.IsOutputRedirected
     let report =
         Doctor.inputsFor Environment.CurrentDirectory providers (policySources providers) agentDir
-            grantsAlreadyTrusted (not Console.IsInputRedirected)
+            grantsAlreadyTrusted canPrompt
         |> Doctor.inspect
     if json then
         printfn "%s" (Doctor.renderJson report)
