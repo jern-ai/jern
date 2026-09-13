@@ -250,7 +250,7 @@ let ``doctor dispatch writes json and returns the report exit code`` () =
         Directory.Delete(root, true)
 
 [<Fact>]
-let ``doctor dispatch can report an interactive terminal`` () =
+let ``doctor dispatch can render text for an interactive terminal`` () =
     let root = Path.Combine(Path.GetTempPath(), "jern-cli-" + Guid.NewGuid().ToString("N"))
     let kernelDir = Path.Combine(root, "kernel")
     let agentRoot = Path.Combine(root, "agent")
@@ -270,10 +270,12 @@ let ``doctor dispatch can report an interactive terminal`` () =
         Program.terminalAllowsPrompt <- fun () -> true
         use writer = new StringWriter()
         Console.SetOut writer
-        let exitCode = Program.main [| "doctor"; "--json"; "--agent"; agentRoot |]
+        let exitCode = Program.main [| "doctor"; "--agent"; agentRoot |]
         let output = writer.ToString().Replace("\r", "")
         Assert.Equal(1, exitCode)
-        Assert.Contains("\"interactive\":true", output)
+        Assert.Contains("jern doctor", output)
+        Assert.Contains("runtime", output)
+        Assert.Contains("trust", output)
     finally
         Program.terminalAllowsPrompt <- oldProbe
         Console.SetOut oldOut
