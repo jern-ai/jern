@@ -40,6 +40,7 @@ Usage:
                       would have diverged
   jern receipt [<trace.jsonl>] [--md | --json]
   jern verify [--json] [--timeout SECONDS]      run the test command once as an acceptance check
+  jern doctor [--json] [--agent <dir>]          inspect runtime, policy trust, and sandbox readiness
                       What a run did: model calls and tokens against budget,
                       tools used, files touched, policy decisions, and the
                       trace it came from. Printed after every `jern run`;
@@ -189,6 +190,14 @@ let private receiptPalette : Receipt.Palette =
       label = Style.steel
       dim = Style.dim
       good = Style.green
+      bad = Style.red }
+
+let private doctorPalette : Doctor.Palette =
+    { title = Style.rust
+      label = Style.steel
+      dim = Style.dim
+      good = Style.green
+      warn = Style.yellow
       bad = Style.red }
 
 let mutable private cliThink : int option = None
@@ -1043,6 +1052,18 @@ let private runPolicy (init: bool) (showCompiled: bool) =
         printfn ""
         0
 
+let private runDoctor (json: bool) (agentDir: string option) =
+    let providers = loadProviders ()
+    let report =
+        Doctor.inputsFor Environment.CurrentDirectory providers (policySources providers) agentDir
+            grantsAlreadyTrusted (not Console.IsInputRedirected)
+        |> Doctor.inspect
+    if json then
+        printfn "%s" (Doctor.renderJson report)
+    else
+        printf "%s" (Doctor.render doctorPalette report)
+    Doctor.exitCode report
+
 /// `jern ui` — serve the chat session as a local web app and open it.
 let private runUi (model: string option) (cliBudget: int option) (auto: bool) (port: int) (agentDir: string option) =
     let root = Environment.CurrentDirectory
@@ -1244,6 +1265,7 @@ let main argv =
         | Args.Replay(trace, policy, agent) -> runReplay trace policy agent
         | Args.Receipt(trace, format) -> runReceipt trace format
         | Args.Verify(json, timeout) -> runVerify json timeout
+        | Args.Doctor(json, agent) -> runDoctor json agent
         | Args.Golden(Args.GoldenRecord(task, slug)) ->
             runGoldenRecord task slug auto None model cliBudget
         | Args.Golden(Args.GoldenCheck(filter, markdown)) -> runGoldenCheck filter markdown None

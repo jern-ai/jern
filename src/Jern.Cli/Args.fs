@@ -235,6 +235,7 @@ let parse (argv: string list) : Result<Globals * Command, ParseError> =
             | "replay" :: more -> parseReplay more
             | "receipt" :: more -> parseReceipt more
             | "verify" :: more -> parseVerify more
+            | "doctor" :: more -> parseDoctor more
             | "golden" :: more -> parseGolden more
             | ["mcp"] -> Ok Mcp
             | ["policy"] -> Ok(Policy(false, false))

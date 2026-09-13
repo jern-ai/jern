@@ -202,3 +202,14 @@ let ``verify takes --json and a positive --timeout`` () =
     match Args.parse [ "verify"; "--md" ] with
     | Error(Args.SubUsage _) -> ()
     | other -> failwithf "unexpected: %A" other
+
+[<Fact>]
+let ``doctor parses optional flags in any order`` () =
+    Assert.Equal(Doctor(false, None), command ["doctor"])
+    Assert.Equal(Doctor(true, Some "agents/default"), command ["doctor"; "--json"; "--agent"; "agents/default"])
+    Assert.Equal(Doctor(true, Some "agents/default"), command ["doctor"; "--agent"; "agents/default"; "--json"])
+
+[<Fact>]
+let ``doctor rejects invalid shapes`` () =
+    Assert.Equal(SubUsage doctorUsage, failure ["doctor"; "--agent"])
+    Assert.Equal(SubUsage doctorUsage, failure ["doctor"; "extra"])
