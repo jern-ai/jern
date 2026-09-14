@@ -209,6 +209,54 @@ let ``an unrecognised runner keeps the exit code and a tail of the output`` () =
     Assert.Equal("PASSED: 0 failed, 3 passed (unittest, exit 0, 0.2s)", TestReport.render 0 0.2 "…" green)
 
 [<Fact>]
+let ``gradle failures carry the test, file, line, and counts`` () =
+    let output = """> Task :compileJava
+> Task :compileTestJava
+> Task :test
+
+TemperatureTest > fahrenheitToCelsius() FAILED
+    org.opentest4j.AssertionFailedError: expected: <100.0> but was: <117.77> at TemperatureTest.java:16
+
+2 tests completed, 1 failed
+
+> Task :test FAILED
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':test'.
+
+BUILD FAILED in 5s
+"""
+    let report = TestReport.parse output
+    Assert.Equal("gradle", report.runner)
+    Assert.Equal((Some 1, Some 1), (report.failed, report.passed))
+    let f = only report
+    Assert.Equal("TemperatureTest > fahrenheitToCelsius()", f.test)
+    Assert.Equal("TemperatureTest.java", f.file)
+    Assert.Equal(16, f.line)
+    Assert.Equal("org.opentest4j.AssertionFailedError: expected: <100.0> but was: <117.77>", f.message)
+    let rendered = TestReport.render 1 5.0 output report
+    Assert.StartsWith("FAILED: 1 failed, 1 passed (gradle, exit 1, 5.0s)\nTemperatureTest.java:16: TemperatureTest > fahrenheitToCelsius()", rendered)
+    Assert.DoesNotContain("[output]", rendered)
+
+[<Fact>]
+let ``a clean gradle run is recognised and needs no output`` () =
+    // Gradle prints no test tally when nothing fails, so the exit code
+    // carries the pass; the runner is still recognised, so no tail rides.
+    let output = """> Task :compileJava
+> Task :compileTestJava
+> Task :test
+
+BUILD SUCCESSFUL in 4s
+3 actionable tasks: 3 executed
+"""
+    let report = TestReport.parse output
+    Assert.Equal("gradle", report.runner)
+    Assert.Empty(report.failures)
+    Assert.Equal("PASSED: (gradle, exit 0, 4.0s)", TestReport.render 0 4.0 output report)
+
+[<Fact>]
 let ``a filter or path rides the runner's own flag as one quoted argument`` () =
     let narrow = Tools.narrowTestCommand
     Assert.Equal(Ok "pytest -q -k 'test_add'", narrow "pytest -q" (Some "test_add") None)
