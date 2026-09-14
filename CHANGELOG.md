@@ -1,6 +1,17 @@
 # Changelog
 
-## 0.24.0 — unreleased
+## 0.25.0 — 2026-09-13
+
+- **A run through Gradle's `test` task is read into a report like the other
+  runners.** Gradle was unrecognised, so a run kept only its exit code and a
+  tail of output: a failure named no tests and a pass carried the whole log,
+  an ambiguous signal that makes an agent re-run to be sure. The
+  `Class > method FAILED` lines, the exception's `File.ext:line`, and the
+  `N tests completed, M failed` tally are now parsed, and a clean run is a
+  recognised pass on its exit code with no output tail. This is what
+  `run_tests` and `jern verify` report for a Gradle project.
+
+## 0.24.0 — 2026-09-13
 
 - **`jern doctor` says what the next run would be allowed to do, and with
   what code, before it starts.** Without opening a session, calling a
