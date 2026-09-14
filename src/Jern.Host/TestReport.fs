@@ -379,6 +379,53 @@ module TestReport =
         { runner = "cargo test"; passed = sum (fun (p, _, _) -> p); failed = sum (fun (_, f, _) -> f); skipped = sum (fun (_, _, s) -> s); failures = failures }
 
     // -----------------------------------------------------------------------
+    // gradle (JUnit, TestNG, or Spock through Gradle's test task)
+
+    // Gradle's console prints "Class > method FAILED" for each failing test,
+    // then the exception with " at File.ext:line", and a "N tests completed,
+    // M failed" tally once anything fails. A clean run prints no tally, so the
+    // exit code carries the pass. Recognised from "> Task :" and the build
+    // result line, which no other runner here emits.
+    let private gradleFail = Regex(@"^(.+?) > (.+?) (?:FAILED|SKIPPED)\s*$", RegexOptions.Compiled)
+    let private gradleFailedOnly = Regex(@"^(.+?) > (.+?) FAILED\s*$", RegexOptions.Compiled)
+    let private gradleCounts = Regex(@"(\d+) tests? completed(?:, (\d+) failed)?(?:, (\d+) skipped)?", RegexOptions.Compiled)
+    let private gradleLocation = Regex(@" at (\S+\.(?:java|kt|kts|groovy|scala)):(\d+)", RegexOptions.Compiled)
+
+    let private parseGradle (ls: string[]) =
+        let counts = ls |> Array.tryPick (fun l -> let m = gradleCounts.Match l in if m.Success then Some m else None)
+        let completed = counts |> Option.map (fun m -> int m.Groups.[1].Value)
+        let failedTally = counts |> Option.bind (fun m -> if m.Groups.[2].Success then Some(int m.Groups.[2].Value) else None)
+        let skipped = counts |> Option.bind (fun m -> if m.Groups.[3].Success then Some(int m.Groups.[3].Value) else None)
+        let failures = Collections.Generic.List<Failure>()
+        let mutable i = 0
+        while i < ls.Length do
+            let m = gradleFailedOnly.Match ls.[i]
+            if m.Success then
+                let name = (m.Groups.[1].Value.Trim()) + " > " + (m.Groups.[2].Value.Trim())
+                let mutable file, line, message = "", 0, ""
+                let mutable j = i + 1
+                let mutable stop = false
+                while not stop && j < ls.Length do
+                    let l = ls.[j]
+                    if gradleFail.IsMatch l || l.TrimStart().StartsWith "> Task" || gradleCounts.IsMatch l || l.Trim() = "" then stop <- true
+                    else
+                        let loc = gradleLocation.Match l
+                        if loc.Success && file = "" then
+                            file <- loc.Groups.[1].Value
+                            line <- int loc.Groups.[2].Value
+                            let idx = l.IndexOf(" at " + loc.Groups.[1].Value + ":")
+                            if idx > 0 then message <- l.Substring(0, idx).Trim()
+                        elif message = "" && l.Trim() <> "" then message <- l.Trim()
+                        j <- j + 1
+                if not (failures |> Seq.exists (fun f -> f.test = name)) then
+                    failures.Add { test = name; file = slashes file; line = line; message = trimMessage message }
+                i <- j
+            else i <- i + 1
+        let failed = match failedTally with Some f -> Some f | None -> if failures.Count > 0 then Some failures.Count else None
+        let passed = completed |> Option.map (fun c -> max 0 (c - defaultArg failed 0 - defaultArg skipped 0))
+        { runner = "gradle"; passed = passed; failed = failed; skipped = skipped; failures = List.ofSeq failures }
+
+    // -----------------------------------------------------------------------
 
     /// Read a run's output. The runner is recognised from what it printed.
     let parse (output: string) : Report =
@@ -391,6 +438,7 @@ module TestReport =
         elif has @"^Tests:\s+\d+" then parseJest ls
         elif has @"^\s*Test Files\s+\d+" then parseVitest ls
         elif has @"^--- (FAIL|PASS|SKIP): " || has @"^(ok|FAIL)\s+\S+\s+[\d.]+s" || has @"^FAIL\s+\S+ \[build failed\]" then parseGo ls
+        elif has @"^BUILD (SUCCESSFUL|FAILED) in " || has @"^> Task :" then parseGradle ls
         else { runner = ""; passed = None; failed = None; skipped = None; failures = [] }
 
     let private maxFailures = 20
