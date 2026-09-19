@@ -10,12 +10,16 @@
   </PropertyGroup>
 
   <!--
-    IronKernel is consumed as source via a sibling checkout until
-    IronKernel.Runtime (and a library split of the parser/compiler, which
-    today live in the IronKernel exe project) are published to NuGet.
-    Override with -p:IronKernelRepo=/path/to/IronKernel if yours is elsewhere.
+    The language, from NuGet: IronKernel.Runtime (evaluator, primitives, CLR
+    interop) and IronKernel (parser, compiler, REPL, session protocol, with
+    kernel.ikr and promises.ikr copied beside the host). One version for
+    both; the release workflow installs IronKernel.Tool at the same version
+    to pack the bundled agents.
   -->
   <PropertyGroup>
-    <IronKernelRepo Condition="'$(IronKernelRepo)' == ''">$(MSBuildThisFileDirectory)../IronKernel</IronKernelRepo>
+    <IronKernelVersion>0.6.1</IronKernelVersion>
+    <!-- The packages were built against this FSharp.Core; an SDK whose
+         implicit reference is older would see a downgrade (NU1605). -->
+    <FSharpCoreImplicitPackageVersion>10.1.401</FSharpCoreImplicitPackageVersion>
   </PropertyGroup>
 </Project>

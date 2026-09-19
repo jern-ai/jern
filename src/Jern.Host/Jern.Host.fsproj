@@ -70,19 +70,11 @@
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="$(IronKernelRepo)/IronKernel.Runtime/IronKernel.Runtime.fsproj" />
-    <!--
-      The exe project carries the parser, compiler, and bootstrap (kernel.ikr).
-      Referencing an exe project is legal; its kernel.ikr/promises.ikr content
-      flows into our output directory transitively. It declares
-      IsRidAgnostic=true so self-contained publishes (incl. cross-compiles)
-      build it once, RID-less, instead of once per target-plus-host RID;
-      UndefineProperties strips the same globals from the publish-walk calls
-      that bypass the reference-protocol negotiation (else NETSDK1191, or a
-      concurrent double build racing on Windows: CS2012).
-    -->
-    <ProjectReference Include="$(IronKernelRepo)/IronKernel/IronKernel.fsproj"
-                      UndefineProperties="RuntimeIdentifier;RuntimeIdentifiers;SelfContained;PublishSingleFile" />
+    <!-- The IronKernel package carries the parser, compiler, and bootstrap;
+         its kernel.ikr and promises.ikr are content copied into our output,
+         where the bootstrap looks for them. -->
+    <PackageReference Include="IronKernel.Runtime" Version="$(IronKernelVersion)" />
+    <PackageReference Include="IronKernel" Version="$(IronKernelVersion)" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Anthropic" Version="12.40.0" />

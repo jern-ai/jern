@@ -37,11 +37,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: jern
-      - uses: actions/checkout@v4
-        with:
-          repository: ironkernel-lang/IronKernel
-          ref: 62af4262d62ac4fcc91b3bfdb69527c3c2674613 # pinned; bump deliberately
-          path: IronKernel
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.4xx"
@@ -94,19 +89,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: jern
-      - uses: actions/checkout@v4
-        with:
-          repository: ironkernel-lang/IronKernel
-          ref: 62af4262d62ac4fcc91b3bfdb69527c3c2674613 # pinned; bump deliberately
-          path: IronKernel
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.4xx"
 
       # Cross-compiling (osx-x64 on Blacksmith's arm64 Macs) needs no special
-      # handling: the IronKernel Exe reference is built RID-agnostic (its
-      # fsproj declares IsRidAgnostic etc. upstream; Jern.Host.fsproj adds
-      # UndefineProperties on the reference).
+      # handling: IronKernel comes from NuGet as RID-less assemblies.
       # jern-symbols is a native helper shipped beside jern: built here from
       # pinned tree-sitter sources for the target (clang on Windows; -arch
       # x86_64 when cross-compiling osx-x64), then published as content.
@@ -210,20 +198,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: jern
-      - uses: actions/checkout@v4
-        with:
-          repository: ironkernel-lang/IronKernel
-          ref: 62af4262d62ac4fcc91b3bfdb69527c3c2674613 # pinned; bump deliberately
-          path: IronKernel
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.4xx"
+      # The ik tool at the version the host builds against
+      # (IronKernelVersion in Directory.Build.props).
+      - name: Install ik
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/.*<IronKernelVersion>\(.*\)<\/IronKernelVersion>.*/\1/p' jern/Directory.Build.props)"
+          test -n "$version"
+          dotnet tool install --global IronKernel.Tool --version "$version"
       - name: ik pack the bundled agents
         run: |
           set -euo pipefail
-          cd jern/agents/default && dotnet run --project ../../../IronKernel/IronKernel -- pack default.ikproj
-          cd ../docs && dotnet run --project ../../../IronKernel/IronKernel -- pack docs.ikproj
-          cd ../tdd && dotnet run --project ../../../IronKernel/IronKernel -- pack tdd.ikproj
+          cd jern/agents/default && ik pack default.ikproj
+          cd ../docs && ik pack docs.ikproj
+          cd ../tdd && ik pack tdd.ikproj
       - uses: actions/upload-artifact@v4
         with:
           name: jern-agent-packages

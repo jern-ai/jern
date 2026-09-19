@@ -16,8 +16,8 @@ adds the `Signed-off-by:` trailer. By signing off you agree to the DCO.
 
 ## Practicalities
 
-- Building needs a sibling checkout of
-  [IronKernel](https://github.com/ironkernel-lang/IronKernel); see the README.
+- Building needs only the .NET 10 SDK; the language is restored from
+  NuGet at the version in `Directory.Build.props` (see the README).
 - `dotnet test Jern.slnx` must be green, including the agents' own suites
   (`jern test agents/default`, `jern test agents/docs`).
 - Changes to agent behavior fail fixture replay by design; re-record with

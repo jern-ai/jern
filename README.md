@@ -297,13 +297,13 @@ jern> (prompt jern/llm-call
 
 ## Building
 
-Requires the .NET 10 SDK and a sibling checkout of
-[IronKernel](https://github.com/ironkernel-lang/IronKernel) (i.e.
-`../IronKernel` next to this repo; override with
-`-p:IronKernelRepo=/path/to/IronKernel`). This is temporary: the dependency
-moves to NuGet once `IronKernel.Runtime` and a library split of the
-parser/compiler are published — tracked as upstream work, this repo being the
-language's first demanding customer.
+Requires the .NET 10 SDK. The language comes from NuGet as the
+[`IronKernel.Runtime`](https://www.nuget.org/packages/IronKernel.Runtime) and
+[`IronKernel`](https://www.nuget.org/packages/IronKernel) packages, at the
+version in [`Directory.Build.props`](Directory.Build.props). To work on
+the language itself, check out
+[IronKernel](https://github.com/ironkernel-lang/IronKernel) and point the
+two references at it; gaps in the language go upstream as IronKernel PRs.
 
 ```bash
 bash native/symbols/fetch.sh && bash native/symbols/build.sh   # the tree-sitter helper (needs a C compiler)
