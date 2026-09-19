@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **The repository builds on its own.** IronKernel came from a sibling
+  checkout, so a checkout that stood alone, on a build machine or a Jern
+  Cloud runner, could not restore: `Jern.slnx` and `Jern.Host` reached for
+  `../IronKernel`. The language is now the `IronKernel.Runtime` and
+  `IronKernel` packages from NuGet, one version in `Directory.Build.props`,
+  and the release packs the bundled agents with `IronKernel.Tool` at that
+  same version. No sibling, no pinned upstream commit in the workflows.
+
 ## 0.25.0 — 2026-09-13
 
 - **A run through Gradle's `test` task is read into a report like the other
